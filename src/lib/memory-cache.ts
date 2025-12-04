@@ -108,8 +108,8 @@ function invalidate(keyPattern: string): void {
     // Si tiene wildcard, buscar todas las claves que coincidan
     const pattern = keyPattern.replace(/\*/g, '.*');
     const regex = new RegExp(`^${pattern}$`);
-    
-    for (const key of cache.keys()) {
+
+    for (const key of Array.from(cache.keys())) {
       if (regex.test(key)) {
         cache.delete(key);
       }
@@ -127,8 +127,8 @@ function invalidate(keyPattern: string): void {
 function cleanup(): number {
   const now = Date.now();
   let cleaned = 0;
-  
-  for (const [key, entry] of cache.entries()) {
+
+  for (const [key, entry] of Array.from(cache.entries())) {
     if (now > entry.expiresAt) {
       cache.delete(key);
       cleaned++;
@@ -153,7 +153,7 @@ function getStats() {
   let expired = 0;
   let active = 0;
   
-  for (const entry of cache.values()) {
+  for (const entry of Array.from(cache.values())) {
     if (now > entry.expiresAt) {
       expired++;
     } else {

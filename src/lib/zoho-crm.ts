@@ -106,7 +106,6 @@ const ZOHO_CRM_API_URL = process.env.ZOHO_CRM_API_URL || 'https://www.zohoapis.c
 const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID || '';
 const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET || '';
 const ZOHO_REFRESH_TOKEN = process.env.ZOHO_REFRESH_TOKEN || '';
-const ZOHO_REDIRECT_URI = process.env.ZOHO_REDIRECT_URI || '';
 
 // =====================================================
 // GESTIÓN DE TOKENS

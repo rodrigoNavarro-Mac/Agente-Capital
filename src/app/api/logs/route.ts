@@ -9,6 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getQueryLogs, getActionLogs } from '@/lib/postgres';
 import type { QueryLog, ActionLog, APIResponse, ActionType, ResourceType, Zone } from '@/types/documents';
 
+// Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
+export const dynamic = 'force-dynamic';
+
 // =====================================================
 // ENDPOINT GET - OBTENER LOGS
 // =====================================================

@@ -336,7 +336,7 @@ export function extractPrices(text: string): string[] {
     }
   });
 
-  return [...new Set(prices)]; // Remover duplicados
+  return Array.from(new Set(prices)); // Remover duplicados
 }
 
 /**
@@ -358,7 +358,7 @@ export function extractAreas(text: string): string[] {
     }
   });
 
-  return [...new Set(areas)];
+  return Array.from(new Set(areas));
 }
 
 /**

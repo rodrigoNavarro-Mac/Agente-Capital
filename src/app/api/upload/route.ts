@@ -19,8 +19,6 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 
 // Importar librerías de procesamiento
-// @ts-expect-error - pdf-parse no tiene tipos
-import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 
 // Importar utilidades propias
@@ -34,8 +32,7 @@ import { memoryCache } from '@/lib/memory-cache';
 import type { 
   Zone, 
   DocumentContentType, 
-  UploadResponse,
-  TextChunk 
+  UploadResponse
 } from '@/types/documents';
 
 // =====================================================

@@ -186,6 +186,9 @@ export interface User {
   role_id: number;
   role?: UserRole;
   is_active: boolean;
+  password_hash?: string;
+  locked_until?: Date;
+  failed_login_attempts?: number;
   created_at: Date;
   updated_at: Date;
 }

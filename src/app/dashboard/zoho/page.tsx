@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,21 +46,8 @@ export default function ZohoCRMPage() {
     }
   }, []);
 
-  // Verificar permisos
-  useEffect(() => {
-    if (userRole !== null) {
-      const allowedRoles: UserRole[] = ['admin', 'ceo', 'sales_manager'];
-      if (!allowedRoles.includes(userRole)) {
-        setError('No tienes permisos para acceder a ZOHO CRM. Solo gerentes, CEO y administradores pueden acceder.');
-        setLoading(false);
-      } else {
-        loadData();
-      }
-    }
-  }, [userRole]);
-
   // Cargar todos los datos
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
@@ -91,7 +78,20 @@ export default function ZohoCRMPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Verificar permisos
+  useEffect(() => {
+    if (userRole !== null) {
+      const allowedRoles: UserRole[] = ['admin', 'ceo', 'sales_manager'];
+      if (!allowedRoles.includes(userRole)) {
+        setError('No tienes permisos para acceder a ZOHO CRM. Solo gerentes, CEO y administradores pueden acceder.');
+        setLoading(false);
+      } else {
+        loadData();
+      }
+    }
+  }, [userRole, loadData]);
 
   // Refrescar datos
   const handleRefresh = async () => {

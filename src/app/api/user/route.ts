@@ -9,6 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserById } from '@/lib/postgres';
 import type { User, APIResponse } from '@/types/documents';
 
+// Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
+export const dynamic = 'force-dynamic';
+
 // =====================================================
 // ENDPOINT GET - OBTENER USUARIO
 // =====================================================

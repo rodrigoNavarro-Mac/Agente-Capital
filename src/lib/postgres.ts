@@ -6,7 +6,7 @@
  * Maneja usuarios, roles, documentos, logs y configuración.
  */
 
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import type { 
   User, 
   Role, 
@@ -79,7 +79,7 @@ pool.on('error', (err) => {
  * @param params - Parámetros de la query
  * @returns Resultado de la query
  */
-export async function query<T = unknown>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string, 
   params?: unknown[]
 ): Promise<QueryResult<T>> {
@@ -533,7 +533,7 @@ export async function getQueryLogs(options: {
   
   console.log(`✅ [getQueryLogs] Retornando ${result.rows.length} logs`);
   if (result.rows.length > 0) {
-    const userIds = [...new Set(result.rows.map(r => r.user_id))];
+    const userIds = Array.from(new Set(result.rows.map(r => r.user_id)));
     console.log(`📋 [getQueryLogs] User IDs en los resultados: ${userIds.join(', ')}`);
   }
   
@@ -1412,7 +1412,7 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
 /**
  * Obtiene respuestas aprendidas para una consulta
  */
-export async function getLearnedResponse(query: string): Promise<{
+export async function getLearnedResponse(queryText: string): Promise<{
   query: string;
   answer: string;
   quality_score: number;
@@ -1430,7 +1430,7 @@ export async function getLearnedResponse(query: string): Promise<{
        WHERE query = $1
        ORDER BY quality_score DESC, usage_count DESC
        LIMIT 1`,
-      [query]
+      [queryText]
     );
     
     return result.rows[0] || null;
@@ -1481,7 +1481,7 @@ export async function getRecentFeedback(hours: number = 24): Promise<Array<{
  * Actualiza o crea una respuesta aprendida
  */
 export async function upsertLearnedResponse(
-  query: string,
+  queryText: string,
   answer: string,
   qualityScore: number
 ): Promise<void> {
@@ -1493,7 +1493,7 @@ export async function upsertLearnedResponse(
          quality_score = (response_learning.quality_score * response_learning.usage_count + $3) / (response_learning.usage_count + 1),
          usage_count = response_learning.usage_count + 1,
          last_improved_at = NOW()`,
-      [query, answer, qualityScore]
+      [queryText, answer, qualityScore]
     );
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 

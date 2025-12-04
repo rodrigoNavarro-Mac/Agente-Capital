@@ -16,9 +16,7 @@ import type { User, APIResponse } from '@/types/documents';
 // ENDPOINT GET - LISTAR USUARIOS
 // =====================================================
 
-export async function GET(
-  request: NextRequest
-): Promise<NextResponse<APIResponse<User[]>>> {
+export async function GET(): Promise<NextResponse<APIResponse<User[]>>> {
   try {
     const users = await getAllUsers();
 
@@ -104,7 +102,7 @@ export async function POST(
     }
 
     // Crear el usuario
-    const newUser = await createUser(email, name, role_id, passwordHash);
+    await createUser(email, name, role_id, passwordHash);
 
     // Obtener el usuario completo con el rol
     const user = await getUserByEmail(email);

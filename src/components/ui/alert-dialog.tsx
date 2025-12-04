@@ -31,36 +31,36 @@ export function AlertDialog({
   variant = 'default',
   loading = false,
 }: AlertDialogProps) {
-  if (!open) return null;
-
   const handleConfirm = () => {
     onConfirm();
     onOpenChange(false);
   };
 
-  const handleCancel = () => {
+  const handleCancel = React.useCallback(() => {
     onOpenChange(false);
-  };
+  }, [onOpenChange]);
 
   // Cerrar con ESC
   React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading) {
-        handleCancel();
-      }
-    };
-
     if (open) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && !loading) {
+          handleCancel();
+        }
+      };
+
       document.addEventListener('keydown', handleKeyDown);
       // Prevenir scroll del body
       document.body.style.overflow = 'hidden';
-    }
 
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
-    };
-  }, [open, loading]);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
+    }
+  }, [open, loading, handleCancel]);
+
+  if (!open) return null;
 
   return (
     <>

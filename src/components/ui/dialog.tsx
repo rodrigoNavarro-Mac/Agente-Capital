@@ -6,7 +6,6 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from './button';
 
 interface DialogProps {
   open: boolean;
@@ -33,31 +32,31 @@ export function Dialog({
   size = 'md',
   showCloseButton = true,
 }: DialogProps) {
-  if (!open) return null;
-
-  const handleClose = () => {
+  const handleClose = React.useCallback(() => {
     onOpenChange(false);
-  };
+  }, [onOpenChange]);
 
   // Cerrar con ESC
   React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-
     if (open) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          handleClose();
+        }
+      };
+
       document.addEventListener('keydown', handleKeyDown);
       // Prevenir scroll del body
       document.body.style.overflow = 'hidden';
-    }
 
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
-    };
-  }, [open]);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
+    }
+  }, [open, handleClose]);
+
+  if (!open) return null;
 
   return (
     <>

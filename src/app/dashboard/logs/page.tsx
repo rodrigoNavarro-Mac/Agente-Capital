@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,7 +10,6 @@ import { Activity, Eye, ChevronLeft, ChevronRight, X, Copy, Check, Upload, Trash
 import { getQueryLogs, getUser } from '@/lib/api';
 import { ZONES } from '@/lib/constants';
 import { formatRelativeTime, truncate, formatDate, copyToClipboard } from '@/lib/utils';
-import { cn } from '@/lib/utils';
 import type { QueryLog, ActionLog } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 
@@ -39,11 +38,41 @@ export default function LogsPage() {
   const [userNames, setUserNames] = useState<Record<number, string>>({});
   const ITEMS_PER_PAGE = 20;
 
-  useEffect(() => {
-    loadLogs();
-  }, [zoneFilter, actionTypeFilter, page]);
+  // Función para cargar los nombres de los usuarios
+  const loadUserNames = useCallback(async (userIds: number[]) => {
+    const newUserNames: Record<number, string> = { ...userNames };
+    
+    // Filtrar solo los user_ids que aún no tenemos
+    const missingUserIds = userIds.filter(id => !newUserNames[id]);
+    
+    if (missingUserIds.length === 0) {
+      return; // Ya tenemos todos los nombres
+    }
 
-  const loadLogs = async () => {
+    console.log('👤 [LogsPage] Cargando nombres de usuarios:', missingUserIds);
+
+    // Cargar nombres de usuarios en paralelo
+    const userPromises = missingUserIds.map(async (userId) => {
+      try {
+        const user = await getUser(userId);
+        return { userId, name: user.name };
+      } catch (error) {
+        console.error(`❌ [LogsPage] Error obteniendo usuario ${userId}:`, error);
+        return { userId, name: `Usuario ${userId}` }; // Fallback si falla
+      }
+    });
+
+    const userResults = await Promise.all(userPromises);
+    
+    // Actualizar el mapa de nombres
+    userResults.forEach(({ userId, name }) => {
+      newUserNames[userId] = name;
+    });
+
+    setUserNames(newUserNames);
+  }, [userNames]);
+
+  const loadLogs = useCallback(async () => {
     setLoading(true);
     try {
       console.log('📥 [LogsPage] Cargando logs con filtros:', {
@@ -108,7 +137,7 @@ export default function LogsPage() {
       setLogs(unifiedLogs);
 
       // Obtener nombres de usuarios únicos
-      const uniqueUserIds = [...new Set(unifiedLogs.map(log => log.user_id))];
+      const uniqueUserIds = Array.from(new Set(unifiedLogs.map(log => log.user_id)));
       await loadUserNames(uniqueUserIds);
     } catch (error) {
       console.error('❌ [LogsPage] Error loading logs:', error);
@@ -120,41 +149,11 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [zoneFilter, actionTypeFilter, page, loadUserNames]);
 
-  // Función para cargar los nombres de los usuarios
-  const loadUserNames = async (userIds: number[]) => {
-    const newUserNames: Record<number, string> = { ...userNames };
-    
-    // Filtrar solo los user_ids que aún no tenemos
-    const missingUserIds = userIds.filter(id => !newUserNames[id]);
-    
-    if (missingUserIds.length === 0) {
-      return; // Ya tenemos todos los nombres
-    }
-
-    console.log('👤 [LogsPage] Cargando nombres de usuarios:', missingUserIds);
-
-    // Cargar nombres de usuarios en paralelo
-    const userPromises = missingUserIds.map(async (userId) => {
-      try {
-        const user = await getUser(userId);
-        return { userId, name: user.name };
-      } catch (error) {
-        console.error(`❌ [LogsPage] Error obteniendo usuario ${userId}:`, error);
-        return { userId, name: `Usuario ${userId}` }; // Fallback si falla
-      }
-    });
-
-    const userResults = await Promise.all(userPromises);
-    
-    // Actualizar el mapa de nombres
-    userResults.forEach(({ userId, name }) => {
-      newUserNames[userId] = name;
-    });
-
-    setUserNames(newUserNames);
-  };
+  useEffect(() => {
+    loadLogs();
+  }, [loadLogs]);
 
   const handleCopy = async (text: string, field: string) => {
     const success = await copyToClipboard(text);

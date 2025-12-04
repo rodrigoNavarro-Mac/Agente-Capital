@@ -123,7 +123,7 @@ export async function POST(
       // Obtener usuario actualizado para verificar intentos
       const updatedUser = await getUserByEmail(email);
       
-      if (updatedUser && updatedUser.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
+      if (updatedUser && (updatedUser.failed_login_attempts ?? 0) >= MAX_FAILED_ATTEMPTS) {
         await lockUserAccount(user.id, LOCKOUT_MINUTES);
         return NextResponse.json(
           {

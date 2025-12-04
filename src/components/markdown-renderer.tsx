@@ -22,6 +22,20 @@ interface MarkdownRendererProps {
   onCitationClick?: (sourceIndex: number) => void;
 }
 
+// Tipos para las partes del texto procesado
+type TextPart = {
+  type: 'text';
+  content: string;
+};
+
+type CitationPart = {
+  type: 'citation';
+  content: string;
+  index: number;
+};
+
+type TextPartUnion = TextPart | CitationPart;
+
 // Componente para renderizar texto con citas procesadas
 function TextWithCitations({ 
   text, 
@@ -33,9 +47,9 @@ function TextWithCitations({
   onCitationClick?: (sourceIndex: number) => void;
 }) {
   // Procesar el texto para encontrar y renderizar citas
-  const parts = useMemo(() => {
+  const parts = useMemo((): TextPartUnion[] => {
     const regex = /\[(\d+)\]/g;
-    const parts: Array<{ type: 'text' | 'citation'; content: string; index?: number }> = [];
+    const parts: TextPartUnion[] = [];
     let lastIndex = 0;
     let match;
 
@@ -65,11 +79,16 @@ function TextWithCitations({
     return parts.length > 0 ? parts : [{ type: 'text', content: text }];
   }, [text]);
 
+  // Type guard para verificar si es una cita
+  const isCitationPart = (part: TextPartUnion): part is CitationPart => {
+    return part.type === 'citation';
+  };
+
   return (
     <>
       {parts.map((part, idx) => {
-        if (part.type === 'citation') {
-          const sourceIndex = part.index ?? -1;
+        if (isCitationPart(part)) {
+          const sourceIndex = part.index;
           const hasSource = sources && sourceIndex >= 0 && sourceIndex < sources.length;
           
           if (hasSource && onCitationClick) {

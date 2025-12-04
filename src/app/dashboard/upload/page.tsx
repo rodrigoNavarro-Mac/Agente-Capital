@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { Upload, FileText, CheckCircle2 } from 'lucide-react';
-import { uploadDocument, getUserDevelopments, getUser } from '@/lib/api';
+import { uploadDocument, getUserDevelopments } from '@/lib/api';
 import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/constants';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserDevelopment } from '@/types/documents';

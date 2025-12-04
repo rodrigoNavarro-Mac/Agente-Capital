@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -36,11 +36,28 @@ export default function ConfigPage() {
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadConfig();
+  const checkProvidersHealth = useCallback(async () => {
+    setCheckingHealth(true);
+    try {
+      const response = await fetch('/api/rag-query');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.health) {
+          setProviderHealth({
+            lmstudio: data.health.lmStudio === 'available',
+            openai: data.health.openai === 'available',
+            current: data.health.current || 'lmstudio',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error checking provider health:', error);
+    } finally {
+      setCheckingHealth(false);
+    }
   }, []);
 
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
     try {
       const data = await getAgentConfig();
       setConfig(data);
@@ -61,28 +78,11 @@ export default function ConfigPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [checkProvidersHealth]);
 
-  const checkProvidersHealth = async () => {
-    setCheckingHealth(true);
-    try {
-      const response = await fetch('/api/rag-query');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.health) {
-          setProviderHealth({
-            lmstudio: data.health.lmStudio === 'available',
-            openai: data.health.openai === 'available',
-            current: data.health.current || 'lmstudio',
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error checking provider health:', error);
-    } finally {
-      setCheckingHealth(false);
-    }
-  };
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   const handleProviderChange = async (newProvider: 'lmstudio' | 'openai') => {
     setSaving(true);

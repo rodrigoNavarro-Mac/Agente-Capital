@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyRefreshToken, generateAccessToken, extractTokenFromHeader } from '@/lib/auth';
+import { verifyRefreshToken, generateAccessToken } from '@/lib/auth';
 import { getUserById, getUserSession } from '@/lib/postgres';
 import type { APIResponse } from '@/types/documents';
 

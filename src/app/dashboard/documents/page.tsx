@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -57,11 +57,7 @@ export default function DocumentsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadDocuments();
-  }, [zoneFilter, developmentFilter, typeFilter]);
-
-  const loadDocuments = async (invalidateCache = false) => {
+  const loadDocuments = useCallback(async (invalidateCache = false) => {
     setLoading(true);
     try {
       const docs = await getDocuments({
@@ -86,7 +82,11 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [zoneFilter, developmentFilter, typeFilter, toast]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
 
   const handleDeleteClick = (doc: DocumentMetadata) => {
     setDocumentToDelete(doc);

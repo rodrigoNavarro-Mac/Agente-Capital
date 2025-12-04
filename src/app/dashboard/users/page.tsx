@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,7 +19,6 @@ import {
   Building2, 
   X,
   Check,
-  Shield,
   Key
 } from 'lucide-react';
 import { 
@@ -30,8 +29,7 @@ import {
   getUserDevelopments,
   assignUserDevelopment,
   updateUserDevelopment,
-  removeUserDevelopment,
-  getDevelopments
+  removeUserDevelopment
 } from '@/lib/api';
 import { ZONES, DEVELOPMENTS, ROLES } from '@/lib/constants';
 import { formatDate, snakeToTitle } from '@/lib/utils';
@@ -72,12 +70,17 @@ export default function UsersPage() {
   
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadUsers();
-    loadDbRoles(); // Cargar roles de BD para mapear IDs
+  const loadDbRoles = useCallback(async () => {
+    try {
+      const { getRoles } = await import('@/lib/api');
+      const data = await getRoles();
+      setDbRoles(data);
+    } catch (error) {
+      console.error('Error loading roles:', error);
+    }
   }, []);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getAllUsers();
@@ -92,18 +95,12 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  // Cargar roles de BD para mapear nombres a IDs
-  const loadDbRoles = async () => {
-    try {
-      const { getRoles } = await import('@/lib/api');
-      const data = await getRoles();
-      setDbRoles(data);
-    } catch (error) {
-      console.error('Error loading roles:', error);
-    }
-  };
+  useEffect(() => {
+    loadUsers();
+    loadDbRoles(); // Cargar roles de BD para mapear IDs
+  }, [loadUsers, loadDbRoles]);
 
   // Función helper para obtener el ID del rol desde su nombre
   const getRoleIdByName = (roleName: string): number | null => {

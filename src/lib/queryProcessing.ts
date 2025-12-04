@@ -33,7 +33,6 @@ const SPELLING_CORRECTIONS: Record<string, string> = {
   'techumbre': 'techumbre',
   'techumbres': 'techumbres',
   'canceleria': 'cancelaría',
-  'canceleria': 'cancelaría',
   'acabado': 'acabado',
   'acabados': 'acabados',
   

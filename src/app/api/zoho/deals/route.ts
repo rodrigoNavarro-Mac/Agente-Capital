@@ -12,6 +12,9 @@ import { getUserById } from '@/lib/postgres';
 import { getZohoDeals } from '@/lib/zoho-crm';
 import type { APIResponse } from '@/types/documents';
 
+// Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
+export const dynamic = 'force-dynamic';
+
 // Roles permitidos para acceder a ZOHO CRM
 const ALLOWED_ROLES = ['admin', 'ceo', 'sales_manager'];
 

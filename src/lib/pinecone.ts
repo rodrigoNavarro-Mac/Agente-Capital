@@ -422,7 +422,7 @@ export async function queryChunks(
       
       console.log(`✅ Encontrados ${sortedMatches.length} resultados (re-ranked con estadísticas)`);
       return sortedMatches;
-    } catch (error) {
+    } catch {
       // Si hay error obteniendo stats, usar resultados originales
       console.log('⚠️ Error obteniendo estadísticas de chunks, usando resultados sin re-ranking');
       const matches = initialMatches.slice(0, topK);

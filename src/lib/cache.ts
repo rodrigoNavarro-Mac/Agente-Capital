@@ -13,6 +13,7 @@ import {
   saveCachedResponse, 
   incrementCacheHit,
   getSimilarCachedResponses,
+  cleanupExpiredCache,
   type QueryCacheEntry 
 } from '@/lib/postgres';
 import type { Zone, DocumentContentType, SourceReference } from '@/types/documents';
@@ -153,8 +154,9 @@ export async function findCachedResponse(
     // Optimización: usar el primer match que supere el umbral (ya están ordenados por score)
     const bestMatch = response.matches?.find(match => match.score && match.score >= SIMILARITY_THRESHOLD);
     
-    if (bestMatch && bestMatch.id) {
+    if (bestMatch && bestMatch.id && bestMatch.score !== undefined) {
       const embeddingId = bestMatch.id;
+      const similarityScore = bestMatch.score;
       
       // Buscar la entrada en la base de datos
       const similarEntries = await getSimilarCachedResponses(
@@ -166,9 +168,9 @@ export async function findCachedResponse(
 
       if (similarEntries.length > 0) {
         const entry = similarEntries[0];
-        console.log(`✅ Caché HIT (similar, score: ${bestMatch.score.toFixed(2)}): "${query.substring(0, 50)}..."`);
+        console.log(`✅ Caché HIT (similar, score: ${similarityScore.toFixed(2)}): "${query.substring(0, 50)}..."`);
         await incrementCacheHit(entry.id);
-        return { entry, similarity: bestMatch.score };
+        return { entry, similarity: similarityScore };
       }
     }
 
@@ -221,7 +223,7 @@ export async function saveToCache(
               query_text: normalizedQuery,
               zone,
               development,
-              document_type: documentType || null,
+              ...(documentType && { document_type: documentType }),
               query_hash: queryHash,
             },
           },

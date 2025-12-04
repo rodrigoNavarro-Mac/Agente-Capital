@@ -5,7 +5,7 @@
  * Endpoint para obtener roles del sistema
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import {  NextResponse } from 'next/server';
 import { getRoles } from '@/lib/postgres';
 import type { Role, APIResponse } from '@/types/documents';
 
@@ -13,9 +13,7 @@ import type { Role, APIResponse } from '@/types/documents';
 // ENDPOINT GET - OBTENER ROLES
 // =====================================================
 
-export async function GET(
-  request: NextRequest
-): Promise<NextResponse<APIResponse<Role[]>>> {
+export async function GET(): Promise<NextResponse<APIResponse<Role[]>>> {
   try {
     const roles = await getRoles();
 

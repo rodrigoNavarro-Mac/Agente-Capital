@@ -198,7 +198,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     // Usar el query procesado para el caché también
     const isSimple = isSimpleQuery(query);
     const skipCache = body.skipCache === true; // Si se solicita, ignorar caché
-    let answer: string;
+    let answer: string = ''; // Inicializar con string vacío para evitar error de TypeScript
     let sources: SourceReference[] = [];
     let matches: PineconeMatch[] = [];
     let fromCache = false;
@@ -302,6 +302,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
 
     // 17. Calcular tiempo de respuesta
     const responseTimeMs = Date.now() - startTime;
+
+    // Verificar que answer tenga un valor (seguridad)
+    if (!answer || answer.trim() === '') {
+      console.error('❌ Error: answer no fue asignado correctamente');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Error al generar respuesta',
+        },
+        { status: 500 }
+      );
+    }
 
     // 18. Guardar log de la consulta (usar query original para el log)
     console.log(`💾 Guardando query log - userId: ${userId} (autenticado: ${payload.userId}), isAdmin: ${isAdmin}, zone: ${zone}, development: ${development}`);
@@ -414,7 +426,7 @@ export async function GET(): Promise<NextResponse> {
         },
       },
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Error obteniendo información del endpoint' },
       { status: 500 }

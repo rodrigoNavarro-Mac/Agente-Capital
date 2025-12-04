@@ -43,7 +43,7 @@ export async function POST(
 
     // Parsear el body primero
     const body = await request.json();
-    const { password, sendEmail } = body;
+    const { password } = body;
 
     // Validar ID del usuario objetivo
     const targetUserId = parseInt(params.id);

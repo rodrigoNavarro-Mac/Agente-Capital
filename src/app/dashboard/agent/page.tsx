@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -10,12 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { MessageSquare, Copy, Loader2, Send, User, Bot, Trash2, X, Plus, ChevronLeft, ChevronRight, Star, RefreshCw } from 'lucide-react';
+import { MessageSquare, Copy, Loader2, Send, User, Bot, Trash2, X, ChevronLeft, ChevronRight, Star, RefreshCw } from 'lucide-react';
 import { queryAgent, getChatHistory, deleteChatHistory, getUser, getUserDevelopments, sendFeedback, getAgentConfig } from '@/lib/api';
 import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/constants';
 import { copyToClipboard } from '@/lib/utils';
 import { decodeAccessToken } from '@/lib/auth';
-import type { RAGQueryResponse, QueryLog, UserRole } from '@/types/documents';
+import type { UserRole } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 
 // Tipo para representar un mensaje en el chat
@@ -65,6 +65,7 @@ export default function AgentPage() {
   const [ratingMessages, setRatingMessages] = useState<Record<number, number>>({}); // query_log_id -> rating
   const [submittingRating, setSubmittingRating] = useState<Record<number, boolean>>({}); // query_log_id -> isSubmitting
   const [regeneratingMessages, setRegeneratingMessages] = useState<Record<number, boolean>>({}); // message.id -> isRegenerating
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [topK, setTopK] = useState<number>(5); // Número de fuentes configurado
   const [expandedSources, setExpandedSources] = useState<Record<number, string | undefined>>({}); // message.id -> accordion value
   
@@ -101,126 +102,45 @@ export default function AgentPage() {
     }
   }, [userId]);
 
-  // Cargar información del usuario al montar
-  useEffect(() => {
-    loadUserInfo();
-    loadConfig();
+  // Función para hacer scroll al final del chat
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // Cargar configuración del agente (topK)
-  const loadConfig = async () => {
-    try {
-      const config = await getAgentConfig();
-      setTopK(config.top_k || 5);
-    } catch (error) {
-      console.error('Error cargando configuración:', error);
-    }
-  };
-
-  // Cargar asignaciones cuando se obtiene el rol del usuario
-  useEffect(() => {
-    if (userRole !== null) {
-      loadUserAssignments();
-    }
-  }, [userRole]);
-
-  // Cargar historial cuando se crea un nuevo chat
-  useEffect(() => {
-    if (activeChatId && chats[activeChatId]) {
-      const chat = chats[activeChatId];
-      if (chat.messages.length === 0 && !loadingHistory[activeChatId]) {
-        loadChatHistory(activeChatId, chat.zone, chat.development);
-      }
-    }
-  }, [activeChatId]);
-
-  // Scroll automático cuando hay nuevos mensajes
-  useEffect(() => {
-    scrollToBottom();
-  }, [chats, activeChatId]);
-
-  // Función para cargar información del usuario
-  const loadUserInfo = async () => {
-    try {
-      const user = await getUser(userId);
-      setUserRole(user.role || null);
-    } catch (error) {
-      console.error('Error cargando información del usuario:', error);
-    }
-  };
-
-  // Función para cargar asignaciones del usuario y seleccionar automáticamente
-  const loadUserAssignments = async () => {
-    try {
-      // Si el usuario es admin o ceo, no necesita cargar asignaciones
-      // porque tiene acceso a todas las zonas y desarrollos
-      if (userRole === 'admin' || userRole === 'ceo') {
-        setUserAssignments([]); // Array vacío indica acceso total
-        return;
-      }
-
-      const userDevs = await getUserDevelopments(userId);
-      setUserAssignments(userDevs);
-      
-      // Filtrar solo los que tienen permiso de query
-      const queryableDevs = userDevs.filter(dev => dev.can_query);
-      
-      if (queryableDevs.length > 0) {
-        // Si solo tiene una asignación, seleccionarla automáticamente
-        if (queryableDevs.length === 1) {
-          setZone(queryableDevs[0].zone);
-          setDevelopment(queryableDevs[0].development);
-          // Crear el chat automáticamente
-          createOrActivateChat(queryableDevs[0].zone, queryableDevs[0].development);
-        } else {
-          // Si tiene múltiples, seleccionar la primera
-          setZone(queryableDevs[0].zone);
-          setDevelopment(queryableDevs[0].development);
-          // Crear el chat automáticamente
-          createOrActivateChat(queryableDevs[0].zone, queryableDevs[0].development);
-        }
-      }
-    } catch (error) {
-      console.error('Error cargando asignaciones del usuario:', error);
-    }
-  };
-
-  // Función para hacer scroll al final del chat
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   // Generar ID único para un chat
-  const getChatId = (zone: string, development: string): ChatId => {
+  const getChatId = useCallback((zone: string, development: string): ChatId => {
     return `${zone}-${development}`;
-  };
+  }, []);
 
   // Crear o activar un chat
-  const createOrActivateChat = (zoneValue: string, devValue: string) => {
+  const createOrActivateChat = useCallback((zoneValue: string, devValue: string) => {
     if (!zoneValue || !devValue) return;
 
     const chatId = getChatId(zoneValue, devValue);
     
     // Si el chat no existe, crearlo
-    if (!chats[chatId]) {
-      setChats((prev) => ({
-        ...prev,
-        [chatId]: {
-          id: chatId,
-          zone: zoneValue,
-          development: devValue,
-          messages: [],
-          type: type || undefined,
-        },
-      }));
-    }
+    setChats((prev) => {
+      if (!prev[chatId]) {
+        return {
+          ...prev,
+          [chatId]: {
+            id: chatId,
+            zone: zoneValue,
+            development: devValue,
+            messages: [],
+            type: type || undefined,
+          },
+        };
+      }
+      return prev;
+    });
 
     // Activar el chat
     setActiveChatId(chatId);
-  };
+  }, [getChatId, type]);
 
   // Cargar historial de chat desde la base de datos
-  const loadChatHistory = async (chatId: ChatId, zoneValue: string, devValue: string) => {
+  const loadChatHistory = useCallback(async (chatId: ChatId, zoneValue: string, devValue: string) => {
     if (!zoneValue || !devValue || !userId) {
       console.warn('⚠️ [loadChatHistory] Faltan parámetros:', { zoneValue, devValue, userId });
       return;
@@ -286,7 +206,7 @@ export default function AgentPage() {
       }
       
       // Ordenar por fecha (más antiguo primero para mostrar cronológicamente)
-      const sortedHistory = userHistory.sort((a, b) => {
+      userHistory.sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
         return dateA - dateB;
@@ -351,7 +271,92 @@ export default function AgentPage() {
     } finally {
       setLoadingHistory((prev) => ({ ...prev, [chatId]: false }));
     }
-  };
+  }, [userId, toast]);
+
+  // Función para cargar información del usuario
+  const loadUserInfo = useCallback(async () => {
+    try {
+      const user = await getUser(userId);
+      setUserRole(user.role || null);
+    } catch (error) {
+      console.error('Error cargando información del usuario:', error);
+    }
+  }, [userId]);
+
+  // Función para cargar asignaciones del usuario y seleccionar automáticamente
+  const loadUserAssignments = useCallback(async () => {
+    try {
+      // Si el usuario es admin o ceo, no necesita cargar asignaciones
+      // porque tiene acceso a todas las zonas y desarrollos
+      if (userRole === 'admin' || userRole === 'ceo') {
+        setUserAssignments([]); // Array vacío indica acceso total
+        return;
+      }
+
+      const userDevs = await getUserDevelopments(userId);
+      setUserAssignments(userDevs);
+      
+      // Filtrar solo los que tienen permiso de query
+      const queryableDevs = userDevs.filter(dev => dev.can_query);
+      
+      if (queryableDevs.length > 0) {
+        // Si solo tiene una asignación, seleccionarla automáticamente
+        if (queryableDevs.length === 1) {
+          setZone(queryableDevs[0].zone);
+          setDevelopment(queryableDevs[0].development);
+          // Crear el chat automáticamente
+          createOrActivateChat(queryableDevs[0].zone, queryableDevs[0].development);
+        } else {
+          // Si tiene múltiples, seleccionar la primera
+          setZone(queryableDevs[0].zone);
+          setDevelopment(queryableDevs[0].development);
+          // Crear el chat automáticamente
+          createOrActivateChat(queryableDevs[0].zone, queryableDevs[0].development);
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando asignaciones del usuario:', error);
+    }
+  }, [userRole, userId, createOrActivateChat]);
+
+  // Cargar configuración del agente (topK)
+  const loadConfig = useCallback(async () => {
+    try {
+      const config = await getAgentConfig();
+      setTopK(config.top_k || 5);
+    } catch (error) {
+      console.error('Error cargando configuración:', error);
+    }
+  }, []);
+
+  // Cargar información del usuario al montar
+  useEffect(() => {
+    loadUserInfo();
+    loadConfig();
+  }, [loadUserInfo, loadConfig]);
+
+  // Cargar asignaciones cuando se obtiene el rol del usuario
+  useEffect(() => {
+    if (userRole !== null) {
+      loadUserAssignments();
+    }
+  }, [userRole, loadUserAssignments]);
+
+  // Cargar historial cuando se crea un nuevo chat
+  useEffect(() => {
+    if (activeChatId && chats[activeChatId]) {
+      const chat = chats[activeChatId];
+      if (chat.messages.length === 0 && !loadingHistory[activeChatId]) {
+        loadChatHistory(activeChatId, chat.zone, chat.development);
+      }
+    }
+  }, [activeChatId, chats, loadingHistory, loadChatHistory]);
+
+  // Scroll automático cuando hay nuevos mensajes
+  useEffect(() => {
+    scrollToBottom();
+  }, [chats, activeChatId, scrollToBottom]);
+
 
   // Manejar cambio de zona/desarrollo
   const handleZoneChange = (value: string) => {
@@ -750,7 +755,6 @@ export default function AgentPage() {
         )
       )
     : [];
-  const activeChat = activeChatId ? chats[activeChatId] : null;
   const chatList = Object.values(chats);
 
   return (
