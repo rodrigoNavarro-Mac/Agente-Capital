@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: capital-postgres
+    environment:
+      POSTGRES_USER: capital_user
+      POSTGRES_PASSWORD: capital_pass
+      POSTGRES_DB: capital_plus_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U capital_user -d capital_plus_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin (Optional - Database UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: capital-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@capitalplus.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  default:
+    name: capital-network
+
