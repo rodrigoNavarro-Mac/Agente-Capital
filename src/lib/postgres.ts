@@ -38,21 +38,42 @@ import type {
 function getPoolConfig() {
   // Si existe DATABASE_URL, usarla directamente (prioridad)
   if (process.env.DATABASE_URL) {
+    const dbUrl = process.env.DATABASE_URL;
+    
+    // Validar formato básico de la URL
+    if (!dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
+      console.error('❌ DATABASE_URL debe comenzar con postgresql:// o postgres://');
+      throw new Error('Formato inválido de DATABASE_URL. Debe comenzar con postgresql:// o postgres://');
+    }
+    
+    // Extraer hostname para logging (sin exponer credenciales)
+    try {
+      const url = new URL(dbUrl);
+      console.log(`🔌 Configurando conexión a: ${url.hostname}:${url.port || 5432}`);
+    } catch (e) {
+      console.error('❌ Error parseando DATABASE_URL:', e);
+    }
+    
     return {
-      connectionString: process.env.DATABASE_URL,
+      connectionString: dbUrl,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000, // Aumentado para conexiones remotas
-      ssl: process.env.DATABASE_URL.includes('supabase') 
+      ssl: dbUrl.includes('supabase') 
         ? { rejectUnauthorized: false } 
         : undefined, // Supabase requiere SSL
     };
   }
 
   // Si no, usar variables individuales (desarrollo local)
+  const host = process.env.POSTGRES_HOST || 'localhost';
+  const port = parseInt(process.env.POSTGRES_PORT || '5432');
+  
+  console.log(`🔌 Configurando conexión a: ${host}:${port} (variables individuales)`);
+  
   return {
-    host: process.env.POSTGRES_HOST || 'localhost',
-    port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    host,
+    port,
     user: process.env.POSTGRES_USER || 'postgres',
     password: process.env.POSTGRES_PASSWORD || '',
     database: process.env.POSTGRES_DB || 'capital_plus_agent',
@@ -67,6 +88,20 @@ const pool = new Pool(getPoolConfig());
 // Manejar errores del pool
 pool.on('error', (err) => {
   console.error('❌ Error inesperado en el pool de PostgreSQL:', err);
+  
+  // Mensajes más descriptivos para errores comunes
+  if (err instanceof Error) {
+    if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
+      console.error('🔍 DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
+      console.error('   Verifica que DATABASE_URL esté configurada correctamente en Vercel.');
+      console.error('   Formato esperado: postgresql://user:password@host:port/database');
+      console.error('   Para Supabase: postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres');
+    } else if (err.message.includes('ECONNREFUSED')) {
+      console.error('🔍 DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
+    } else if (err.message.includes('password authentication failed')) {
+      console.error('🔍 DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en DATABASE_URL.');
+    }
+  }
 });
 
 // =====================================================
@@ -91,6 +126,22 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
     return result;
   } catch (error) {
     console.error('❌ Error en query:', error);
+    
+    // Mensajes más descriptivos para errores de conexión
+    if (error instanceof Error) {
+      if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+        const hostname = error.message.match(/hostname: '([^']+)'/)?.[1] || 'desconocido';
+        console.error(`🔍 DIAGNÓSTICO: No se puede resolver el hostname: ${hostname}`);
+        console.error('   Esto generalmente significa que:');
+        console.error('   1. DATABASE_URL no está configurada en Vercel, o');
+        console.error('   2. El hostname en DATABASE_URL es incorrecto, o');
+        console.error('   3. Hay un problema de red/DNS en Vercel');
+        console.error('');
+        console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
+        console.error('   y asegúrate de tener DATABASE_URL configurada correctamente.');
+      }
+    }
+    
     throw error;
   }
 }

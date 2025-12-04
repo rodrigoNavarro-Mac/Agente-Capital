@@ -66,32 +66,43 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-navy-900 via-navy-800 to-navy-900 p-4">
-      <div className="w-full max-w-md">
-        {/* Logo/Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gold rounded-full mb-4">
-            <Building2 className="h-8 w-8 text-navy-900" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-4">
+      {/* Patrón sutil de fondo */}
+      <div className="absolute inset-0 opacity-[0.02]">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `radial-gradient(circle at 2px 2px, rgb(15 23 42) 1px, transparent 0)`,
+          backgroundSize: '40px 40px'
+        }}></div>
+      </div>
+
+      <div className="w-full max-w-md relative z-10">
+        {/* Logo/Header profesional */}
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-capital-navy rounded-lg mb-6 shadow-lg">
+            <Building2 className="h-8 w-8 text-capital-gold" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Capital Plus</h1>
-          <p className="text-navy-200">Agente de IA</p>
+          <h1 className="text-3xl font-bold text-capital-navy mb-2 tracking-tight">
+            Capital Plus
+          </h1>
+          <p className="text-sm text-gray-600 font-medium">Agente de IA</p>
         </div>
 
-        {/* Login Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <LogIn className="h-5 w-5" />
+        {/* Login Card profesional */}
+        <Card className="shadow-xl border border-gray-200">
+          <CardHeader className="space-y-1 pb-4">
+            <CardTitle className="text-2xl font-semibold text-capital-navy">
               Iniciar Sesión
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-gray-600">
               Ingresa tus credenciales para acceder al sistema
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                  Correo electrónico
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -100,11 +111,14 @@ export default function LoginPage() {
                   placeholder="usuario@capitalplus.com"
                   disabled={loading}
                   required
+                  className="h-11 border-gray-300 focus:border-capital-navy focus:ring-capital-navy"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Contraseña</Label>
+                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                  Contraseña
+                </Label>
                 <Input
                   id="password"
                   type="password"
@@ -113,12 +127,13 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   disabled={loading}
                   required
+                  className="h-11 border-gray-300 focus:border-capital-navy focus:ring-capital-navy"
                 />
               </div>
 
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full h-11 bg-capital-navy hover:bg-capital-navy/90 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
                 {loading ? (
@@ -135,10 +150,10 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-4 text-center">
+            <div className="mt-6 text-center">
               <a
                 href="/forgot-password"
-                className="text-sm text-muted-foreground hover:text-foreground"
+                className="text-sm text-capital-navy hover:text-capital-navy/80 font-medium hover:underline transition-colors"
               >
                 ¿Olvidaste tu contraseña?
               </a>
@@ -146,8 +161,8 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Footer */}
-        <p className="text-center text-sm text-navy-300 mt-6">
+        {/* Footer profesional */}
+        <p className="text-center text-xs text-gray-500 mt-8">
           © 2024 Capital Plus. Todos los derechos reservados.
         </p>
       </div>
