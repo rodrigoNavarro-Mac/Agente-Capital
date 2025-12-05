@@ -59,6 +59,7 @@ export default function AgentPage() {
   const [activeChatId, setActiveChatId] = useState<ChatId | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState<Record<ChatId, boolean>>({});
+  const [historyLoadAttempted, setHistoryLoadAttempted] = useState<Record<ChatId, boolean>>({}); // Nuevo estado para evitar loops
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [userAssignments, setUserAssignments] = useState<Array<{ zone: string; development: string; can_query: boolean }>>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true); // Estado para controlar si el sidebar está abierto
@@ -141,21 +142,32 @@ export default function AgentPage() {
 
   // Cargar historial de chat desde la base de datos
   const loadChatHistory = useCallback(async (chatId: ChatId, zoneValue: string, devValue: string) => {
+    // Validar parámetros requeridos
     if (!zoneValue || !devValue || !userId) {
       console.warn('⚠️ [loadChatHistory] Faltan parámetros:', { zoneValue, devValue, userId });
+      setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar como intentado aunque falle
       return;
     }
 
     console.log(`📥 [loadChatHistory] Cargando historial para chat ${chatId} - userId: ${userId}, zone: ${zoneValue}, development: ${devValue}`);
     setLoadingHistory((prev) => ({ ...prev, [chatId]: true }));
+    setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar que se intentó cargar
     
     try {
-      const history = await getChatHistory({
+      // Crear una promesa con timeout de 10 segundos
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout al cargar historial')), 10000);
+      });
+
+      const historyPromise = getChatHistory({
         userId,
         zone: zoneValue,
         development: devValue,
         limit: 50,
       });
+
+      // Ejecutar la petición con timeout
+      const history = await Promise.race([historyPromise, timeoutPromise]);
       
       console.log(`✅ [loadChatHistory] Historial recibido: ${history.length} mensajes`);
       if (history.length > 0) {
@@ -262,12 +274,22 @@ export default function AgentPage() {
         },
       }));
     } catch (error) {
-      console.error('Error cargando historial:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo cargar el historial de chat',
-        variant: 'destructive',
-      });
+      console.error('❌ [loadChatHistory] Error cargando historial:', error);
+      
+      // Solo mostrar toast si el error no es por timeout (para no alarmar al usuario)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      if (!errorMessage.includes('Timeout')) {
+        toast({
+          title: 'Error al cargar historial',
+          description: 'No se pudo cargar el historial. Puedes empezar a chatear normalmente.',
+          variant: 'destructive',
+        });
+      } else {
+        console.warn('⚠️ [loadChatHistory] Timeout al cargar historial - continuando sin historial');
+      }
+      
+      // Incluso si falla, permitir que el usuario use el chat normalmente
+      // No hacer nada aquí, el chat ya está inicializado vacío
     } finally {
       setLoadingHistory((prev) => ({ ...prev, [chatId]: false }));
     }
@@ -346,11 +368,17 @@ export default function AgentPage() {
   useEffect(() => {
     if (activeChatId && chats[activeChatId]) {
       const chat = chats[activeChatId];
-      if (chat.messages.length === 0 && !loadingHistory[activeChatId]) {
+      // Solo intentar cargar si:
+      // 1. No hay mensajes en el chat
+      // 2. No se está cargando actualmente
+      // 3. NO se ha intentado cargar antes (esto previene el loop infinito)
+      if (chat.messages.length === 0 && 
+          !loadingHistory[activeChatId] && 
+          !historyLoadAttempted[activeChatId]) {
         loadChatHistory(activeChatId, chat.zone, chat.development);
       }
     }
-  }, [activeChatId, chats, loadingHistory, loadChatHistory]);
+  }, [activeChatId, chats, loadingHistory, historyLoadAttempted, loadChatHistory]);
 
   // Scroll automático cuando hay nuevos mensajes
   useEffect(() => {
@@ -686,6 +714,19 @@ export default function AgentPage() {
         return newChats;
       });
 
+      // Limpiar estado de historial
+      setLoadingHistory((prev) => {
+        const newState = { ...prev };
+        delete newState[chatId];
+        return newState;
+      });
+      
+      setHistoryLoadAttempted((prev) => {
+        const newState = { ...prev };
+        delete newState[chatId];
+        return newState;
+      });
+
       // Si el chat eliminado era el activo, desactivarlo y limpiar formulario
       if (activeChatId === chatId) {
         setActiveChatId(null);
@@ -716,6 +757,19 @@ export default function AgentPage() {
       const newChats = { ...prev };
       delete newChats[chatId];
       return newChats;
+    });
+
+    // Limpiar estado de historial
+    setLoadingHistory((prev) => {
+      const newState = { ...prev };
+      delete newState[chatId];
+      return newState;
+    });
+    
+    setHistoryLoadAttempted((prev) => {
+      const newState = { ...prev };
+      delete newState[chatId];
+      return newState;
     });
 
     // Si el chat cerrado era el activo, cambiar a otro o null
