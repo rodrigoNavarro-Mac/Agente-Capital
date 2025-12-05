@@ -22,12 +22,12 @@ const isReset = process.argv.includes('reset') || process.argv.includes('--reset
 // Soporta múltiples variables: POSTGRES_URL (Vercel), DATABASE_URL, o variables individuales
 function getPoolConfig() {
   // Intentar obtener la cadena de conexión en orden de prioridad
-  // Compatible con integración de Supabase en Vercel y configuraciones locales
+  // IMPORTANTE: pg necesita NON_POOLING en serverless
   const connectionString =
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_URL_NON_POOLING ||  // ⭐ PRIORIDAD para pg en Vercel
+    process.env.DATABASE_URL ||
     process.env.POSTGRES_PRISMA_URL ||
-    process.env.DATABASE_URL;
+    process.env.POSTGRES_URL;
 
   if (connectionString) {
     // Detectar si es Supabase o conexión remota

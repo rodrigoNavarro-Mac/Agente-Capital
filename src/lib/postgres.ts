@@ -30,28 +30,31 @@ import type {
  * Configuración del pool de conexiones PostgreSQL.
  * 
  * Soporta múltiples formas de configuración (en orden de prioridad):
- * 1. POSTGRES_URL: Variable creada por la integración oficial de Supabase en Vercel (recomendado)
- * 2. POSTGRES_URL_NON_POOLING: Para conexiones sin pooling (si la librería no lo soporta)
+ * 1. POSTGRES_URL_NON_POOLING: ⭐ PRIORIDAD - Conexión directa sin pooler
+ *    (RECOMENDADO para la librería pg en entornos serverless como Vercel)
+ * 2. DATABASE_URL: URL completa de conexión (compatibilidad con configuraciones manuales)
  * 3. POSTGRES_PRISMA_URL: Variable alternativa de la integración de Supabase
- * 4. DATABASE_URL: URL completa de conexión (compatibilidad con configuraciones manuales)
- *    Ejemplo: postgresql://user:password@host:port/database
+ * 4. POSTGRES_URL: Pooler de Supabase (⚠️ puede causar "Tenant not found" en serverless)
  * 5. Variables individuales: POSTGRES_HOST, POSTGRES_PORT, etc.
  *    (útil para desarrollo local)
  * 
- * NOTA: La integración oficial de Supabase en Vercel crea automáticamente:
- * - POSTGRES_URL (recomendado para pg con pooling)
- * - POSTGRES_PRISMA_URL
- * - POSTGRES_URL_NON_POOLING
- * Pero NO crea DATABASE_URL, por eso este código busca todas las opciones.
+ * IMPORTANTE: La integración oficial de Supabase en Vercel crea:
+ * - POSTGRES_URL_NON_POOLING ✅ (usa este para pg en Vercel)
+ * - POSTGRES_URL ⚠️ (pooler, puede fallar con pg en serverless)
+ * - POSTGRES_PRISMA_URL (optimizado para Prisma)
+ * 
+ * La librería pg NO funciona bien con el pooler de Supabase en serverless,
+ * por eso priorizamos POSTGRES_URL_NON_POOLING.
  */
 function getPoolConfig() {
   // Intentar obtener la cadena de conexión en orden de prioridad
-  // Esto funciona tanto localmente (DATABASE_URL) como en Vercel (POSTGRES_URL)
+  // IMPORTANTE: En serverless (Vercel), la librería pg necesita conexión directa (NON_POOLING)
+  // no el pooler, por eso priorizamos POSTGRES_URL_NON_POOLING
   const connectionString =
-    process.env.POSTGRES_URL ||              // Variable creada por integración Supabase en Vercel
-    process.env.POSTGRES_URL_NON_POOLING ||  // Para conexiones sin pooling
-    process.env.POSTGRES_PRISMA_URL ||       // Variable alternativa de Supabase
-    process.env.DATABASE_URL;                // Compatibilidad con configuraciones manuales
+    process.env.POSTGRES_URL_NON_POOLING ||  // ⭐ PRIORIDAD: Conexión directa para pg en serverless
+    process.env.DATABASE_URL ||               // Configuración manual (si existe)
+    process.env.POSTGRES_PRISMA_URL ||        // Variable alternativa de Supabase
+    process.env.POSTGRES_URL;                 // Pooler (último recurso, puede fallar en serverless)
 
   // Si encontramos una cadena de conexión, usarla
   if (connectionString) {
@@ -76,10 +79,10 @@ function getPoolConfig() {
                    !!process.env.POSTGRES_PRISMA_URL ||
                    !!process.env.POSTGRES_URL_NON_POOLING;
       
-      const source = process.env.POSTGRES_URL ? 'POSTGRES_URL (Vercel Integration)' :
-                     process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' :
+      const source = process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING (⭐ Recomendado para pg)' :
+                     process.env.DATABASE_URL ? 'DATABASE_URL' :
                      process.env.POSTGRES_PRISMA_URL ? 'POSTGRES_PRISMA_URL' :
-                     'DATABASE_URL';
+                     'POSTGRES_URL (Pooler)';
       console.log(`🔌 Configurando conexión a: ${hostname}:${parsedUrl.port || 5432} (${source})`);
       
       // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
