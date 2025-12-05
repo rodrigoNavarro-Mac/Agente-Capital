@@ -91,6 +91,15 @@ function getPoolConfig() {
         const database = parsedUrl.pathname.slice(1) || 'postgres';
         const port = parseInt(parsedUrl.port || '5432');
         
+        // Logging detallado para diagnóstico (sin exponer contraseña completa)
+        console.log(`📊 Diagnóstico de conexión Supabase:`);
+        console.log(`   - Host: ${hostname}`);
+        console.log(`   - Port: ${port}`);
+        console.log(`   - User: ${username}`);
+        console.log(`   - Database: ${database}`);
+        console.log(`   - Password length: ${password.length} caracteres`);
+        console.log(`   - Password starts with: ${password.substring(0, 4)}...`);
+        
         return {
           host: hostname,
           port: port,
