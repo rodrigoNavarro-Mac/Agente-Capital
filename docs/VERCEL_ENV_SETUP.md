@@ -27,7 +27,40 @@ Significa que la aplicación no puede resolver el hostname de Supabase. Esto gen
    ```
 6. **Reemplaza `[YOUR-PASSWORD]`** con tu contraseña real de la base de datos
 
-### Paso 2: Configurar en Vercel
+### Paso 2: Codificar la Contraseña (Si tiene caracteres especiales)
+
+Si tu contraseña contiene caracteres especiales como `&`, `%`, `+`, `#`, `?`, etc., **debes codificarlos** (URL encoding) antes de usarlos en la URL.
+
+**Caracteres que necesitan codificación:**
+- `&` → `%26`
+- `%` → `%25`
+- `+` → `%2B`
+- `#` → `%23`
+- `?` → `%3F`
+- `=` → `%3D`
+- `/` → `%2F`
+- `@` → `%40`
+- ` ` (espacio) → `%20`
+
+**Ejemplo:**
+Si tu contraseña es: `ZAYY&63Zh%+T&jB`
+
+Debes codificarla como: `ZAYY%263Zh%25%2BT%26jB`
+
+**Herramientas para codificar:**
+- Puedes usar este sitio web: https://www.urlencoder.org/
+- O usar JavaScript en la consola del navegador:
+  ```javascript
+  encodeURIComponent('ZAYY&63Zh%+T&jB')
+  // Resultado: "ZAYY%263Zh%25%2BT%26jB"
+  ```
+
+**Tu URL codificada debería verse así:**
+```
+postgresql://postgres:ZAYY%263Zh%25%2BT%26jB@db.ffhivzaiveesofkfvhuy.supabase.co:5432/postgres
+```
+
+### Paso 3: Configurar en Vercel
 
 1. Ve a tu proyecto en [Vercel Dashboard](https://vercel.com/dashboard)
 2. Selecciona tu proyecto
@@ -36,15 +69,18 @@ Significa que la aplicación no puede resolver el hostname de Supabase. Esto gen
 
    **Nombre:** `DATABASE_URL`
    
-   **Valor:** La URL completa que copiaste de Supabase
+   **Valor:** La URL completa con la contraseña codificada
+   
+   **Ejemplo con tu hostname:**
    ```
-   postgresql://postgres:TU_PASSWORD_REAL@db.xxxxx.supabase.co:5432/postgres
+   postgresql://postgres:ZAYY%263Zh%25%2BT%26jB@db.ffhivzaiveesofkfvhuy.supabase.co:5432/postgres
    ```
    
    ⚠️ **IMPORTANTE:** 
-   - Reemplaza `TU_PASSWORD_REAL` con tu contraseña real
+   - Si tu contraseña tiene caracteres especiales, **debes codificarlos** (ver Paso 2)
    - No uses `[YOUR-PASSWORD]` literalmente
    - La URL debe comenzar con `postgresql://` o `postgres://`
+   - Usa la contraseña **codificada**, no la original
 
 5. Selecciona los **Environments** donde aplicará:
    - ✅ Production
@@ -53,7 +89,7 @@ Significa que la aplicación no puede resolver el hostname de Supabase. Esto gen
 
 6. Haz clic en **Save**
 
-### Paso 3: Redesplegar
+### Paso 4: Redesplegar
 
 Después de agregar la variable de entorno, necesitas redesplegar:
 
@@ -148,7 +184,18 @@ CHUNK_OVERLAP=50
 1. Verifica que `DATABASE_URL` esté en **Settings** → **Environment Variables**
 2. Verifica que el formato sea correcto: `postgresql://user:password@host:port/database`
 3. Asegúrate de haber reemplazado `[YOUR-PASSWORD]` con tu contraseña real
-4. Redesplega la aplicación después de agregar la variable
+4. **Si tu contraseña tiene caracteres especiales, codifícala** (ver Paso 2)
+5. Redesplega la aplicación después de agregar la variable
+
+### Error: "invalid URI" o "Invalid URL"
+
+**Causa:** La contraseña contiene caracteres especiales que no están codificados.
+
+**Solución:**
+1. Identifica los caracteres especiales en tu contraseña (`&`, `%`, `+`, `#`, etc.)
+2. Codifica la contraseña usando `encodeURIComponent()` o una herramienta online
+3. Reemplaza la contraseña en `DATABASE_URL` con la versión codificada
+4. Redesplega
 
 ### Error: "password authentication failed"
 

@@ -19,12 +19,20 @@ require('dotenv').config();
 const isReset = process.argv.includes('reset') || process.argv.includes('--reset');
 
 // Configuración de conexión
-// Soporta tanto DATABASE_URL como variables individuales
+// Soporta múltiples variables: POSTGRES_URL (Vercel), DATABASE_URL, o variables individuales
 function getPoolConfig() {
-  if (process.env.DATABASE_URL) {
+  // Intentar obtener la cadena de conexión en orden de prioridad
+  // Compatible con integración de Supabase en Vercel y configuraciones locales
+  const connectionString =
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.DATABASE_URL;
+
+  if (connectionString) {
     return {
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL.includes('supabase') 
+      connectionString: connectionString,
+      ssl: connectionString.includes('supabase') 
         ? { rejectUnauthorized: false } 
         : undefined,
     };

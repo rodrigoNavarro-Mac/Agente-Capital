@@ -29,47 +29,66 @@ import type {
 /**
  * Configuración del pool de conexiones PostgreSQL.
  * 
- * Soporta dos formas de configuración:
- * 1. DATABASE_URL: URL completa de conexión (recomendado para Supabase)
+ * Soporta múltiples formas de configuración (en orden de prioridad):
+ * 1. POSTGRES_URL: Variable creada por la integración oficial de Supabase en Vercel (recomendado)
+ * 2. POSTGRES_URL_NON_POOLING: Para conexiones sin pooling (si la librería no lo soporta)
+ * 3. POSTGRES_PRISMA_URL: Variable alternativa de la integración de Supabase
+ * 4. DATABASE_URL: URL completa de conexión (compatibilidad con configuraciones manuales)
  *    Ejemplo: postgresql://user:password@host:port/database
- * 2. Variables individuales: POSTGRES_HOST, POSTGRES_PORT, etc.
+ * 5. Variables individuales: POSTGRES_HOST, POSTGRES_PORT, etc.
  *    (útil para desarrollo local)
+ * 
+ * NOTA: La integración oficial de Supabase en Vercel crea automáticamente:
+ * - POSTGRES_URL (recomendado para pg con pooling)
+ * - POSTGRES_PRISMA_URL
+ * - POSTGRES_URL_NON_POOLING
+ * Pero NO crea DATABASE_URL, por eso este código busca todas las opciones.
  */
 function getPoolConfig() {
-  // Si existe DATABASE_URL, usarla directamente (prioridad)
-  if (process.env.DATABASE_URL) {
-    const dbUrl = process.env.DATABASE_URL;
-    
+  // Intentar obtener la cadena de conexión en orden de prioridad
+  // Esto funciona tanto localmente (DATABASE_URL) como en Vercel (POSTGRES_URL)
+  const connectionString =
+    process.env.POSTGRES_URL ||              // Variable creada por integración Supabase en Vercel
+    process.env.POSTGRES_URL_NON_POOLING ||  // Para conexiones sin pooling
+    process.env.POSTGRES_PRISMA_URL ||       // Variable alternativa de Supabase
+    process.env.DATABASE_URL;                // Compatibilidad con configuraciones manuales
+
+  // Si encontramos una cadena de conexión, usarla
+  if (connectionString) {
     // Validar formato básico de la URL
-    if (!dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
-      console.error('❌ DATABASE_URL debe comenzar con postgresql:// o postgres://');
-      throw new Error('Formato inválido de DATABASE_URL. Debe comenzar con postgresql:// o postgres://');
+    if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
+      console.error('❌ La cadena de conexión debe comenzar con postgresql:// o postgres://');
+      throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
     
     // Extraer hostname para logging (sin exponer credenciales)
     try {
-      const url = new URL(dbUrl);
-      console.log(`🔌 Configurando conexión a: ${url.hostname}:${url.port || 5432}`);
+      const url = new URL(connectionString);
+      const source = process.env.POSTGRES_URL ? 'POSTGRES_URL (Vercel Integration)' :
+                     process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' :
+                     process.env.POSTGRES_PRISMA_URL ? 'POSTGRES_PRISMA_URL' :
+                     'DATABASE_URL';
+      console.log(`🔌 Configurando conexión a: ${url.hostname}:${url.port || 5432} (${source})`);
     } catch (e) {
-      console.error('❌ Error parseando DATABASE_URL:', e);
+      console.error('❌ Error parseando cadena de conexión:', e);
     }
     
     return {
-      connectionString: dbUrl,
+      connectionString: connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000, // Aumentado para conexiones remotas
-      ssl: dbUrl.includes('supabase') 
+      ssl: connectionString.includes('supabase') 
         ? { rejectUnauthorized: false } 
         : undefined, // Supabase requiere SSL
     };
   }
 
-  // Si no, usar variables individuales (desarrollo local)
+  // Si no encontramos ninguna cadena de conexión, usar variables individuales (desarrollo local)
   const host = process.env.POSTGRES_HOST || 'localhost';
   const port = parseInt(process.env.POSTGRES_PORT || '5432');
   
-  console.log(`🔌 Configurando conexión a: ${host}:${port} (variables individuales)`);
+  console.log(`🔌 Configurando conexión a: ${host}:${port} (variables individuales - desarrollo local)`);
   
   return {
     host,
@@ -93,13 +112,17 @@ pool.on('error', (err) => {
   if (err instanceof Error) {
     if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
       console.error('🔍 DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
-      console.error('   Verifica que DATABASE_URL esté configurada correctamente en Vercel.');
+      console.error('   Verifica que una de estas variables esté configurada en Vercel:');
+      console.error('   - POSTGRES_URL (creada automáticamente por integración Supabase)');
+      console.error('   - POSTGRES_PRISMA_URL');
+      console.error('   - POSTGRES_URL_NON_POOLING');
+      console.error('   - DATABASE_URL (si configurada manualmente)');
       console.error('   Formato esperado: postgresql://user:password@host:port/database');
       console.error('   Para Supabase: postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres');
     } else if (err.message.includes('ECONNREFUSED')) {
       console.error('🔍 DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
     } else if (err.message.includes('password authentication failed')) {
-      console.error('🔍 DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en DATABASE_URL.');
+      console.error('🔍 DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.');
     }
   }
 });
@@ -133,12 +156,17 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
         const hostname = error.message.match(/hostname: '([^']+)'/)?.[1] || 'desconocido';
         console.error(`🔍 DIAGNÓSTICO: No se puede resolver el hostname: ${hostname}`);
         console.error('   Esto generalmente significa que:');
-        console.error('   1. DATABASE_URL no está configurada en Vercel, o');
-        console.error('   2. El hostname en DATABASE_URL es incorrecto, o');
+        console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
+        console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
         console.error('   3. Hay un problema de red/DNS en Vercel');
         console.error('');
         console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
-        console.error('   y asegúrate de tener DATABASE_URL configurada correctamente.');
+        console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
+        console.error('   Si no existe, verifica la integración o crea manualmente:');
+        console.error('   - POSTGRES_URL (recomendado)');
+        console.error('   - POSTGRES_PRISMA_URL');
+        console.error('   - POSTGRES_URL_NON_POOLING');
+        console.error('   - DATABASE_URL (compatibilidad)');
       }
     }
     
