@@ -16,10 +16,10 @@ require('dotenv').config();
 // Soporta múltiples variables: POSTGRES_URL (Vercel), DATABASE_URL, o variables individuales
 function getPoolConfig() {
   // Intentar obtener la cadena de conexión en orden de prioridad
-  // IMPORTANTE: pg necesita NON_POOLING en serverless
+  // DATABASE_URL manual tiene prioridad sobre variables automáticas
   const connectionString =
-    process.env.POSTGRES_URL_NON_POOLING ||  // ⭐ PRIORIDAD para pg en Vercel
-    process.env.DATABASE_URL ||
+    process.env.DATABASE_URL ||               // ⭐ PRIORIDAD: Manual
+    process.env.POSTGRES_URL_NON_POOLING ||
     process.env.POSTGRES_PRISMA_URL ||
     process.env.POSTGRES_URL;
 
