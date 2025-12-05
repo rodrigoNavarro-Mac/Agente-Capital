@@ -141,7 +141,7 @@ export default function GuiaPage() {
             <h4 className="font-semibold text-capital-navy">Cómo hacer una consulta:</h4>
             <ol className="space-y-3 list-decimal list-inside">
               <li className="text-gray-700">
-                <strong>Ve a "Consultar Agente"</strong> en el menú lateral
+                <strong>Ve a &quot;Consultar Agente&quot;</strong> en el menú lateral
               </li>
               <li className="text-gray-700">
                 <strong>Selecciona el contexto:</strong>
