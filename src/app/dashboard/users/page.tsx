@@ -19,7 +19,10 @@ import {
   Building2, 
   X,
   Check,
-  Key
+  Key,
+  Copy,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react';
 import { 
   getAllUsers, 
@@ -43,6 +46,7 @@ export default function UsersPage() {
   const [showUserDialog, setShowUserDialog] = useState(false);
   const [showDevelopmentsDialog, setShowDevelopmentsDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showTempPasswordDialog, setShowTempPasswordDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -51,6 +55,9 @@ export default function UsersPage() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tempPassword, setTempPassword] = useState('');
+  const [tempPasswordUser, setTempPasswordUser] = useState('');
+  const [copiedPassword, setCopiedPassword] = useState(false);
   
   // Form states
   const [formEmail, setFormEmail] = useState('');
@@ -122,13 +129,40 @@ export default function UsersPage() {
     }
   };
 
+  // Generar contraseña temporal segura
+  const generateTempPassword = (): string => {
+    const length = 12;
+    const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+    const numbers = '0123456789';
+    const symbols = '!@#$%&*';
+    const allChars = uppercase + lowercase + numbers + symbols;
+    
+    let password = '';
+    // Asegurar al menos un carácter de cada tipo
+    password += uppercase[Math.floor(Math.random() * uppercase.length)];
+    password += lowercase[Math.floor(Math.random() * lowercase.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+    password += symbols[Math.floor(Math.random() * symbols.length)];
+    
+    // Completar el resto de la contraseña
+    for (let i = password.length; i < length; i++) {
+      password += allChars[Math.floor(Math.random() * allChars.length)];
+    }
+    
+    // Mezclar los caracteres
+    return password.split('').sort(() => Math.random() - 0.5).join('');
+  };
+
   const handleCreateUser = () => {
     setEditingUser(null);
     setFormEmail('');
     setFormName('');
     setFormRoleValue('');
     setFormIsActive(true);
-    setFormNewUserPassword('');
+    // Generar contraseña temporal automáticamente
+    const generatedPassword = generateTempPassword();
+    setFormNewUserPassword(generatedPassword);
     setShowUserDialog(true);
   };
 
@@ -179,20 +213,24 @@ export default function UsersPage() {
           description: `"${formName}" ha sido actualizado exitosamente`,
         });
       } else {
-        // Crear usuario
+        // Crear usuario con contraseña temporal
         await createUser({
           email: formEmail,
           name: formName,
           role_id: roleId,
-          password: formNewUserPassword || undefined, // Contraseña opcional
+          password: formNewUserPassword, // Siempre hay contraseña temporal
         });
-        toast({
-          title: '✅ Usuario creado',
-          description: `"${formName}" ha sido creado exitosamente${formNewUserPassword ? ' con contraseña' : ''}`,
-        });
+        
+        // Guardar contraseña temporal y nombre de usuario para mostrar
+        setTempPassword(formNewUserPassword);
+        setTempPasswordUser(formName);
+        setCopiedPassword(false);
+        
+        // Cerrar diálogo de creación y mostrar diálogo de contraseña temporal
+        setShowUserDialog(false);
+        setShowTempPasswordDialog(true);
       }
       
-      setShowUserDialog(false);
       loadUsers();
     } catch (error) {
       console.error('Error saving user:', error);
@@ -608,16 +646,32 @@ export default function UsersPage() {
 
               {!editingUser && (
                 <div className="space-y-2">
-                  <Label htmlFor="new-user-password">Contraseña (opcional)</Label>
-                  <Input
-                    id="new-user-password"
-                    type="password"
-                    value={formNewUserPassword}
-                    onChange={(e) => setFormNewUserPassword(e.target.value)}
-                    placeholder="Dejar vacío para crear sin contraseña"
-                  />
+                  <Label htmlFor="new-user-password" className="flex items-center justify-between">
+                    <span>Contraseña Temporal</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFormNewUserPassword(generateTempPassword())}
+                      className="h-7 text-xs"
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Regenerar
+                    </Button>
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="new-user-password"
+                      type="text"
+                      value={formNewUserPassword}
+                      onChange={(e) => setFormNewUserPassword(e.target.value)}
+                      placeholder="Contraseña generada automáticamente"
+                      className="font-mono"
+                      readOnly
+                    />
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Si se deja vacío, el usuario deberá usar recuperación de contraseña
+                    ⚠️ Esta contraseña se mostrará una sola vez después de crear el usuario
                   </p>
                 </div>
               )}
@@ -888,6 +942,110 @@ export default function UsersPage() {
                       Cambiar
                     </>
                   )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Temporary Password Dialog - Shown after creating user */}
+      {showTempPasswordDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-background border rounded-lg shadow-lg p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-6 w-6 text-green-600" />
+                </div>
+                <h2 className="text-lg font-semibold">
+                  Usuario Creado
+                </h2>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-amber-900 mb-2">
+                  ⚠️ Contraseña Temporal Generada
+                </p>
+                <p className="text-xs text-amber-700">
+                  Esta contraseña solo se mostrará una vez. Asegúrate de copiarla y compartirla con el usuario de forma segura.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Usuario</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempPasswordUser}
+                    readOnly
+                    className="font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Contraseña Temporal</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempPassword}
+                    readOnly
+                    className="font-mono text-lg font-semibold"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(tempPassword);
+                      setCopiedPassword(true);
+                      toast({
+                        title: '✅ Copiado',
+                        description: 'Contraseña copiada al portapapeles',
+                      });
+                      setTimeout(() => setCopiedPassword(false), 3000);
+                    }}
+                    title="Copiar contraseña"
+                  >
+                    {copiedPassword ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Haz clic en el botón para copiar la contraseña
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-900">
+                  <strong>Instrucciones para el usuario:</strong>
+                  <br />
+                  1. Use esta contraseña para iniciar sesión por primera vez
+                  <br />
+                  2. Se recomienda cambiar la contraseña después del primer inicio de sesión
+                  <br />
+                  3. La contraseña debe contener mayúsculas, minúsculas, números y símbolos
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  onClick={() => {
+                    setShowTempPasswordDialog(false);
+                    setTempPassword('');
+                    setTempPasswordUser('');
+                    toast({
+                      title: '✅ Usuario creado',
+                      description: 'El usuario ha sido creado exitosamente',
+                    });
+                  }}
+                  className="flex-1"
+                >
+                  <Check className="h-4 w-4 mr-2" />
+                  Entendido
                 </Button>
               </div>
             </div>

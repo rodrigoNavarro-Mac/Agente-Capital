@@ -815,23 +815,23 @@ export default function AgentPage() {
   const chatList = Object.values(chats);
 
   return (
-    <div className="w-full h-full flex flex-col min-h-0 max-h-full">
-      {/* Header - Más compacto en móviles */}
-      <div className="flex-shrink-0 mb-2 md:mb-4 px-2 md:px-0">
-        <div className="flex items-center gap-2 md:gap-3 mb-1 md:mb-2">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold navy-text">Consultar Agente</h1>
+    <div className="w-full h-full flex flex-col" style={{ minHeight: 0, maxHeight: '100%' }}>
+      {/* Header - Más compacto */}
+      <div className="flex-shrink-0 mb-2 px-2 md:px-0">
+        <div className="flex items-center gap-2 mb-1">
+          <h1 className="text-lg md:text-xl lg:text-2xl font-bold navy-text">Consultar Agente</h1>
           {!sidebarOpen && (
             <Badge variant="outline" className="text-[10px] md:text-xs animate-in fade-in duration-300">
               Panel colapsado
             </Badge>
           )}
         </div>
-        <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
-          Realiza consultas al agente de IA con contexto RAG. Puedes tener múltiples conversaciones activas.
+        <p className="text-[10px] md:text-xs text-muted-foreground hidden lg:block">
+          Realiza consultas al agente de IA con contexto RAG
         </p>
       </div>
 
-      <div className="flex gap-2 md:gap-4 lg:gap-6 relative flex-1 min-h-0 overflow-hidden px-2 md:px-0">
+      <div className="flex gap-2 md:gap-4 lg:gap-6 relative overflow-hidden px-2 md:px-0" style={{ flex: 1, minHeight: 0 }}>
         {/* Panel de configuración - Sidebar */}
         {/* En móviles (<md), el sidebar es un overlay absoluto */}
         {/* En desktop (>=md), está al lado del chat */}
@@ -857,11 +857,11 @@ export default function AgentPage() {
             />
           )}
           
-          <Card className="h-full relative z-10 mx-2 my-2 md:mx-0 md:my-0 max-w-md md:max-w-none">
-            <CardHeader className="relative pr-10 pb-3 md:pb-4">
+          <Card className="relative z-10 mx-2 my-2 md:mx-0 md:my-0 max-w-md md:max-w-none flex flex-col" style={{ height: '100%' }}>
+            <CardHeader className="relative pr-10 pb-2 pt-3 md:pt-4">
               <CardTitle className="text-sm md:text-base">Nuevo Chat</CardTitle>
-              <CardDescription className="text-xs md:text-sm">
-                Selecciona zona y desarrollo para iniciar
+              <CardDescription className="text-xs">
+                Selecciona zona y desarrollo
               </CardDescription>
               {/* Botón para plegar sidebar (solo visible cuando está abierto) */}
               {sidebarOpen && (
@@ -876,10 +876,10 @@ export default function AgentPage() {
                 </Button>
               )}
             </CardHeader>
-            <CardContent className="space-y-3 md:space-y-4 px-4 md:px-6">
+            <CardContent className="space-y-2 md:space-y-3 px-4 md:px-6 pb-3 md:pb-4 flex-1 overflow-y-auto">
             {/* Zone Selection */}
-            <div className="space-y-1.5 md:space-y-2">
-              <Label htmlFor="zone" className="text-xs md:text-sm">Zona *</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="zone" className="text-xs">Zona *</Label>
               <Select value={zone} onValueChange={handleZoneChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona zona" />
@@ -895,8 +895,8 @@ export default function AgentPage() {
             </div>
 
             {/* Development Selection */}
-            <div className="space-y-1.5 md:space-y-2">
-              <Label htmlFor="development" className="text-xs md:text-sm">Desarrollo *</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="development" className="text-xs">Desarrollo *</Label>
               <Select value={development} onValueChange={handleDevelopmentChange} disabled={!zone}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona desarrollo" />
@@ -912,8 +912,8 @@ export default function AgentPage() {
             </div>
 
             {/* Document Type (optional) */}
-            <div className="space-y-1.5 md:space-y-2">
-              <Label htmlFor="type" className="text-xs md:text-sm">Tipo de Documento (opcional)</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="type" className="text-xs">Tipo de Documento (opcional)</Label>
               <Select value={type || undefined} onValueChange={setType}>
                 <SelectTrigger>
                   <SelectValue placeholder="Todos los tipos" />
@@ -928,21 +928,15 @@ export default function AgentPage() {
               </Select>
             </div>
 
-            {/* Info - Oculto en móviles */}
-            <div className="pt-3 md:pt-4 border-t space-y-1.5 md:space-y-2 text-xs md:text-sm hidden md:block">
+            {/* Info - Oculto en móviles y reducido */}
+            <div className="pt-2 border-t space-y-1.5 text-xs hidden lg:block">
               <div>
-                <h4 className="font-semibold mb-1 text-xs md:text-sm">¿Cómo funciona?</h4>
-                <p className="text-muted-foreground text-[11px] md:text-xs">
-                  Cada combinación de zona y desarrollo crea un chat independiente. Puedes tener múltiples conversaciones activas.
-                </p>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-1 text-xs md:text-sm">RAG Activo</h4>
-                <Badge variant="default" className="text-[10px] md:text-xs">✓ Búsqueda semántica</Badge>
+                <h4 className="font-semibold mb-0.5 text-xs">RAG Activo</h4>
+                <Badge variant="default" className="text-[10px]">✓ Búsqueda semántica</Badge>
               </div>
               {userRole === 'admin' && (
-                <div className="pt-1 md:pt-2">
-                  <Badge variant="outline" className="text-[10px] md:text-xs">
+                <div className="pt-1">
+                  <Badge variant="outline" className="text-[10px]">
                     ⚠️ Admin: No puedes eliminar historial
                   </Badge>
                 </div>
@@ -974,7 +968,7 @@ export default function AgentPage() {
         )}
 
         {/* Área de chats */}
-        <Card className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        <Card className="flex flex-col min-w-0 overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
           {chatList.length === 0 ? (
             <CardContent className="flex-1 flex items-center justify-center min-h-0 p-4 md:p-6">
               <div className="text-center text-muted-foreground">
@@ -984,8 +978,8 @@ export default function AgentPage() {
               </div>
             </CardContent>
           ) : (
-            <Tabs value={activeChatId || undefined} onValueChange={setActiveChatId} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <CardHeader className="flex-shrink-0 pb-2 px-3 md:px-4 lg:px-6 pt-3 md:pt-4 lg:pt-6">
+            <Tabs value={activeChatId || undefined} onValueChange={setActiveChatId} className="flex flex-col overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
+              <CardHeader className="flex-shrink-0 pb-2 px-3 md:px-4 lg:px-6 pt-3 md:pt-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-sm md:text-base lg:text-lg">Chats Activos</CardTitle>
@@ -1027,10 +1021,10 @@ export default function AgentPage() {
               </CardHeader>
 
               {chatList.map((chat) => (
-                <TabsContent key={chat.id} value={chat.id} className="flex-1 flex flex-col m-0 p-0 min-h-0 overflow-hidden">
-                  <CardContent className="flex-1 flex flex-col min-h-0 px-3 md:px-4 lg:px-6 pb-3 md:pb-4 lg:pb-6 pt-0 overflow-hidden">
+                <TabsContent key={chat.id} value={chat.id} className="flex flex-col m-0 p-0 overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
+                  <CardContent className="flex flex-col px-3 md:px-4 lg:px-6 pb-3 md:pb-4 pt-2 overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
                     {/* Área de mensajes */}
-                    <div className="flex-1 overflow-y-auto space-y-3 md:space-y-4 mb-3 md:mb-4 pr-1 md:pr-2 min-h-0 w-full max-h-full">
+                    <div className="chat-messages-container overflow-y-auto space-y-3 mb-3 pr-1 md:pr-2" style={{ flex: 1, minHeight: 0 }}>
                       {chat.messages.length === 0 && !loadingHistory[chat.id] && (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                           <div className="text-center">
@@ -1285,7 +1279,7 @@ export default function AgentPage() {
                     </div>
 
                     {/* Input de mensaje y acciones */}
-                    <div className="space-y-1.5 md:space-y-2 border-t pt-2 md:pt-3 lg:pt-4 flex-shrink-0">
+                    <div className="space-y-1.5 border-t pt-2 flex-shrink-0">
                       <div className="flex gap-1.5 md:gap-2">
                         <div className="relative flex-1">
                           <Textarea

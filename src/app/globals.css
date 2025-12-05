@@ -178,3 +178,35 @@
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
 }
+
+/* Safari/WebKit specific fixes for flexbox height issues */
+@supports (-webkit-appearance: none) {
+  /* Asegurar que los contenedores flex usen todo el espacio vertical en Safari */
+  .flex-1 {
+    flex: 1 1 0%;
+    min-height: 0;
+  }
+  
+  /* Fix para contenedores de scroll en Safari */
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Utility class para forzar altura completa en Safari */
+.safari-full-height {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fix específico para área de chat en Safari */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .chat-messages-container {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}

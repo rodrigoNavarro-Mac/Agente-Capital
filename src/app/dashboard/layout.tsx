@@ -85,8 +85,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
         }`}
       >
         <Navbar />
-        <main className="flex-1 overflow-hidden pt-24">
-          <div className="h-full p-6 overflow-y-auto">
+        <main className="flex-1 overflow-hidden pt-20">
+          <div className="h-full p-4 md:p-6 overflow-y-auto">
             {children}
           </div>
         </main>
