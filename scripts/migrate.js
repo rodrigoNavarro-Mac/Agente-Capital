@@ -33,24 +33,43 @@ function getPoolConfig() {
     // Detectar si es Supabase o conexión remota
     let isSupabase = false;
     let hostname = 'unknown';
+    let parsedUrl = null;
+    
     try {
-      const url = new URL(connectionString);
-      hostname = url.hostname;
+      parsedUrl = new URL(connectionString);
+      hostname = parsedUrl.hostname;
       isSupabase = hostname.includes('supabase.co') || 
                    hostname.includes('supabase') ||
                    !!process.env.POSTGRES_URL || 
                    !!process.env.POSTGRES_PRISMA_URL ||
                    !!process.env.POSTGRES_URL_NON_POOLING;
+      
+      // Para Supabase, usar parámetros individuales en lugar de connectionString
+      if (isSupabase && parsedUrl) {
+        const password = parsedUrl.password || '';
+        const username = parsedUrl.username || 'postgres';
+        const database = parsedUrl.pathname.slice(1) || 'postgres';
+        const port = parseInt(parsedUrl.port || '5432');
+        
+        return {
+          host: hostname,
+          port: port,
+          user: username,
+          password: password,
+          database: database,
+          ssl: {
+            rejectUnauthorized: false,
+          },
+        };
+      }
     } catch (e) {
       isSupabase = !!process.env.POSTGRES_URL || 
                    !!process.env.POSTGRES_PRISMA_URL ||
                    !!process.env.POSTGRES_URL_NON_POOLING;
     }
     
-    // Configurar SSL para Supabase y conexiones remotas
-    const sslConfig = isSupabase || hostname.includes('supabase')
-      ? { rejectUnauthorized: false, require: true }
-      : hostname !== 'localhost' && hostname !== '127.0.0.1'
+    // Para conexiones no-Supabase
+    const sslConfig = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== 'unknown'
       ? { rejectUnauthorized: false }
       : undefined;
     

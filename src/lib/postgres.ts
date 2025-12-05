@@ -64,9 +64,11 @@ function getPoolConfig() {
     // Extraer hostname para logging (sin exponer credenciales)
     let isSupabase = false;
     let hostname = 'unknown';
+    let parsedUrl: URL | null = null;
+    
     try {
-      const url = new URL(connectionString);
-      hostname = url.hostname;
+      parsedUrl = new URL(connectionString);
+      hostname = parsedUrl.hostname;
       // Detectar si es Supabase por hostname o por variables de entorno
       isSupabase = hostname.includes('supabase.co') || 
                    hostname.includes('supabase') ||
@@ -78,9 +80,30 @@ function getPoolConfig() {
                      process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' :
                      process.env.POSTGRES_PRISMA_URL ? 'POSTGRES_PRISMA_URL' :
                      'DATABASE_URL';
-      console.log(`🔌 Configurando conexión a: ${hostname}:${url.port || 5432} (${source})`);
-      if (isSupabase) {
-        console.log('🔒 SSL habilitado para Supabase (rejectUnauthorized: false)');
+      console.log(`🔌 Configurando conexión a: ${hostname}:${parsedUrl.port || 5432} (${source})`);
+      
+      // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
+      // Esto asegura que la configuración SSL se aplique correctamente
+      if (isSupabase && parsedUrl) {
+        console.log('🔒 Usando configuración SSL explícita para Supabase (sin connectionString)');
+        const password = parsedUrl.password || '';
+        const username = parsedUrl.username || 'postgres';
+        const database = parsedUrl.pathname.slice(1) || 'postgres';
+        const port = parseInt(parsedUrl.port || '5432');
+        
+        return {
+          host: hostname,
+          port: port,
+          user: username,
+          password: password,
+          database: database,
+          max: 20,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 10000,
+          ssl: {
+            rejectUnauthorized: false, // Necesario para Supabase en Vercel
+          },
+        };
       }
     } catch (e) {
       console.error('❌ Error parseando cadena de conexión:', e);
@@ -90,17 +113,11 @@ function getPoolConfig() {
                    !!process.env.POSTGRES_URL_NON_POOLING;
     }
     
-    // Configurar SSL: Supabase siempre requiere SSL, pero en Vercel necesitamos
-    // desactivar la validación estricta del certificado para evitar errores
-    // de "self-signed certificate in certificate chain"
-    const sslConfig = isSupabase || hostname.includes('supabase') 
+    // Para conexiones no-Supabase, usar connectionString normalmente
+    // Configurar SSL para otras conexiones remotas
+    const sslConfig = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== 'unknown'
       ? { 
-          rejectUnauthorized: false, // Necesario para Supabase en Vercel
-          require: true 
-        }
-      : hostname !== 'localhost' && hostname !== '127.0.0.1'
-      ? { 
-          rejectUnauthorized: false // Para otras conexiones remotas también
+          rejectUnauthorized: false // Para conexiones remotas
         }
       : undefined; // Sin SSL para localhost
     
@@ -108,7 +125,7 @@ function getPoolConfig() {
       connectionString: connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000, // Aumentado para conexiones remotas
+      connectionTimeoutMillis: 10000,
       ssl: sslConfig,
     };
   }
