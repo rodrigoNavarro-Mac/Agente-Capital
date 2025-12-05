@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Building2,
   User,
+  BookOpen,
 } from 'lucide-react';
 import type { UserRole } from '@/types/documents';
 import { useSidebar } from '@/contexts/sidebar-context';
@@ -49,6 +50,12 @@ const NAV_ITEMS: NavItem[] = [
     title: 'Documentos', 
     href: '/dashboard/documents', 
     icon: FileText 
+  },
+  { 
+    title: 'Guía de Usuario', 
+    href: '/dashboard/guia', 
+    icon: BookOpen
+    // Disponible para todos los usuarios
   },
   { 
     title: 'ZOHO CRM (En Desarrollo)', 
