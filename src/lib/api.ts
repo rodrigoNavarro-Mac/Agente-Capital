@@ -207,7 +207,14 @@ export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse
   const url = `/api/logs${queryParams.toString() ? `?${queryParams}` : ''}`;
   console.log('🌐 [API] Llamando a:', url);
   
-  const response = await fetcher<{ success: boolean; data: LogsResponse }>(url);
+  // Obtener token de autenticación
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  const response = await fetcher<{ success: boolean; data: LogsResponse }>(url, {
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
+  });
   
   console.log('📦 [API] Respuesta recibida:', {
     success: response.success,
