@@ -816,32 +816,51 @@ export default function AgentPage() {
 
   return (
     <div className="w-full h-full flex flex-col min-h-0 max-h-full">
-      {/* Header */}
-      <div className="flex-shrink-0 mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-3xl font-bold navy-text">Consultar Agente</h1>
+      {/* Header - Más compacto en móviles */}
+      <div className="flex-shrink-0 mb-2 md:mb-4 px-2 md:px-0">
+        <div className="flex items-center gap-2 md:gap-3 mb-1 md:mb-2">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold navy-text">Consultar Agente</h1>
           {!sidebarOpen && (
-            <Badge variant="outline" className="text-xs animate-in fade-in duration-300">
+            <Badge variant="outline" className="text-[10px] md:text-xs animate-in fade-in duration-300">
               Panel colapsado
             </Badge>
           )}
         </div>
-        <p className="text-muted-foreground">
+        <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
           Realiza consultas al agente de IA con contexto RAG. Puedes tener múltiples conversaciones activas.
         </p>
       </div>
 
-      <div className="flex gap-6 relative flex-1 min-h-0 overflow-hidden">
+      <div className="flex gap-2 md:gap-4 lg:gap-6 relative flex-1 min-h-0 overflow-hidden px-2 md:px-0">
         {/* Panel de configuración - Sidebar */}
+        {/* En móviles (<md), el sidebar es un overlay absoluto */}
+        {/* En desktop (>=md), está al lado del chat */}
         <div 
-          className={`transition-all duration-300 ease-in-out ${
-            sidebarOpen ? 'w-80 opacity-100' : 'w-0 opacity-0'
-          } flex-shrink-0 overflow-hidden relative`}
+          className={`
+            transition-all duration-300 ease-in-out flex-shrink-0 overflow-hidden relative z-20
+            ${sidebarOpen 
+              ? 'md:w-72 lg:w-80 opacity-100' 
+              : 'md:w-0 opacity-0'
+            }
+            ${sidebarOpen 
+              ? 'fixed md:relative inset-0 md:inset-auto w-full md:w-72 lg:w-80' 
+              : 'hidden md:block'
+            }
+          `}
         >
-          <Card className="h-full">
-            <CardHeader className="relative pr-10">
-              <CardTitle className="text-base">Nuevo Chat</CardTitle>
-              <CardDescription>
+          {/* Backdrop para móviles */}
+          {sidebarOpen && (
+            <div 
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm md:hidden z-0"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Cerrar sidebar"
+            />
+          )}
+          
+          <Card className="h-full relative z-10 mx-2 my-2 md:mx-0 md:my-0 max-w-md md:max-w-none">
+            <CardHeader className="relative pr-10 pb-3 md:pb-4">
+              <CardTitle className="text-sm md:text-base">Nuevo Chat</CardTitle>
+              <CardDescription className="text-xs md:text-sm">
                 Selecciona zona y desarrollo para iniciar
               </CardDescription>
               {/* Botón para plegar sidebar (solo visible cuando está abierto) */}
@@ -849,7 +868,7 @@ export default function AgentPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="absolute top-4 right-4 h-8 w-8"
+                  className="absolute top-3 md:top-4 right-3 md:right-4 h-7 w-7 md:h-8 md:w-8"
                   onClick={() => setSidebarOpen(false)}
                   aria-label="Ocultar sidebar"
                 >
@@ -857,10 +876,10 @@ export default function AgentPage() {
                 </Button>
               )}
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 md:space-y-4 px-4 md:px-6">
             {/* Zone Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="zone">Zona *</Label>
+            <div className="space-y-1.5 md:space-y-2">
+              <Label htmlFor="zone" className="text-xs md:text-sm">Zona *</Label>
               <Select value={zone} onValueChange={handleZoneChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona zona" />
@@ -876,8 +895,8 @@ export default function AgentPage() {
             </div>
 
             {/* Development Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="development">Desarrollo *</Label>
+            <div className="space-y-1.5 md:space-y-2">
+              <Label htmlFor="development" className="text-xs md:text-sm">Desarrollo *</Label>
               <Select value={development} onValueChange={handleDevelopmentChange} disabled={!zone}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona desarrollo" />
@@ -893,8 +912,8 @@ export default function AgentPage() {
             </div>
 
             {/* Document Type (optional) */}
-            <div className="space-y-2">
-              <Label htmlFor="type">Tipo de Documento (opcional)</Label>
+            <div className="space-y-1.5 md:space-y-2">
+              <Label htmlFor="type" className="text-xs md:text-sm">Tipo de Documento (opcional)</Label>
               <Select value={type || undefined} onValueChange={setType}>
                 <SelectTrigger>
                   <SelectValue placeholder="Todos los tipos" />
@@ -909,21 +928,21 @@ export default function AgentPage() {
               </Select>
             </div>
 
-            {/* Info */}
-            <div className="pt-4 border-t space-y-2 text-sm">
+            {/* Info - Oculto en móviles */}
+            <div className="pt-3 md:pt-4 border-t space-y-1.5 md:space-y-2 text-xs md:text-sm hidden md:block">
               <div>
-                <h4 className="font-semibold mb-1">¿Cómo funciona?</h4>
-                <p className="text-muted-foreground text-xs">
+                <h4 className="font-semibold mb-1 text-xs md:text-sm">¿Cómo funciona?</h4>
+                <p className="text-muted-foreground text-[11px] md:text-xs">
                   Cada combinación de zona y desarrollo crea un chat independiente. Puedes tener múltiples conversaciones activas.
                 </p>
               </div>
               <div>
-                <h4 className="font-semibold mb-1">RAG Activo</h4>
-                <Badge variant="default">✓ Búsqueda semántica</Badge>
+                <h4 className="font-semibold mb-1 text-xs md:text-sm">RAG Activo</h4>
+                <Badge variant="default" className="text-[10px] md:text-xs">✓ Búsqueda semántica</Badge>
               </div>
               {userRole === 'admin' && (
-                <div className="pt-2">
-                  <Badge variant="outline" className="text-xs">
+                <div className="pt-1 md:pt-2">
+                  <Badge variant="outline" className="text-[10px] md:text-xs">
                     ⚠️ Admin: No puedes eliminar historial
                   </Badge>
                 </div>
@@ -935,19 +954,19 @@ export default function AgentPage() {
 
         {/* Botón flotante mejorado para mostrar sidebar cuando está oculto */}
         {!sidebarOpen && (
-          <div className="absolute left-0 top-20 z-10 animate-in slide-in-from-left duration-300 group">
+          <div className="fixed md:absolute left-0 top-16 md:top-20 z-10 animate-in slide-in-from-left duration-300 group">
             <Button
               variant="default"
               size="icon"
-              className="h-12 w-12 rounded-r-lg border-l-0 shadow-lg bg-primary hover:bg-primary/90 text-primary-foreground transition-all duration-200 hover:scale-105 hover:shadow-xl"
+              className="h-10 w-10 md:h-12 md:w-12 rounded-r-lg border-l-0 shadow-lg bg-primary hover:bg-primary/90 text-primary-foreground transition-all duration-200 hover:scale-105 hover:shadow-xl"
               onClick={() => setSidebarOpen(true)}
               aria-label="Mostrar panel de configuración"
               title="Mostrar panel de configuración"
             >
-              <ChevronRight className="h-5 w-5 transition-transform duration-200 group-hover:translate-x-0.5" />
+              <ChevronRight className="h-4 w-4 md:h-5 md:w-5 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Button>
-            {/* Tooltip visual mejorado */}
-            <div className="absolute left-14 top-1/2 -translate-y-1/2 bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-md shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            {/* Tooltip visual mejorado - solo visible en desktop */}
+            <div className="hidden md:block absolute left-14 top-1/2 -translate-y-1/2 bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 rounded-md shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
               Configurar chat
               <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-2 h-2 bg-primary rotate-45"></div>
             </div>
@@ -957,36 +976,36 @@ export default function AgentPage() {
         {/* Área de chats */}
         <Card className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {chatList.length === 0 ? (
-            <CardContent className="flex-1 flex items-center justify-center min-h-0">
+            <CardContent className="flex-1 flex items-center justify-center min-h-0 p-4 md:p-6">
               <div className="text-center text-muted-foreground">
-                <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-2">No hay chats activos</p>
-                <p className="text-sm">Selecciona zona y desarrollo para comenzar una conversación</p>
+                <MessageSquare className="h-12 w-12 md:h-16 md:w-16 mx-auto mb-2 md:mb-4 opacity-50" />
+                <p className="text-sm md:text-lg font-medium mb-1 md:mb-2">No hay chats activos</p>
+                <p className="text-xs md:text-sm">Selecciona zona y desarrollo para comenzar una conversación</p>
               </div>
             </CardContent>
           ) : (
             <Tabs value={activeChatId || undefined} onValueChange={setActiveChatId} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <CardHeader className="flex-shrink-0 pb-2 px-6 pt-6">
+              <CardHeader className="flex-shrink-0 pb-2 px-3 md:px-4 lg:px-6 pt-3 md:pt-4 lg:pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Chats Activos</CardTitle>
-                    <CardDescription>
+                    <CardTitle className="text-sm md:text-base lg:text-lg">Chats Activos</CardTitle>
+                    <CardDescription className="text-xs md:text-sm">
                       {chatList.length} conversación(es) activa(s)
                     </CardDescription>
                   </div>
                 </div>
-                <TabsList className="flex w-full gap-2 mt-2 overflow-x-auto">
+                <TabsList className="flex w-full gap-1 md:gap-2 mt-2 overflow-x-auto pb-1">
                   {chatList.map((chat) => (
                     <TabsTrigger
                       key={chat.id}
                       value={chat.id}
-                      className="flex items-center gap-2 min-w-0 flex-shrink-0"
+                      className="flex items-center gap-1 md:gap-2 min-w-0 flex-shrink-0 text-xs md:text-sm px-2 md:px-3"
                     >
-                      <span className="truncate max-w-[200px]">
+                      <span className="truncate max-w-[120px] md:max-w-[150px] lg:max-w-[200px]">
                         {ZONES.find(z => z.value === chat.zone)?.label || chat.zone} - {(DEVELOPMENTS[chat.zone] || []).find(d => d.value === chat.development)?.label || chat.development}
                       </span>
                       <div
-                        className="h-4 w-4 p-0 hover:bg-destructive hover:text-destructive-foreground flex-shrink-0 flex items-center justify-center rounded cursor-pointer"
+                        className="h-3 w-3 md:h-4 md:w-4 p-0 hover:bg-destructive hover:text-destructive-foreground flex-shrink-0 flex items-center justify-center rounded cursor-pointer"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleCloseChat(chat.id);
@@ -1000,7 +1019,7 @@ export default function AgentPage() {
                           }
                         }}
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-2 w-2 md:h-3 md:w-3" />
                       </div>
                     </TabsTrigger>
                   ))}
@@ -1009,9 +1028,9 @@ export default function AgentPage() {
 
               {chatList.map((chat) => (
                 <TabsContent key={chat.id} value={chat.id} className="flex-1 flex flex-col m-0 p-0 min-h-0 overflow-hidden">
-                  <CardContent className="flex-1 flex flex-col min-h-0 px-6 pb-6 pt-0 overflow-hidden">
+                  <CardContent className="flex-1 flex flex-col min-h-0 px-3 md:px-4 lg:px-6 pb-3 md:pb-4 lg:pb-6 pt-0 overflow-hidden">
                     {/* Área de mensajes */}
-                    <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 min-h-0 w-full max-h-full">
+                    <div className="flex-1 overflow-y-auto space-y-3 md:space-y-4 mb-3 md:mb-4 pr-1 md:pr-2 min-h-0 w-full max-h-full">
                       {chat.messages.length === 0 && !loadingHistory[chat.id] && (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                           <div className="text-center">
@@ -1023,38 +1042,38 @@ export default function AgentPage() {
 
                       {loadingHistory[chat.id] && (
                         <div className="flex items-center justify-center h-full">
-                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          <Loader2 className="h-5 w-5 md:h-6 md:w-6 animate-spin text-muted-foreground" />
                         </div>
                       )}
 
                       {chat.messages.map((message) => (
                         <div
                           key={message.id}
-                          className={`flex gap-3 w-full ${
+                          className={`flex gap-2 md:gap-3 w-full ${
                             message.role === 'user' ? 'justify-end' : 'justify-start'
                           }`}
                         >
                           {message.role === 'assistant' && (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Bot className="h-4 w-4 text-primary" />
+                            <div className="flex-shrink-0 w-6 h-6 md:w-8 md:h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              <Bot className="h-3 w-3 md:h-4 md:w-4 text-primary" />
                             </div>
                           )}
                           
                           <div
-                            className={`max-w-[90%] sm:max-w-[85%] md:max-w-[75%] lg:max-w-[70%] rounded-lg p-4 ${
+                            className={`max-w-[85%] sm:max-w-[80%] md:max-w-[75%] lg:max-w-[70%] rounded-lg p-3 md:p-4 ${
                               message.role === 'user'
                                 ? 'bg-primary text-primary-foreground'
                                 : 'bg-muted'
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div className="flex items-center gap-2">
+                            <div className="flex items-start justify-between gap-1 md:gap-2 mb-1.5 md:mb-2">
+                              <div className="flex items-center gap-1 md:gap-2">
                                 {message.role === 'user' ? (
-                                  <User className="h-4 w-4" />
+                                  <User className="h-3 w-3 md:h-4 md:w-4" />
                                 ) : (
-                                  <Bot className="h-4 w-4" />
+                                  <Bot className="h-3 w-3 md:h-4 md:w-4" />
                                 )}
-                                <span className="text-xs opacity-70">
+                                <span className="text-[10px] md:text-xs opacity-70">
                                   {message.timestamp.toLocaleTimeString('es-MX', {
                                     hour: '2-digit',
                                     minute: '2-digit',
@@ -1062,15 +1081,15 @@ export default function AgentPage() {
                                 </span>
                               </div>
                               {message.role === 'assistant' && (
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-0.5 md:gap-1">
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 w-6 p-0"
+                                    className="h-5 w-5 md:h-6 md:w-6 p-0"
                                     onClick={() => handleCopyAnswer(message.content)}
                                     title="Copiar respuesta"
                                   >
-                                    <Copy className="h-3 w-3" />
+                                    <Copy className="h-2.5 w-2.5 md:h-3 md:w-3" />
                                   </Button>
                                   {/* Botón de regenerar - solo si hay un mensaje de usuario anterior */}
                                   {(() => {
@@ -1084,15 +1103,15 @@ export default function AgentPage() {
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          className="h-6 w-6 p-0"
+                                          className="h-5 w-5 md:h-6 md:w-6 p-0"
                                           onClick={() => handleRegenerateResponse(message.id, originalQuery)}
                                           disabled={isRegenerating}
                                           title="Regenerar respuesta"
                                         >
                                           {isRegenerating ? (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            <Loader2 className="h-2.5 w-2.5 md:h-3 md:w-3 animate-spin" />
                                           ) : (
-                                            <RefreshCw className="h-3 w-3" />
+                                            <RefreshCw className="h-2.5 w-2.5 md:h-3 md:w-3" />
                                           )}
                                         </Button>
                                       );
@@ -1132,7 +1151,7 @@ export default function AgentPage() {
 
                             {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
                               <div 
-                                className="mt-3 pt-3 border-t border-border/50"
+                                className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-border/50"
                                 data-sources-id={message.id}
                               >
                                 <Accordion 
@@ -1148,41 +1167,41 @@ export default function AgentPage() {
                                   }}
                                 >
                                   <AccordionItem value={`sources-${message.id}`} className="border-none">
-                                    <AccordionTrigger className="text-xs py-2">
+                                    <AccordionTrigger className="text-[10px] md:text-xs py-1.5 md:py-2">
                                       Fuentes ({message.sources.length})
                                     </AccordionTrigger>
                                     <AccordionContent>
-                                      <div className="space-y-2">
+                                      <div className="space-y-1.5 md:space-y-2">
                                         {message.sources.map((source, index) => (
                                           <div 
                                             key={index} 
-                                            className="text-xs bg-background/50 p-2 rounded transition-all"
+                                            className="text-[10px] md:text-xs bg-background/50 p-1.5 md:p-2 rounded transition-all"
                                             data-source-index={index}
                                           >
-                                            <div className="flex items-center gap-2 mb-1">
+                                            <div className="flex items-center gap-1 md:gap-2 mb-0.5 md:mb-1 flex-wrap">
                                               {/* Número de referencia de la fuente */}
                                               <Badge 
                                                 variant="default" 
-                                                className="text-xs font-bold min-w-[24px] justify-center"
+                                                className="text-[9px] md:text-xs font-bold min-w-[20px] md:min-w-[24px] justify-center py-0 px-1"
                                                 title={`Fuente ${index + 1}`}
                                               >
                                                 [{index + 1}]
                                               </Badge>
                                               {/* Solo mostrar el badge de relevancia si el score es mayor a 0 */}
                                               {source.relevance_score > 0 && (
-                                                <Badge variant="outline" className="text-xs">
+                                                <Badge variant="outline" className="text-[9px] md:text-xs py-0 px-1">
                                                   {Math.round(source.relevance_score * 100)}%
                                                 </Badge>
                                               )}
-                                              <span className="font-medium">{source.filename}</span>
+                                              <span className="font-medium text-[10px] md:text-xs truncate">{source.filename}</span>
                                               {source.page > 0 && (
-                                                <span className="text-muted-foreground">
-                                                  Página {source.page}
+                                                <span className="text-muted-foreground text-[9px] md:text-xs">
+                                                  P. {source.page}
                                                 </span>
                                               )}
                                             </div>
                                             {source.text_preview && (
-                                              <p className="text-muted-foreground text-xs mt-1">
+                                              <p className="text-muted-foreground text-[9px] md:text-xs mt-0.5 md:mt-1 line-clamp-2">
                                                 {source.text_preview}
                                               </p>
                                             )}
@@ -1197,10 +1216,10 @@ export default function AgentPage() {
 
                             {/* Calificación de respuesta */}
                             {message.role === 'assistant' && message.query_log_id && (
-                              <div className="mt-3 pt-3 border-t border-border/50">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-muted-foreground">Califica esta respuesta:</span>
-                                  <div className="flex items-center gap-1">
+                              <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-border/50">
+                                <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+                                  <span className="text-[10px] md:text-xs text-muted-foreground">Califica:</span>
+                                  <div className="flex items-center gap-0.5 md:gap-1">
                                     {[1, 2, 3, 4, 5].map((star) => {
                                       const currentRating = message.rating || ratingMessages[message.query_log_id!] || 0;
                                       const isSubmitting = submittingRating[message.query_log_id!] || false;
@@ -1220,7 +1239,7 @@ export default function AgentPage() {
                                           title={`Calificar con ${star} estrella${star > 1 ? 's' : ''}`}
                                         >
                                           <Star
-                                            className={`h-4 w-4 ${
+                                            className={`h-3 w-3 md:h-4 md:w-4 ${
                                               isFilled
                                                 ? 'fill-yellow-400 text-yellow-400'
                                                 : 'text-muted-foreground hover:text-yellow-400'
@@ -1230,8 +1249,8 @@ export default function AgentPage() {
                                       );
                                     })}
                                     {message.rating && (
-                                      <span className="text-xs text-muted-foreground ml-2">
-                                        ✓ Calificado
+                                      <span className="text-[9px] md:text-xs text-muted-foreground ml-1 md:ml-2">
+                                        ✓
                                       </span>
                                     )}
                                   </div>
@@ -1241,22 +1260,22 @@ export default function AgentPage() {
                           </div>
 
                           {message.role === 'user' && (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <User className="h-4 w-4 text-primary" />
+                            <div className="flex-shrink-0 w-6 h-6 md:w-8 md:h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              <User className="h-3 w-3 md:h-4 md:w-4 text-primary" />
                             </div>
                           )}
                         </div>
                       ))}
 
                       {loading && activeChatId === chat.id && (
-                        <div className="flex gap-3 justify-start">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            <Bot className="h-4 w-4 text-primary" />
+                        <div className="flex gap-2 md:gap-3 justify-start">
+                          <div className="flex-shrink-0 w-6 h-6 md:w-8 md:h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <Bot className="h-3 w-3 md:h-4 md:w-4 text-primary" />
                           </div>
-                          <div className="bg-muted rounded-lg p-4">
-                            <div className="flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm text-muted-foreground">El agente está pensando...</span>
+                          <div className="bg-muted rounded-lg p-3 md:p-4">
+                            <div className="flex items-center gap-1.5 md:gap-2">
+                              <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" />
+                              <span className="text-xs md:text-sm text-muted-foreground">Pensando...</span>
                             </div>
                           </div>
                         </div>
@@ -1266,28 +1285,28 @@ export default function AgentPage() {
                     </div>
 
                     {/* Input de mensaje y acciones */}
-                    <div className="space-y-2 border-t pt-4 flex-shrink-0">
-                      <div className="flex gap-2">
+                    <div className="space-y-1.5 md:space-y-2 border-t pt-2 md:pt-3 lg:pt-4 flex-shrink-0">
+                      <div className="flex gap-1.5 md:gap-2">
                         <div className="relative flex-1">
                           <Textarea
-                            placeholder="Escribe tu pregunta aquí... (Presiona Enter para enviar, Shift+Enter para nueva línea)"
+                            placeholder="Escribe tu pregunta... (Enter para enviar)"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            rows={3}
+                            rows={2}
                             disabled={loading || activeChatId !== chat.id}
-                            className="pr-12"
+                            className="pr-10 md:pr-12 text-xs md:text-sm resize-none"
                           />
                           <Button
                             onClick={handleQuery}
                             disabled={!query.trim() || activeChatId !== chat.id || loading}
-                            className="absolute bottom-2 right-2"
+                            className="absolute bottom-1.5 md:bottom-2 right-1.5 md:right-2"
                             size="sm"
                           >
                             {loading ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" />
                             ) : (
-                              <Send className="h-4 w-4" />
+                              <Send className="h-3 w-3 md:h-4 md:w-4" />
                             )}
                           </Button>
                         </div>
@@ -1296,13 +1315,14 @@ export default function AgentPage() {
                             variant="outline"
                             onClick={() => handleClearChat(chat.id)}
                             disabled={chat.messages.length === 0 || loadingHistory[chat.id]}
-                            className="flex-shrink-0"
+                            className="flex-shrink-0 px-2 md:px-4"
+                            size="sm"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
                           </Button>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-[10px] md:text-xs text-muted-foreground px-1">
                         {query.length} caracteres
                       </p>
                     </div>
