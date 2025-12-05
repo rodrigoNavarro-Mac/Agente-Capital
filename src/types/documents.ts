@@ -159,10 +159,7 @@ export type UserRole =
   | 'post_sales'      // Post-Venta
   | 'legal_manager'   // Gerente Legal
   | 'marketing_manager' // Gerente de Marketing
-  | 'manager'         // Gestión de desarrollos (legacy)
-  | 'sales'           // Equipo de ventas (legacy)
-  | 'support'         // Soporte al cliente (legacy)
-  | 'viewer';         // Solo lectura (legacy)
+
 
 /**
  * Permisos del sistema

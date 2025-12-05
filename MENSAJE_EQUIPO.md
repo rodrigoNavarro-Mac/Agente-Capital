@@ -1,3 +1,4 @@
+
 # 📧 Mensaje para el Equipo - Lanzamiento IA Capital Plus
 
 ## Versión Final para Enviar

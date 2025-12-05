@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
-  Video,
   Shield,
   Lightbulb,
   AlertCircle
@@ -20,7 +19,6 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { UserRole } from '@/types/documents';
 
 // Tipo para secciones de la guía
@@ -63,7 +61,7 @@ export default function GuiaPage() {
 
   // Obtener nombre del rol en español
   const getRoleName = (role: UserRole | null): string => {
-    const roleNames: Record<UserRole, string> = {
+    const roleNames: Partial<Record<UserRole, string>> = {
       'admin': 'Administrador',
       'ceo': 'CEO',
       'sales_manager': 'Gerente de Ventas',
@@ -72,14 +70,11 @@ export default function GuiaPage() {
       'legal_manager': 'Gerente Legal',
       'marketing_manager': 'Gerente de Marketing'
     };
-    return role ? roleNames[role] : 'Usuario';
+    return role && roleNames[role] ? roleNames[role] : 'Usuario';
   };
 
   // Verificar si el usuario puede subir documentos
   const canUpload = userRole && ['admin', 'ceo', 'sales_manager', 'legal_manager', 'marketing_manager'].includes(userRole);
-
-  // Verificar si es administrador
-  const isAdmin = userRole && ['admin', 'ceo'].includes(userRole);
 
   // Definir secciones de la guía
   const guideSections: GuideSection[] = [
@@ -160,7 +155,7 @@ export default function GuiaPage() {
                 <strong>Escribe tu pregunta</strong> de forma natural
               </li>
               <li className="text-gray-700">
-                <strong>Presiona Enter</strong> o click en "Consultar"
+                <strong>Presiona Enter</strong> o click en &quot;Consultar&quot;
               </li>
             </ol>
           </div>
@@ -171,10 +166,10 @@ export default function GuiaPage() {
               Ejemplos de buenas preguntas:
             </h5>
             <ul className="space-y-1 text-sm text-green-800">
-              <li>• "¿Cuánto cuesta un departamento de 2 recámaras en Amura?"</li>
-              <li>• "¿Qué amenidades tiene el desarrollo Marea?"</li>
-              <li>• "¿Cuáles son los plazos de entrega de M2?"</li>
-              <li>• "Dame información de contacto del desarrollo Amura"</li>
+              <li>• &quot;¿Cuánto cuesta un departamento de 2 recámaras en Amura?&quot;</li>
+              <li>• &quot;¿Qué amenidades tiene el desarrollo Marea?&quot;</li>
+              <li>• &quot;¿Cuáles son los plazos de entrega de M2?&quot;</li>
+              <li>• &quot;Dame información de contacto del desarrollo Amura&quot;</li>
             </ul>
           </div>
 
@@ -184,9 +179,9 @@ export default function GuiaPage() {
               Evita preguntas muy vagas:
             </h5>
             <ul className="space-y-1 text-sm text-red-800">
-              <li>• "Información" (demasiado general)</li>
-              <li>• "¿Qué hay?" (sin contexto)</li>
-              <li>• "Cuéntame" (sin especificar qué)</li>
+              <li>• &quot;Información&quot; (demasiado general)</li>
+              <li>• &quot;¿Qué hay?&quot; (sin contexto)</li>
+              <li>• &quot;Cuéntame&quot; (sin especificar qué)</li>
             </ul>
           </div>
 
@@ -325,7 +320,7 @@ export default function GuiaPage() {
             <h4 className="font-semibold text-capital-navy">Paso a paso para subir documentos:</h4>
             <ol className="space-y-3 list-decimal list-inside">
               <li className="text-gray-700">
-                <strong>Ve a "Subir Documentos"</strong> en el menú lateral
+                <strong>Ve a &quot;Subir Documentos&quot;</strong> en el menú lateral
               </li>
               <li className="text-gray-700">
                 <strong>Completa la información:</strong>
@@ -344,7 +339,7 @@ export default function GuiaPage() {
                 </ul>
               </li>
               <li className="text-gray-700">
-                <strong>Click en "Subir Documento"</strong> y espera a que se procese (30-60 segundos)
+                <strong>Click en &quot;Subir Documento&quot;</strong> y espera a que se procese (30-60 segundos)
               </li>
             </ol>
           </div>
@@ -352,7 +347,7 @@ export default function GuiaPage() {
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
             <h5 className="font-semibold text-green-900 mb-2">✓ Buenas prácticas:</h5>
             <ul className="space-y-1 text-sm text-green-800">
-              <li>• Usa nombres de archivo descriptivos (ej: "amura_precios_sep_2024.pdf")</li>
+              <li>• Usa nombres de archivo descriptivos (ej: &quot;amura_precios_sep_2024.pdf&quot;)</li>
               <li>• Sube siempre la versión más reciente del documento</li>
               <li>• Elimina versiones anteriores si actualizas un documento</li>
               <li>• Asegúrate que el texto del PDF sea seleccionable (no imágenes escaneadas)</li>
@@ -404,7 +399,7 @@ export default function GuiaPage() {
             <h4 className="font-semibold text-capital-navy">Ver lista de documentos:</h4>
             <ol className="space-y-2 list-decimal list-inside">
               <li className="text-gray-700">
-                Ve a <strong>"Documentos"</strong> en el menú lateral
+                Ve a <strong>&quot;Documentos&quot;</strong> en el menú lateral
               </li>
               <li className="text-gray-700">
                 Usa los <strong>filtros</strong> para encontrar documentos específicos:
@@ -461,7 +456,7 @@ export default function GuiaPage() {
             <h4 className="font-semibold text-capital-navy">Acceder a tu perfil:</h4>
             <ol className="space-y-2 list-decimal list-inside">
               <li className="text-gray-700">
-                Click en <strong>"Mi Perfil"</strong> en el menú lateral
+                Click en <strong>&quot;Mi Perfil&quot;</strong> en el menú lateral
               </li>
               <li className="text-gray-700">
                 O click en tu <strong>nombre/avatar</strong> en la esquina superior derecha
@@ -494,11 +489,11 @@ export default function GuiaPage() {
           <div className="space-y-3">
             <h4 className="font-semibold text-capital-navy">Cambiar tu contraseña:</h4>
             <ol className="space-y-2 list-decimal list-inside">
-              <li className="text-gray-700">En tu perfil, click en <strong>"Cambiar Contraseña"</strong></li>
+              <li className="text-gray-700">En tu perfil, click en <strong>&quot;Cambiar Contraseña&quot;</strong></li>
               <li className="text-gray-700">Ingresa tu contraseña actual</li>
               <li className="text-gray-700">Ingresa tu nueva contraseña (mínimo 8 caracteres)</li>
               <li className="text-gray-700">Confirma tu nueva contraseña</li>
-              <li className="text-gray-700">Click en "Guardar"</li>
+              <li className="text-gray-700">Click en &quot;Guardar&quot;</li>
             </ol>
           </div>
 
@@ -661,7 +656,7 @@ export default function GuiaPage() {
             <CardContent className="py-12 text-center">
               <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600">
-                No se encontraron resultados para "{searchTerm}"
+                No se encontraron resultados para &quot;{searchTerm}&quot;
               </p>
             </CardContent>
           </Card>
