@@ -601,15 +601,15 @@ export default function GuiaPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-3xl font-bold text-capital-navy flex items-center gap-3">
-            <Book className="h-8 w-8 text-capital-gold" />
-            Guía de Usuario
+          <h1 className="text-2xl sm:text-3xl font-bold text-capital-navy flex items-center gap-2 sm:gap-3">
+            <Book className="h-6 w-6 sm:h-8 sm:w-8 text-capital-gold flex-shrink-0" />
+            <span>Guía de Usuario</span>
           </h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-sm sm:text-base text-gray-600 mt-1 sm:mt-2">
             Aprende a usar el Agente Capital Plus de forma efectiva
           </p>
         </div>
@@ -633,14 +633,14 @@ export default function GuiaPage() {
 
       {/* Información del usuario */}
       <Card className="bg-gradient-to-r from-capital-navy to-capital-navy/90">
-        <CardContent className="pt-6 text-white">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-full bg-capital-gold flex items-center justify-center text-capital-navy text-2xl font-bold">
+        <CardContent className="pt-4 sm:pt-6 text-white">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-full bg-capital-gold flex items-center justify-center text-capital-navy text-xl sm:text-2xl font-bold flex-shrink-0">
               {userName.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <h3 className="text-xl font-semibold">{userName}</h3>
-              <p className="text-sm text-white/80">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg sm:text-xl font-semibold truncate">{userName}</h3>
+              <p className="text-xs sm:text-sm text-white/80 break-words">
                 Rol: {getRoleName(userRole)} • 
                 {canUpload ? ' Puede subir documentos' : ' Solo consultas'}
               </p>
@@ -672,27 +672,29 @@ export default function GuiaPage() {
                   className="w-full text-left"
                 >
                   <CardHeader className="hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-capital-navy/10 flex items-center justify-center">
-                          <Icon className="h-5 w-5 text-capital-navy" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                        <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-capital-navy/10 flex items-center justify-center flex-shrink-0">
+                          <Icon className="h-4 w-4 sm:h-5 sm:w-5 text-capital-navy" />
                         </div>
-                        <div>
-                          <CardTitle className="text-xl">{section.title}</CardTitle>
-                          <CardDescription>{section.description}</CardDescription>
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-base sm:text-xl truncate">{section.title}</CardTitle>
+                          <CardDescription className="text-xs sm:text-sm line-clamp-1">{section.description}</CardDescription>
                         </div>
                       </div>
-                      {isExpanded ? (
-                        <ChevronDown className="h-5 w-5 text-gray-400" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5 text-gray-400" />
-                      )}
+                      <div className="flex-shrink-0">
+                        {isExpanded ? (
+                          <ChevronDown className="h-5 w-5 text-gray-400" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-gray-400" />
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                 </button>
                 {isExpanded && (
                   <CardContent className="border-t">
-                    <div className="pt-6">
+                    <div className="pt-4 sm:pt-6">
                       {section.content}
                     </div>
                   </CardContent>
@@ -705,17 +707,17 @@ export default function GuiaPage() {
 
       {/* Footer de ayuda */}
       <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
+        <CardContent className="pt-4 sm:pt-6">
+          <div className="flex items-start gap-2 sm:gap-3">
             <HelpCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <h4 className="font-semibold text-blue-900 mb-2">¿Necesitas más ayuda?</h4>
-              <p className="text-sm text-blue-800">
+            <div className="min-w-0 flex-1">
+              <h4 className="font-semibold text-blue-900 mb-2 text-sm sm:text-base">¿Necesitas más ayuda?</h4>
+              <p className="text-xs sm:text-sm text-blue-800">
                 Si tienes problemas técnicos o preguntas adicionales, contacta a:
               </p>
-              <ul className="mt-2 space-y-1 text-sm text-blue-800">
+              <ul className="mt-2 space-y-1 text-xs sm:text-sm text-blue-800">
                 <li>• Tu supervisor directo</li>
-                <li>• Soporte técnico: soporte@capitalplus.com</li>
+                <li>• Soporte técnico: <a href="mailto:r.navarro@capitalplus.mx" className="underline break-all">r.navarro@capitalplus.mx</a></li>
                 <li>• Administradores del sistema</li>
               </ul>
             </div>

@@ -66,7 +66,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-3 sm:p-4">
       {/* Patrón sutil de fondo */}
       <div className="absolute inset-0 opacity-[0.02]">
         <div className="absolute inset-0" style={{
@@ -77,23 +77,23 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo/Header profesional */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-capital-navy rounded-lg mb-6 shadow-lg">
-            <Building2 className="h-8 w-8 text-capital-gold" />
+        <div className="text-center mb-6 sm:mb-10">
+          <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-capital-navy rounded-lg mb-4 sm:mb-6 shadow-lg">
+            <Building2 className="h-6 w-6 sm:h-8 sm:w-8 text-capital-gold" />
           </div>
-          <h1 className="text-3xl font-bold text-capital-navy mb-2 tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-bold text-capital-navy mb-2 tracking-tight">
             Capital Plus
           </h1>
-          <p className="text-sm text-gray-600 font-medium">Agente de IA</p>
+          <p className="text-xs sm:text-sm text-gray-600 font-medium">Agente de IA</p>
         </div>
 
         {/* Login Card profesional */}
         <Card className="shadow-xl border border-gray-200">
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-2xl font-semibold text-capital-navy">
+            <CardTitle className="text-xl sm:text-2xl font-semibold text-capital-navy">
               Iniciar Sesión
             </CardTitle>
-            <CardDescription className="text-gray-600">
+            <CardDescription className="text-sm text-gray-600">
               Ingresa tus credenciales para acceder al sistema
             </CardDescription>
           </CardHeader>
@@ -150,10 +150,10 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            <div className="mt-4 sm:mt-6 text-center">
               <a
                 href="/forgot-password"
-                className="text-sm text-capital-navy hover:text-capital-navy/80 font-medium hover:underline transition-colors"
+                className="text-xs sm:text-sm text-capital-navy hover:text-capital-navy/80 font-medium hover:underline transition-colors"
               >
                 ¿Olvidaste tu contraseña?
               </a>
@@ -162,7 +162,7 @@ export default function LoginPage() {
         </Card>
 
         {/* Footer profesional */}
-        <p className="text-center text-xs text-gray-500 mt-8">
+        <p className="text-center text-xs text-gray-500 mt-6 sm:mt-8">
           © 2024 Capital Plus. Todos los derechos reservados.
         </p>
       </div>

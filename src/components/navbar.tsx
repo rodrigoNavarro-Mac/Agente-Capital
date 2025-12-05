@@ -2,17 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, LogOut } from 'lucide-react';
+import { Bell, LogOut, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logout } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import { useSidebar } from '@/contexts/sidebar-context';
+import { cn } from '@/lib/utils';
 
 export function Navbar() {
   const router = useRouter();
   const { toast } = useToast();
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
-  const { sidebarOpen } = useSidebar();
+  const { sidebarOpen, toggleSidebar } = useSidebar();
 
   useEffect(() => {
     // Obtener información del usuario del localStorage
@@ -58,22 +59,40 @@ export function Navbar() {
 
   return (
     <header 
-      className={`fixed top-0 right-0 z-10 h-16 border-b bg-white transition-all duration-300 ease-in-out ${
-        sidebarOpen ? 'left-64' : 'left-0'
-      }`}
+      className={cn(
+        'fixed top-0 right-0 z-10 h-16 border-b bg-white transition-all duration-300 ease-in-out',
+        // En móviles siempre ocupa todo el ancho, en desktop se ajusta según sidebar
+        'left-0 md:left-0',
+        sidebarOpen && 'md:left-64'
+      )}
     >
-      <div className="flex h-full items-center justify-between px-8">
-        {/* Breadcrumb o título */}
-        <div>
-          <h2 className="text-lg font-semibold navy-text">
-            Capital Plus - Agente de IA
-          </h2>
+      <div className="flex h-full items-center justify-between px-4 md:px-8">
+        {/* Botón hamburguesa para móviles + Título */}
+        <div className="flex items-center gap-3 md:gap-4">
+          {/* Botón hamburguesa - solo visible en móviles */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className="md:hidden"
+            aria-label="Toggle sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          
+          {/* Título - responsive */}
+          <div>
+            <h2 className="text-base md:text-lg font-semibold navy-text truncate max-w-[200px] md:max-w-none">
+              Capital Plus - Agente de IA
+            </h2>
+          </div>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
+          {/* Nombre del usuario - oculto en móviles pequeños */}
           {user && (
-            <div className="text-sm text-muted-foreground opacity-60 hover:opacity-100 transition-opacity duration-200">
+            <div className="hidden sm:block text-sm text-muted-foreground opacity-60 hover:opacity-100 transition-opacity duration-200 truncate max-w-[120px] md:max-w-none">
               {user.name}
             </div>
           )}

@@ -46,22 +46,22 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Dashboard</h1>
-        <p className="text-muted-foreground">
+      <div className="pl-0 sm:pl-4">
+        <h1 className="text-2xl sm:text-3xl font-bold navy-text">Dashboard</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Bienvenido al Agente de IA de Capital Plus
         </p>
         {error && (
-          <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
-            <p className="text-sm text-destructive">{error}</p>
+          <div className="mt-3 sm:mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+            <p className="text-xs sm:text-sm text-destructive">{error}</p>
           </div>
         )}
       </div>
 
       {/* Status Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Proveedor LLM</CardTitle>
@@ -135,7 +135,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Acciones Rápidas</CardTitle>

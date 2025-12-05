@@ -141,15 +141,30 @@ export function Sidebar() {
 
   return (
     <>
+      {/* Overlay para móviles cuando el sidebar está abierto */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-300"
+          onClick={toggleSidebar}
+          aria-hidden="true"
+        />
+      )}
+
       <aside 
-        className={`fixed left-0 top-0 h-screen capital-gradient text-white transition-all duration-300 ease-in-out z-20 ${
-          sidebarOpen ? 'w-64' : 'w-0'
-        } overflow-hidden`}
+        className={cn(
+          'fixed left-0 top-0 h-screen capital-gradient text-white transition-all duration-300 ease-in-out z-40',
+          // En móviles: overlay que se desliza desde la izquierda
+          'md:relative md:z-20',
+          sidebarOpen 
+            ? 'w-64 translate-x-0' 
+            : 'w-0 -translate-x-full md:translate-x-0'
+        )}
       >
         {/* Logo */}
-        <div className={`flex h-16 items-center border-b border-white/10 px-6 min-w-[256px] transition-opacity duration-300 ${
+        <div className={cn(
+          'flex h-16 items-center border-b border-white/10 px-6 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
-        }`}>
+        )}>
           <h1 className="text-xl font-bold">
             Capital Plus <span className="gold-accent">AI</span>
           </h1>
@@ -164,9 +179,10 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className={`flex-1 space-y-1 p-4 min-w-[256px] transition-opacity duration-300 ${
+        <nav className={cn(
+          'flex-1 space-y-1 p-4 min-w-[256px] transition-opacity duration-300 overflow-y-auto',
           !sidebarOpen && 'opacity-0 pointer-events-none'
-        }`}>
+        )}>
           {filteredItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
@@ -175,6 +191,12 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  // En móviles, cerrar el sidebar al hacer click en un enlace
+                  if (window.innerWidth < 768) {
+                    toggleSidebar();
+                  }
+                }}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
                   isActive
@@ -183,25 +205,26 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
-                <span>{item.title}</span>
+                <span className="truncate">{item.title}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* Footer */}
-        <div className={`border-t border-white/10 p-4 min-w-[256px] transition-opacity duration-300 ${
+        <div className={cn(
+          'border-t border-white/10 p-4 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
-        }`}>
+        )}>
           <p className="text-xs text-white/60">© 2026 Capital Plus</p>
         </div>
       </aside>
 
-      {/* Botón flotante para mostrar sidebar cuando está oculto */}
+      {/* Botón flotante para mostrar sidebar cuando está oculto - solo en desktop */}
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="fixed left-0 top-20 z-20 h-10 w-10 rounded-r-md bg-capital-navy text-white shadow-lg hover:bg-capital-navy/90 transition-all duration-300 flex items-center justify-center"
+          className="hidden md:flex fixed left-0 top-20 z-20 h-10 w-10 rounded-r-md bg-capital-navy text-white shadow-lg hover:bg-capital-navy/90 transition-all duration-300 items-center justify-center"
           aria-label="Mostrar sidebar"
         >
           <ChevronRight className="h-5 w-5" />
