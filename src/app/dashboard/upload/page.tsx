@@ -51,9 +51,12 @@ export default function UploadPage() {
       // Guardar el rol del usuario
       setUserRole(payload.role || null);
 
-      // Si el usuario es admin o ceo, no necesita cargar asignaciones
+      // Roles con acceso a TODOS los desarrollos y TODAS las zonas
+      const rolesWithFullAccess = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
+      
+      // Si el usuario tiene uno de estos roles, no necesita cargar asignaciones
       // porque tiene acceso a todas las zonas y desarrollos
-      if (payload.role === 'admin' || payload.role === 'ceo') {
+      if (payload.role && rolesWithFullAccess.includes(payload.role)) {
         setUserAssignments([]); // Array vacío indica acceso total
         return;
       }
@@ -91,8 +94,9 @@ export default function UploadPage() {
     }
   };
 
-  // Verificar si el usuario es admin (se calcula aquí para usarlo en múltiples lugares)
-  const isAdmin = userRole === 'admin' || userRole === 'ceo';
+  // Verificar si el usuario tiene acceso completo a todos los desarrollos
+  // CEO, ADMIN, LEGAL, POST-VENTA, MARKETING tienen acceso a todo
+  const hasFullAccess = userRole && ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'].includes(userRole);
 
   const handleUpload = async () => {
     if (!file || !zone || !development || !type) {
@@ -140,9 +144,9 @@ export default function UploadPage() {
       setFile(null);
       setType('');
       
-      // Si el usuario es admin o tiene asignaciones, mantener la selección actual
+      // Si el usuario tiene acceso completo o tiene asignaciones, mantener la selección actual
       // Si no, limpiar todo
-      if (!isAdmin && userAssignments.length === 0) {
+      if (!hasFullAccess && userAssignments.length === 0) {
         setZone('');
         setDevelopment('');
       }
@@ -164,10 +168,10 @@ export default function UploadPage() {
   };
 
   // Filtrar zonas y desarrollos según las asignaciones del usuario
-  // Si el usuario es admin o ceo, mostrar todas las zonas
-  // Si no, filtrar según las asignaciones
-  const availableZones = isAdmin
-    ? ZONES // Admin ve todas las zonas
+  // Roles con acceso completo ven todas las zonas y desarrollos
+  // Otros roles solo ven lo que tienen asignado
+  const availableZones = hasFullAccess
+    ? ZONES // Acceso completo = todas las zonas
     : (userAssignments.length > 0
         ? ZONES.filter(z => userAssignments.some(dev => dev.zone === z.value && dev.can_upload))
         : ZONES);
@@ -175,7 +179,7 @@ export default function UploadPage() {
   // Filtrar desarrollos según la zona seleccionada y las asignaciones del usuario
   const developments = zone 
     ? (DEVELOPMENTS[zone] || []).filter(dev => 
-        isAdmin || // Admin ve todos los desarrollos
+        hasFullAccess || // Acceso completo = todos los desarrollos
         userAssignments.some(assignment => 
           assignment.zone === zone && 
           assignment.development === dev.value && 

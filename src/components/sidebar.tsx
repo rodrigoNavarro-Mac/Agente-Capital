@@ -29,15 +29,32 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { title: 'Subir Documentos', href: '/dashboard/upload', icon: Upload },
-  { title: 'Consultar Agente', href: '/dashboard/agent', icon: MessageSquare },
-  { title: 'Documentos', href: '/dashboard/documents', icon: FileText },
   { 
-    title: 'ZOHO CRM', 
+    title: 'Dashboard', 
+    href: '/dashboard', 
+    icon: LayoutDashboard 
+  },
+  { 
+    title: 'Subir Documentos', 
+    href: '/dashboard/upload', 
+    icon: Upload 
+    // Disponible para todos pero requiere permiso can_upload desde panel de usuarios
+  },
+  { 
+    title: 'Consultar Agente', 
+    href: '/dashboard/agent', 
+    icon: MessageSquare 
+  },
+  { 
+    title: 'Documentos', 
+    href: '/dashboard/documents', 
+    icon: FileText 
+  },
+  { 
+    title: 'ZOHO CRM (En Desarrollo)', 
     href: '/dashboard/zoho', 
     icon: Building2,
-    allowedRoles: ['admin', 'ceo', 'sales_manager'] as UserRole[]
+    allowedRoles: ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
   },
   { 
     title: 'Mi Perfil', 
@@ -49,13 +66,13 @@ const NAV_ITEMS: NavItem[] = [
     title: 'Configuración', 
     href: '/dashboard/config', 
     icon: Settings,
-    allowedRoles: ['admin', 'ceo', 'sales_manager', 'legal_manager', 'marketing_manager'] as UserRole[]
+    allowedRoles: ['admin'] as UserRole[] // Solo ADMIN
   },
   { 
     title: 'Logs', 
     href: '/dashboard/logs', 
     icon: Activity,
-    allowedRoles: ['admin', 'ceo', 'sales_manager', 'legal_manager', 'marketing_manager'] as UserRole[]
+    allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
   },
   { 
     title: 'Usuarios', 

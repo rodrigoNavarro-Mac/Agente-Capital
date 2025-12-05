@@ -308,9 +308,12 @@ export default function AgentPage() {
   // Función para cargar asignaciones del usuario y seleccionar automáticamente
   const loadUserAssignments = useCallback(async () => {
     try {
-      // Si el usuario es admin o ceo, no necesita cargar asignaciones
+      // Roles con acceso a TODOS los desarrollos y TODAS las zonas
+      const rolesWithFullAccess = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
+      
+      // Si el usuario tiene uno de estos roles, no necesita cargar asignaciones
       // porque tiene acceso a todas las zonas y desarrollos
-      if (userRole === 'admin' || userRole === 'ceo') {
+      if (userRole && rolesWithFullAccess.includes(userRole)) {
         setUserAssignments([]); // Array vacío indica acceso total
         return;
       }
@@ -790,18 +793,18 @@ export default function AgentPage() {
   };
 
   // Filtrar zonas y desarrollos según las asignaciones del usuario
-  // Si el usuario es admin o ceo, mostrar todas las zonas y desarrollos
-  // Si no, filtrar según las asignaciones
-  const isAdmin = userRole === 'admin' || userRole === 'ceo';
-  const availableZones = isAdmin
-    ? ZONES // Admin ve todas las zonas
+  // Roles con acceso completo ven todas las zonas y desarrollos
+  // Otros roles solo ven lo que tienen asignado
+  const hasFullAccess = userRole && ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'].includes(userRole);
+  const availableZones = hasFullAccess
+    ? ZONES // Acceso completo = todas las zonas
     : (userAssignments.length > 0
         ? ZONES.filter(z => userAssignments.some(dev => dev.zone === z.value && dev.can_query))
         : ZONES);
   
   const developments = zone 
     ? (DEVELOPMENTS[zone] || []).filter(dev => 
-        isAdmin || // Admin ve todos los desarrollos
+        hasFullAccess || // Acceso completo = todos los desarrollos
         userAssignments.some(assignment => 
           assignment.zone === zone && 
           assignment.development === dev.value && 

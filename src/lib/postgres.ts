@@ -319,6 +319,13 @@ export async function getUserDevelopments(userId: number): Promise<UserDevelopme
 
 /**
  * Verifica si un usuario tiene acceso a un desarrollo
+ * 
+ * Roles con acceso total a todos los desarrollos y zonas:
+ * - ceo
+ * - admin
+ * - legal_manager
+ * - post_sales
+ * - marketing_manager
  */
 export async function checkUserAccess(
   userId: number,
@@ -326,13 +333,17 @@ export async function checkUserAccess(
   development: string,
   permission: 'can_upload' | 'can_query' = 'can_query'
 ): Promise<boolean> {
-  // Primero verificar si es admin (acceso total)
+  // Primero verificar si el usuario tiene un rol con acceso total
   const user = await getUserById(userId);
-  if (user?.role === 'admin') {
+  
+  // Estos roles tienen acceso a TODOS los desarrollos y TODAS las zonas
+  const rolesWithFullAccess = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
+  
+  if (user?.role && rolesWithFullAccess.includes(user.role)) {
     return true;
   }
 
-  // Verificar acceso específico al desarrollo
+  // Para otros roles, verificar acceso específico al desarrollo
   const result = await query<{ count: string }>(
     `SELECT COUNT(*) FROM user_developments 
      WHERE user_id = $1 AND zone = $2 AND development = $3 AND ${permission} = true`,

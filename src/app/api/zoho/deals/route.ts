@@ -3,7 +3,7 @@
  * CAPITAL PLUS AI AGENT - ZOHO CRM DEALS API
  * =====================================================
  * Endpoint para obtener deals de ZOHO CRM
- * Solo accesible para admin, ceo y sales_manager
+ * Solo accesible para CEO, ADMIN, POST-VENTA, MARKETING Y LEGAL
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,8 +15,8 @@ import type { APIResponse } from '@/types/documents';
 // Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
 export const dynamic = 'force-dynamic';
 
-// Roles permitidos para acceder a ZOHO CRM
-const ALLOWED_ROLES = ['admin', 'ceo', 'sales_manager'];
+// Roles permitidos para acceder a ZOHO CRM (Módulo en Desarrollo)
+const ALLOWED_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'];
 
 /**
  * Verifica si el usuario tiene permisos para acceder a ZOHO CRM
@@ -65,13 +65,13 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    // 2. Verificar permisos (solo admin, ceo, sales_manager)
+    // 2. Verificar permisos (solo admin, ceo, post_sales, legal_manager, marketing_manager)
     const hasAccess = await checkZohoAccess(payload.userId);
     if (!hasAccess) {
       return NextResponse.json(
         {
           success: false,
-          error: 'No tienes permisos para acceder a ZOHO CRM. Solo gerentes, CEO y administradores pueden acceder.',
+          error: 'No tienes permisos para acceder a ZOHO CRM (Módulo en Desarrollo). Solo CEO, ADMIN, POST-VENTA, LEGAL y MARKETING pueden acceder.',
         },
         { status: 403 }
       );

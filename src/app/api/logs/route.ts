@@ -3,14 +3,19 @@
  * CAPITAL PLUS AI AGENT - LOGS API ENDPOINT
  * =====================================================
  * Endpoint para obtener logs de consultas y acciones
+ * Solo accesible para ADMIN y CEO
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getQueryLogs, getActionLogs } from '@/lib/postgres';
+import { getQueryLogs, getActionLogs, getUserById } from '@/lib/postgres';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import type { QueryLog, ActionLog, APIResponse, ActionType, ResourceType, Zone } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
 export const dynamic = 'force-dynamic';
+
+// Roles permitidos para acceder a LOGS (solo ADMIN y CEO)
+const ALLOWED_ROLES = ['admin', 'ceo'];
 
 // =====================================================
 // ENDPOINT GET - OBTENER LOGS
@@ -23,6 +28,44 @@ export async function GET(
   actions: ActionLog[];
 }>>> {
   try {
+    // 1. Verificar autenticación
+    const authHeader = request.headers.get('authorization');
+    const token = extractTokenFromHeader(authHeader);
+
+    if (!token) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'No autorizado',
+        },
+        { status: 401 }
+      );
+    }
+
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Token inválido o expirado',
+        },
+        { status: 401 }
+      );
+    }
+
+    // 2. Verificar permisos (solo ADMIN y CEO)
+    const user = await getUserById(payload.userId);
+    if (!user || !user.role || !ALLOWED_ROLES.includes(user.role)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'No tienes permisos para acceder a los logs. Solo ADMIN y CEO pueden acceder.',
+        },
+        { status: 403 }
+      );
+    }
+
+    // 3. Obtener parámetros de búsqueda
     const { searchParams } = new URL(request.url);
     
     const userIdParam = searchParams.get('userId');
