@@ -62,25 +62,54 @@ function getPoolConfig() {
     }
     
     // Extraer hostname para logging (sin exponer credenciales)
+    let isSupabase = false;
+    let hostname = 'unknown';
     try {
       const url = new URL(connectionString);
+      hostname = url.hostname;
+      // Detectar si es Supabase por hostname o por variables de entorno
+      isSupabase = hostname.includes('supabase.co') || 
+                   hostname.includes('supabase') ||
+                   !!process.env.POSTGRES_URL || 
+                   !!process.env.POSTGRES_PRISMA_URL ||
+                   !!process.env.POSTGRES_URL_NON_POOLING;
+      
       const source = process.env.POSTGRES_URL ? 'POSTGRES_URL (Vercel Integration)' :
                      process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' :
                      process.env.POSTGRES_PRISMA_URL ? 'POSTGRES_PRISMA_URL' :
                      'DATABASE_URL';
-      console.log(`🔌 Configurando conexión a: ${url.hostname}:${url.port || 5432} (${source})`);
+      console.log(`🔌 Configurando conexión a: ${hostname}:${url.port || 5432} (${source})`);
+      if (isSupabase) {
+        console.log('🔒 SSL habilitado para Supabase (rejectUnauthorized: false)');
+      }
     } catch (e) {
       console.error('❌ Error parseando cadena de conexión:', e);
+      // Si no podemos parsear, asumir que es Supabase si viene de variables de Vercel
+      isSupabase = !!process.env.POSTGRES_URL || 
+                   !!process.env.POSTGRES_PRISMA_URL ||
+                   !!process.env.POSTGRES_URL_NON_POOLING;
     }
+    
+    // Configurar SSL: Supabase siempre requiere SSL, pero en Vercel necesitamos
+    // desactivar la validación estricta del certificado para evitar errores
+    // de "self-signed certificate in certificate chain"
+    const sslConfig = isSupabase || hostname.includes('supabase') 
+      ? { 
+          rejectUnauthorized: false, // Necesario para Supabase en Vercel
+          require: true 
+        }
+      : hostname !== 'localhost' && hostname !== '127.0.0.1'
+      ? { 
+          rejectUnauthorized: false // Para otras conexiones remotas también
+        }
+      : undefined; // Sin SSL para localhost
     
     return {
       connectionString: connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000, // Aumentado para conexiones remotas
-      ssl: connectionString.includes('supabase') 
-        ? { rejectUnauthorized: false } 
-        : undefined, // Supabase requiere SSL
+      ssl: sslConfig,
     };
   }
 

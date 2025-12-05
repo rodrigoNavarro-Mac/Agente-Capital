@@ -30,11 +30,33 @@ function getPoolConfig() {
     process.env.DATABASE_URL;
 
   if (connectionString) {
+    // Detectar si es Supabase o conexión remota
+    let isSupabase = false;
+    let hostname = 'unknown';
+    try {
+      const url = new URL(connectionString);
+      hostname = url.hostname;
+      isSupabase = hostname.includes('supabase.co') || 
+                   hostname.includes('supabase') ||
+                   !!process.env.POSTGRES_URL || 
+                   !!process.env.POSTGRES_PRISMA_URL ||
+                   !!process.env.POSTGRES_URL_NON_POOLING;
+    } catch (e) {
+      isSupabase = !!process.env.POSTGRES_URL || 
+                   !!process.env.POSTGRES_PRISMA_URL ||
+                   !!process.env.POSTGRES_URL_NON_POOLING;
+    }
+    
+    // Configurar SSL para Supabase y conexiones remotas
+    const sslConfig = isSupabase || hostname.includes('supabase')
+      ? { rejectUnauthorized: false, require: true }
+      : hostname !== 'localhost' && hostname !== '127.0.0.1'
+      ? { rejectUnauthorized: false }
+      : undefined;
+    
     return {
       connectionString: connectionString,
-      ssl: connectionString.includes('supabase') 
-        ? { rejectUnauthorized: false } 
-        : undefined,
+      ssl: sslConfig,
     };
   }
 
