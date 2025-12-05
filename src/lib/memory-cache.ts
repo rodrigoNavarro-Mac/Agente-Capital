@@ -33,9 +33,28 @@ const CACHE_TTL = {
 // CACHÉ EN MEMORIA
 // =====================================================
 
-// Map para almacenar las entradas del caché
-// Usamos Map porque es más eficiente que objetos para operaciones frecuentes
-const cache = new Map<string, CacheEntry<unknown>>();
+// Usar globalThis para asegurar que el caché persista entre recargas de módulos
+// en desarrollo (hot reload de Next.js)
+// Esto es necesario porque Next.js puede recargar módulos, creando nuevas instancias
+declare global {
+  // eslint-disable-next-line no-var
+  var __memoryCache: Map<string, CacheEntry<unknown>> | undefined;
+}
+
+// Inicializar el caché solo una vez, usando globalThis para persistencia
+// En desarrollo, Next.js recarga módulos pero globalThis persiste
+const cache: Map<string, CacheEntry<unknown>> = 
+  globalThis.__memoryCache ?? new Map<string, CacheEntry<unknown>>();
+
+// Guardar en globalThis solo si no existe (evita sobrescribir en recargas)
+if (!globalThis.__memoryCache) {
+  globalThis.__memoryCache = cache;
+  
+  // Log inicial para debugging
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔧 Caché en memoria inicializado (persistente entre recargas)');
+  }
+}
 
 // =====================================================
 // FUNCIONES DE CACHÉ
@@ -48,8 +67,14 @@ const cache = new Map<string, CacheEntry<unknown>>();
  * @returns Clave única para el caché
  */
 function generateCacheKey(prefix: string, params: Record<string, unknown> = {}): string {
+  // Filtrar valores undefined, null y vacíos para asegurar consistencia
   // Ordenar las claves para asegurar consistencia
   const sortedParams = Object.keys(params)
+    .filter(key => {
+      const value = params[key];
+      // Incluir solo valores definidos, no nulos, y no cadenas vacías
+      return value !== undefined && value !== null && value !== '';
+    })
     .sort()
     .map(key => `${key}=${String(params[key])}`)
     .join('&');
@@ -90,7 +115,8 @@ function get<T>(key: string): T | null {
  */
 function set<T>(key: string, data: T, ttl?: number): void {
   const now = Date.now();
-  const expiresAt = now + (ttl || CACHE_TTL.DEFAULT);
+  const ttlMs = ttl || CACHE_TTL.DEFAULT;
+  const expiresAt = now + ttlMs;
   
   cache.set(key, {
     data,
@@ -184,16 +210,21 @@ export async function getCachedDocuments<T>(
   // Intentar obtener del caché
   const cached = get<T>(key);
   if (cached !== null) {
-    console.log(`✅ Caché HIT (documents): ${key}`);
+    const entry = cache.get(key);
+    const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
+    console.log(`✅ Caché HIT (documents): ${key} [${timeLeft}s restantes]`);
     return cached;
   }
   
   // Si no está en caché, obtener de la fuente
   console.log(`❌ Caché MISS (documents): ${key}`);
+  const startTime = Date.now();
   const data = await fetcher();
+  const fetchTime = Date.now() - startTime;
   
   // Guardar en caché
   set(key, data, CACHE_TTL.DOCUMENTS);
+  console.log(`💾 Datos obtenidos y guardados en caché (documents): ${key} [${fetchTime}ms]`);
   
   return data;
 }
@@ -209,13 +240,18 @@ export async function getCachedDevelopments<T>(
   
   const cached = get<T>(key);
   if (cached !== null) {
-    console.log(`✅ Caché HIT (developments): ${key}`);
+    const entry = cache.get(key);
+    const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
+    console.log(`✅ Caché HIT (developments): ${key} [${timeLeft}s restantes]`);
     return cached;
   }
   
   console.log(`❌ Caché MISS (developments): ${key}`);
+  const startTime = Date.now();
   const data = await fetcher();
+  const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.DEVELOPMENTS);
+  console.log(`💾 Datos obtenidos y guardados en caché (developments): ${key} [${fetchTime}ms]`);
   
   return data;
 }
@@ -230,13 +266,18 @@ export async function getCachedStats<T>(
   
   const cached = get<T>(key);
   if (cached !== null) {
-    console.log(`✅ Caché HIT (stats): ${key}`);
+    const entry = cache.get(key);
+    const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
+    console.log(`✅ Caché HIT (stats): ${key} [${timeLeft}s restantes]`);
     return cached;
   }
   
   console.log(`❌ Caché MISS (stats): ${key}`);
+  const startTime = Date.now();
   const data = await fetcher();
+  const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.STATS);
+  console.log(`💾 Datos obtenidos y guardados en caché (stats): ${key} [${fetchTime}ms]`);
   
   return data;
 }
@@ -252,13 +293,18 @@ export async function getCachedConfig<T>(
   
   const cached = get<T>(key);
   if (cached !== null) {
-    console.log(`✅ Caché HIT (config): ${key}`);
+    const entry = cache.get(key);
+    const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
+    console.log(`✅ Caché HIT (config): ${key} [${timeLeft}s restantes]`);
     return cached;
   }
   
   console.log(`❌ Caché MISS (config): ${key}`);
+  const startTime = Date.now();
   const data = await fetcher();
+  const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.CONFIG);
+  console.log(`💾 Datos obtenidos y guardados en caché (config): ${key} [${fetchTime}ms]`);
   
   return data;
 }

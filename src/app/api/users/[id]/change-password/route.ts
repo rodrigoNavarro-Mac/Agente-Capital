@@ -63,7 +63,6 @@ export async function POST(
     
     // Verificar que el usuario actual existe
     if (!currentUser) {
-      console.log(`❌ Usuario actual no encontrado: userId=${payload.userId}`);
       return NextResponse.json(
         {
           success: false,
@@ -79,11 +78,8 @@ export async function POST(
     // Si no es admin, verificar permiso específico
     const canManageUsers = isAdmin || await hasPermission(payload.userId, 'manage_users');
     
-    console.log(`🔍 Verificación de permisos: currentUserId=${payload.userId}, currentUserRole=${currentUser.role}, isAdmin=${isAdmin}, canManageUsers=${canManageUsers}, targetUserId=${targetUserId}`);
-    
     // Si no tiene permisos y no está cambiando su propia contraseña, denegar
     if (!canManageUsers && payload.userId !== targetUserId) {
-      console.log(`❌ Permiso denegado: userId=${payload.userId}, role=${currentUser.role}, isAdmin=${isAdmin}, canManageUsers=${canManageUsers}, targetUserId=${targetUserId}`);
       return NextResponse.json(
         {
           success: false,
@@ -96,7 +92,6 @@ export async function POST(
     // Validar que el usuario objetivo existe
     const user = await getUserById(targetUserId);
     if (!user) {
-      console.log(`❌ Usuario objetivo no encontrado: targetUserId=${targetUserId}`);
       return NextResponse.json(
         {
           success: false,
@@ -133,8 +128,6 @@ export async function POST(
 
     // Actualizar contraseña
     await updateUserPassword(targetUserId, passwordHash);
-
-    console.log(`✅ Contraseña actualizada para usuario ID: ${targetUserId}, Email: ${user.email} por usuario ID: ${payload.userId}`);
 
     // TODO: Si sendEmail es true, enviar email al usuario notificando el cambio
 

@@ -154,10 +154,11 @@ export function Sidebar() {
         className={cn(
           'fixed left-0 top-0 h-screen capital-gradient text-white transition-all duration-300 ease-in-out z-40',
           // En móviles: overlay que se desliza desde la izquierda
-          'md:relative md:z-20',
+          // En desktop: sidebar fijo
+          'md:fixed md:z-20',
           sidebarOpen 
             ? 'w-64 translate-x-0' 
-            : 'w-0 -translate-x-full md:translate-x-0'
+            : 'w-0 -translate-x-full md:w-0'
         )}
       >
         {/* Logo */}

@@ -79,15 +79,12 @@ export default function AgentPage() {
   const getUserId = (): number => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
-      console.error('❌ [getUserId] No hay token en localStorage');
       return 0; // Retornar 0 en lugar de 1 para indicar error
     }
     const payload = decodeAccessToken(token);
     if (!payload || !payload.userId) {
-      console.error('❌ [getUserId] No se pudo decodificar el token o no tiene userId');
       return 0;
     }
-    console.log(`✅ [getUserId] userId obtenido del token: ${payload.userId}`);
     return payload.userId;
   };
 
@@ -96,10 +93,7 @@ export default function AgentPage() {
   // Validar que userId sea válido
   useEffect(() => {
     if (userId === 0) {
-      console.error('❌ [AgentPage] userId inválido, redirigiendo a login');
       // No redirigir automáticamente aquí, el layout ya lo hace
-    } else {
-      console.log(`✅ [AgentPage] Usuario autenticado con ID: ${userId}`);
     }
   }, [userId]);
 
@@ -144,12 +138,11 @@ export default function AgentPage() {
   const loadChatHistory = useCallback(async (chatId: ChatId, zoneValue: string, devValue: string) => {
     // Validar parámetros requeridos
     if (!zoneValue || !devValue || !userId) {
-      console.warn('⚠️ [loadChatHistory] Faltan parámetros:', { zoneValue, devValue, userId });
+      console.warn('[loadChatHistory] Faltan parámetros');
       setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar como intentado aunque falle
       return;
     }
 
-    console.log(`📥 [loadChatHistory] Cargando historial para chat ${chatId} - userId: ${userId}, zone: ${zoneValue}, development: ${devValue}`);
     setLoadingHistory((prev) => ({ ...prev, [chatId]: true }));
     setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar que se intentó cargar
     
@@ -169,25 +162,11 @@ export default function AgentPage() {
       // Ejecutar la petición con timeout
       const history = await Promise.race([historyPromise, timeoutPromise]);
       
-      console.log(`✅ [loadChatHistory] Historial recibido: ${history.length} mensajes`);
+      // Validar que todos los mensajes pertenezcan al usuario actual
       if (history.length > 0) {
-        const userIds = Array.from(new Set(history.map(h => h.user_id)));
-        console.log(`📋 [loadChatHistory] User IDs en el historial recibido: ${userIds.join(', ')}`);
-        
-        // Mostrar detalles de cada mensaje para debugging
-        console.log(`📋 [loadChatHistory] Detalles de los mensajes:`, history.map(h => ({
-          id: h.id,
-          user_id: h.user_id,
-          query: h.query.substring(0, 50),
-          created_at: h.created_at,
-          zone: h.zone,
-          development: h.development
-        })));
-        
-        // Validar que todos los mensajes pertenezcan al usuario actual
         const foreignMessages = history.filter(h => h.user_id !== userId);
         if (foreignMessages.length > 0) {
-          console.error(`❌ [SEGURIDAD] Se recibieron ${foreignMessages.length} mensajes de otros usuarios!`, foreignMessages);
+          console.error('[SEGURIDAD] Se recibieron mensajes de otros usuarios');
         }
       }
 
@@ -195,13 +174,7 @@ export default function AgentPage() {
       // Esto es una capa adicional de seguridad en caso de que el backend no filtre correctamente
       const userHistory = history.filter(log => {
         if (log.user_id !== userId) {
-          console.error(`❌ [SEGURIDAD] Mensaje de otro usuario detectado y filtrado:`, {
-            logId: log.id,
-            logUserId: log.user_id,
-            currentUserId: userId,
-            query: log.query.substring(0, 50),
-            createdAt: log.created_at
-          });
+          console.error('[SEGURIDAD] Mensaje de otro usuario detectado y filtrado');
           return false;
         }
         return true;
@@ -209,9 +182,9 @@ export default function AgentPage() {
       
       if (userHistory.length !== history.length) {
         const filteredCount = history.length - userHistory.length;
-        console.error(`❌ [SEGURIDAD] Se filtraron ${filteredCount} mensaje(s) de otros usuarios del historial`);
+        console.error(`[SEGURIDAD] Se filtraron ${filteredCount} mensaje(s) de otros usuarios del historial`);
         toast({
-          title: '⚠️ Mensajes filtrados',
+          title: 'Mensajes filtrados',
           description: `Se detectaron ${filteredCount} mensaje(s) que no pertenecen a tu cuenta y fueron filtrados por seguridad.`,
           variant: 'destructive',
         });
@@ -228,16 +201,6 @@ export default function AgentPage() {
       const chatMessages: ChatMessage[] = [];
 
       userHistory.forEach((log, index) => {
-        // Log detallado de cada mensaje para debugging
-        console.log(`📝 [loadChatHistory] Procesando mensaje ${index + 1}/${userHistory.length}:`, {
-          logId: log.id,
-          user_id: log.user_id,
-          query: log.query.substring(0, 100),
-          createdAt: log.created_at,
-          zone: log.zone,
-          development: log.development
-        });
-        
         chatMessages.push({
           id: log.id * 2,
           role: 'user',
@@ -264,7 +227,6 @@ export default function AgentPage() {
         });
       });
       
-      console.log(`✅ [loadChatHistory] Total de mensajes procesados: ${chatMessages.length} (${userHistory.length} consultas)`);
 
       setChats((prev) => ({
         ...prev,
@@ -274,7 +236,7 @@ export default function AgentPage() {
         },
       }));
     } catch (error) {
-      console.error('❌ [loadChatHistory] Error cargando historial:', error);
+      console.error('[loadChatHistory] Error cargando historial:', error);
       
       // Solo mostrar toast si el error no es por timeout (para no alarmar al usuario)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -284,8 +246,6 @@ export default function AgentPage() {
           description: 'No se pudo cargar el historial. Puedes empezar a chatear normalmente.',
           variant: 'destructive',
         });
-      } else {
-        console.warn('⚠️ [loadChatHistory] Timeout al cargar historial - continuando sin historial');
       }
       
       // Incluso si falla, permitir que el usuario use el chat normalmente
@@ -464,7 +424,7 @@ export default function AgentPage() {
         }));
 
         toast({
-          title: '✅ Consulta procesada',
+          title: 'Consulta procesada',
           description: 'El agente ha generado una respuesta',
         });
       } else {
@@ -487,7 +447,7 @@ export default function AgentPage() {
       }));
 
       toast({
-        title: '❌ Error en consulta',
+        title: 'Error en consulta',
         description: error instanceof Error ? error.message : 'Error desconocido',
         variant: 'destructive',
       });
@@ -501,7 +461,7 @@ export default function AgentPage() {
     const success = await copyToClipboard(content);
     if (success) {
       toast({
-        title: '📋 Copiado',
+        title: 'Copiado',
         description: 'Respuesta copiada al portapapeles',
       });
     }
@@ -583,18 +543,17 @@ export default function AgentPage() {
                 },
                 token
               );
-              console.log(`✅ Calificación ${previousRating}⭐ transferida al nuevo query_log_id ${newQueryLogId} para análisis`);
             }
           } catch (error) {
-            console.warn('⚠️ No se pudo guardar la calificación en el nuevo query_log_id:', error);
+            console.warn('No se pudo guardar la calificación en el nuevo query_log_id:', error);
             // No mostrar error al usuario, solo log
           }
         }
 
         toast({
-          title: '✅ Respuesta regenerada',
+          title: 'Respuesta regenerada',
           description: previousRating 
-            ? `Nueva respuesta generada. Calificación anterior (${previousRating}⭐) mantenida para detectar respuestas incorrectas.`
+            ? `Nueva respuesta generada. Calificación anterior mantenida para detectar respuestas incorrectas.`
             : 'El agente ha generado una nueva respuesta',
         });
       } else {
@@ -602,7 +561,7 @@ export default function AgentPage() {
       }
     } catch (error) {
       toast({
-        title: '❌ Error al regenerar',
+        title: 'Error al regenerar',
         description: error instanceof Error ? error.message : 'Error desconocido',
         variant: 'destructive',
       });
@@ -662,7 +621,7 @@ export default function AgentPage() {
       });
 
       toast({
-        title: '✅ Calificación guardada',
+        title: 'Calificación guardada',
         description: `Has calificado esta respuesta con ${rating} estrella${rating > 1 ? 's' : ''}`,
       });
     } catch (error) {
@@ -741,7 +700,7 @@ export default function AgentPage() {
       }
 
       toast({
-        title: '✅ Chat eliminado',
+        title: 'Chat eliminado',
         description: 'El historial ha sido eliminado permanentemente. Puedes empezar un nuevo chat.',
       });
     } catch (error) {

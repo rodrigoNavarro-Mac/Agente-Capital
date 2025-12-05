@@ -64,7 +64,6 @@ export async function POST(
     // const resetUrl = `${process.env.APP_URL}/reset-password?token=${token}`;
     // await sendPasswordResetEmail(user.email, resetUrl);
 
-    console.log(`🔐 Token de recuperación generado para ${email}: ${token}`);
 
     return NextResponse.json({
       success: true,
@@ -74,7 +73,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en forgot-password:', error);
+    console.error('Error en forgot-password:', error);
 
     return NextResponse.json(
       {

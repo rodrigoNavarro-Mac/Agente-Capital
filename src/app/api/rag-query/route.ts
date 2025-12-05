@@ -178,9 +178,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     // Nota: El procesamiento también se hace dentro de queryChunks, pero lo hacemos aquí
     // para mejorar el caché y el logging
     const processedQuery = processQuery(query);
-    if (processedQuery !== query) {
-      console.log(`✨ Query procesado: "${query}" → "${processedQuery}"`);
-    }
 
     // 9. Verificar que el proveedor LLM configurado está disponible
     const llmAvailable = await checkLMStudioHealth();
@@ -305,7 +302,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
 
     // Verificar que answer tenga un valor (seguridad)
     if (!answer || answer.trim() === '') {
-      console.error('❌ Error: answer no fue asignado correctamente');
+      console.error('Error: answer no fue asignado correctamente');
       return NextResponse.json(
         {
           success: false,
@@ -316,9 +313,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     }
 
     // 18. Guardar log de la consulta (usar query original para el log)
-    console.log(`💾 Guardando query log - userId: ${userId} (autenticado: ${payload.userId}), isAdmin: ${isAdmin}, zone: ${zone}, development: ${development}`);
-    console.log(`📊 Fuentes a guardar: ${sources.length} - ${sources.map(s => s.filename).join(', ')}`);
-    
     const queryLog = await saveQueryLog({
       user_id: userId,
       query,
@@ -328,20 +322,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
       sources_used: sources.map(s => s.filename),
       response_time_ms: responseTimeMs,
     });
-
-    console.log(`📝 Query log guardado, ID: ${queryLog.id}, user_id en BD: ${queryLog.user_id}, Tiempo: ${responseTimeMs}ms`);
-    console.log(`📊 Fuentes guardadas en log: ${queryLog.sources_used?.length || 0} - ${queryLog.sources_used?.join(', ') || 'ninguna'}`);
     
     // Validar que el user_id guardado sea correcto
     if (queryLog.user_id !== userId) {
-      console.error(`❌ [ERROR CRÍTICO] El user_id guardado (${queryLog.user_id}) no coincide con el esperado (${userId})!`);
+      console.error('[ERROR CRÍTICO] El user_id guardado no coincide con el esperado');
     }
 
     // 14. Registrar chunks usados para tracking de desempeño
     if (matches && matches.length > 0) {
       const chunkIds = matches.map(m => m.id);
       await registerQueryChunks(queryLog.id, chunkIds);
-      console.log(`📊 Registrados ${chunkIds.length} chunks usados para tracking`);
     }
 
     // 15. Retornar respuesta
@@ -354,7 +344,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     });
 
   } catch (error) {
-    console.error('❌ Error en RAG query:', error);
+    console.error('Error en RAG query:', error);
 
     return NextResponse.json(
       { 

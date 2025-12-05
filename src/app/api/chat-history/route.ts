@@ -83,10 +83,7 @@ export async function GET(
         const requestedUserId = parseInt(userIdParam);
         if (!isNaN(requestedUserId)) {
           filters.userId = requestedUserId;
-          console.log(`👑 [ADMIN] Filtrando historial por userId: ${requestedUserId}`);
         }
-      } else {
-        console.log(`👑 [ADMIN] Sin filtro de userId - retornando TODOS los chats`);
       }
       // Si no se especifica userId, admin ve todos los chats (userId undefined)
     } else {
@@ -95,17 +92,7 @@ export async function GET(
       filters.userId = payload.userId;
       
       // Si intentó especificar otro userId, ignorarlo silenciosamente por seguridad
-      if (userIdParam) {
-        const requestedUserId = parseInt(userIdParam);
-        if (!isNaN(requestedUserId) && requestedUserId !== payload.userId) {
-          console.log(`⚠️ [SEGURIDAD] Usuario ${payload.userId} (${currentUser?.email}) intentó ver historial de usuario ${requestedUserId}, usando su propio ID`);
-        }
-      }
-      
-      console.log(`👤 [USUARIO] Forzando filtro por userId: ${payload.userId} (ignorando parámetro userId del request)`);
     }
-    
-    console.log(`📋 [chat-history] Obteniendo historial - Usuario autenticado: ${payload.userId} (${currentUser?.email}), Rol: ${currentUser?.role}, Filtro userId aplicado: ${filters.userId !== undefined ? filters.userId : 'NINGUNO (todos)'}, Zona: ${zone || 'TODAS'}, Desarrollo: ${development || 'TODOS'}`);
 
     // Agregar filtros opcionales
     if (zone) {

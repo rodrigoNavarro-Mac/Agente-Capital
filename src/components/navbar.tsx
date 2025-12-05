@@ -81,10 +81,10 @@ export function Navbar() {
           </Button>
           
           {/* Título - responsive */}
-          <div>
+        <div>
             <h2 className="text-base md:text-lg font-semibold navy-text truncate max-w-[200px] md:max-w-none">
-              Capital Plus - Agente de IA
-            </h2>
+            Capital Plus - Agente de IA
+          </h2>
           </div>
         </div>
 

@@ -43,10 +43,8 @@ export default function LoginPage() {
       localStorage.setItem('refreshToken', response.refreshToken);
       localStorage.setItem('user', JSON.stringify(response.user));
 
-      console.log('✅ Login exitoso, tokens guardados');
-
       toast({
-        title: '✅ Bienvenido',
+        title: 'Bienvenido',
         description: `Hola, ${response.user.name}`,
       });
 
@@ -54,9 +52,9 @@ export default function LoginPage() {
       router.push('/dashboard');
       router.refresh();
     } catch (error) {
-      console.error('❌ Error en login:', error);
+      console.error('Error en login:', error);
       toast({
-        title: '❌ Error al iniciar sesión',
+        title: 'Error al iniciar sesión',
         description: error instanceof Error ? error.message : 'Credenciales inválidas',
         variant: 'destructive',
       });

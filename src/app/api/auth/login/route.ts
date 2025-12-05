@@ -101,22 +101,9 @@ export async function POST(
       );
     }
 
-    // Verificar contraseña
-    if (!user.password_hash) {
-      console.log(`❌ Usuario ${email} no tiene contraseña configurada`);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Tu cuenta no tiene contraseña configurada. Contacta al administrador.',
-        },
-        { status: 403 }
-      );
-    }
-
     const passwordValid = await verifyPassword(password, user.password_hash);
 
     if (!passwordValid) {
-      console.log(`❌ Contraseña inválida para usuario: ${email}`);
       // Incrementar intentos fallidos
       await incrementFailedLoginAttempts(user.id);
 
@@ -192,7 +179,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en login:', error);
+    console.error('Error en login:', error);
 
     return NextResponse.json(
       {

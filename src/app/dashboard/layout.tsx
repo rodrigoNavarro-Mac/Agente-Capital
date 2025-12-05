@@ -24,7 +24,6 @@ export default function DashboardLayout({
       const token = localStorage.getItem('accessToken');
 
       if (!token) {
-        console.log('❌ No hay token en localStorage');
         setIsAuthenticated(false);
         router.push('/login');
         return;
@@ -34,7 +33,6 @@ export default function DashboardLayout({
       const payload = decodeAccessToken(token);
       
       if (!payload) {
-        console.log('❌ Token inválido o expirado');
         // Token inválido o expirado, limpiar y redirigir
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
@@ -43,8 +41,6 @@ export default function DashboardLayout({
         router.push('/login');
         return;
       }
-
-      console.log('✅ Token válido, usuario autenticado:', payload.email);
       setIsAuthenticated(true);
     };
 
@@ -83,13 +79,14 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       <div 
         className={cn(
           'flex-1 flex flex-col overflow-hidden transition-all duration-300 ease-in-out',
-          // En móviles no hay margen, en desktop se ajusta según el sidebar
+          // En móviles no hay margen (sidebar es overlay)
+          // En desktop: margen izquierdo cuando sidebar está abierto
           'ml-0',
-          sidebarOpen && 'md:ml-64'
+          sidebarOpen ? 'md:ml-64' : 'md:ml-0'
         )}
       >
         <Navbar />
-        <main className="flex-1 overflow-hidden pt-16 md:pt-16">
+        <main className="flex-1 overflow-hidden pt-16">
           <div className="h-full p-3 sm:p-4 md:p-6 overflow-y-auto">
             {children}
           </div>

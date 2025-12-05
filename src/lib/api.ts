@@ -205,7 +205,6 @@ export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse
   if (params?.offset) queryParams.append('offset', String(params.offset));
 
   const url = `/api/logs${queryParams.toString() ? `?${queryParams}` : ''}`;
-  console.log('🌐 [API] Llamando a:', url);
   
   // Obtener token de autenticación
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -216,15 +215,8 @@ export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse
     } : undefined,
   });
   
-  console.log('📦 [API] Respuesta recibida:', {
-    success: response.success,
-    hasData: !!response.data,
-    queriesCount: response.data?.queries?.length || 0,
-    actionsCount: response.data?.actions?.length || 0,
-  });
-  
   if (!response.success || !response.data) {
-    console.error('❌ [API] Respuesta inválida:', response);
+    console.error('[API] Respuesta inválida');
     throw new Error('Error obteniendo logs: respuesta inválida del servidor');
   }
   

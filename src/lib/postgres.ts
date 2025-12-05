@@ -58,7 +58,7 @@ function getPoolConfig() {
   if (connectionString) {
     // Validar formato básico de la URL
     if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
-      console.error('❌ La cadena de conexión debe comenzar con postgresql:// o postgres://');
+      console.error('La cadena de conexión debe comenzar con postgresql:// o postgres://');
       throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
     
@@ -77,29 +77,13 @@ function getPoolConfig() {
                    !!process.env.POSTGRES_PRISMA_URL ||
                    !!process.env.POSTGRES_URL_NON_POOLING;
       
-      const source = process.env.DATABASE_URL ? 'DATABASE_URL (⭐ Manual - Configuración correcta)' :
-                     process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' :
-                     process.env.POSTGRES_PRISMA_URL ? 'POSTGRES_PRISMA_URL' :
-                     'POSTGRES_URL (Pooler)';
-      console.log(`🔌 Configurando conexión a: ${hostname}:${parsedUrl.port || 5432} (${source})`);
-      
       // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
       // Esto asegura que la configuración SSL se aplique correctamente
       if (isSupabase && parsedUrl) {
-        console.log('🔒 Usando configuración SSL explícita para Supabase (sin connectionString)');
         const password = parsedUrl.password || '';
         const username = parsedUrl.username || 'postgres';
         const database = parsedUrl.pathname.slice(1) || 'postgres';
         const port = parseInt(parsedUrl.port || '5432');
-        
-        // Logging detallado para diagnóstico (sin exponer contraseña completa)
-        console.log(`📊 Diagnóstico de conexión Supabase:`);
-        console.log(`   - Host: ${hostname}`);
-        console.log(`   - Port: ${port}`);
-        console.log(`   - User: ${username}`);
-        console.log(`   - Database: ${database}`);
-        console.log(`   - Password length: ${password.length} caracteres`);
-        console.log(`   - Password starts with: ${password.substring(0, 4)}...`);
         
         return {
           host: hostname,
@@ -118,7 +102,7 @@ function getPoolConfig() {
         };
       }
     } catch (e) {
-      console.error('❌ Error parseando cadena de conexión:', e);
+      console.error('Error parseando cadena de conexión:', e);
       // Si no podemos parsear, asumir que es Supabase si viene de variables de Vercel
       isSupabase = !!process.env.POSTGRES_URL || 
                    !!process.env.POSTGRES_PRISMA_URL ||
@@ -147,8 +131,6 @@ function getPoolConfig() {
   const host = process.env.POSTGRES_HOST || 'localhost';
   const port = parseInt(process.env.POSTGRES_PORT || '5432');
   
-  console.log(`🔌 Configurando conexión a: ${host}:${port} (variables individuales - desarrollo local)`);
-  
   return {
     host,
     port,
@@ -166,23 +148,21 @@ const pool = new Pool(getPoolConfig());
 
 // Manejar errores del pool
 pool.on('error', (err) => {
-  console.error('❌ Error inesperado en el pool de PostgreSQL:', err);
+  console.error('Error inesperado en el pool de PostgreSQL:', err);
   
   // Mensajes más descriptivos para errores comunes
   if (err instanceof Error) {
     if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
-      console.error('🔍 DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
+      console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
       console.error('   Verifica que una de estas variables esté configurada en Vercel:');
       console.error('   - POSTGRES_URL (creada automáticamente por integración Supabase)');
       console.error('   - POSTGRES_PRISMA_URL');
       console.error('   - POSTGRES_URL_NON_POOLING');
       console.error('   - DATABASE_URL (si configurada manualmente)');
-      console.error('   Formato esperado: postgresql://user:password@host:port/database');
-      console.error('   Para Supabase: postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres');
     } else if (err.message.includes('ECONNREFUSED')) {
-      console.error('🔍 DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
+      console.error('DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
     } else if (err.message.includes('password authentication failed')) {
-      console.error('🔍 DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.');
+      console.error('DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.');
     }
   }
 });
@@ -204,17 +184,14 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   const start = Date.now();
   try {
     const result = await pool.query<T>(text, params);
-    const duration = Date.now() - start;
-    console.log(`📊 Query ejecutada (${duration}ms): ${text.substring(0, 50)}...`);
     return result;
   } catch (error) {
-    console.error('❌ Error en query:', error);
+    console.error('Error en query:', error);
     
     // Mensajes más descriptivos para errores de conexión
     if (error instanceof Error) {
       if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
-        const hostname = error.message.match(/hostname: '([^']+)'/)?.[1] || 'desconocido';
-        console.error(`🔍 DIAGNÓSTICO: No se puede resolver el hostname: ${hostname}`);
+        console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
         console.error('   Esto generalmente significa que:');
         console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
         console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
@@ -248,10 +225,9 @@ export async function getClient(): Promise<PoolClient> {
 export async function checkConnection(): Promise<boolean> {
   try {
     const result = await query('SELECT NOW()');
-    console.log('✅ Conexión a PostgreSQL verificada:', result.rows[0]);
     return true;
   } catch (error) {
-    console.error('❌ Error conectando a PostgreSQL:', error);
+    console.error('Error conectando a PostgreSQL:', error);
     return false;
   }
 }
@@ -657,35 +633,21 @@ export async function getQueryLogs(options: {
   if (userId !== undefined && userId !== null) {
     queryText += ` AND user_id = $${paramIndex++}`;
     params.push(userId);
-    console.log(`🔍 [getQueryLogs] Filtrando por userId: ${userId}`);
-  } else {
-    console.log(`⚠️ [getQueryLogs] userId no especificado - retornando TODOS los logs (solo para admins)`);
   }
   
   if (zone) {
     queryText += ` AND zone = $${paramIndex++}`;
     params.push(zone);
-    console.log(`🔍 [getQueryLogs] Filtrando por zone: ${zone}`);
   }
   if (development) {
     queryText += ` AND development = $${paramIndex++}`;
     params.push(development);
-    console.log(`🔍 [getQueryLogs] Filtrando por development: ${development}`);
   }
 
   queryText += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
   params.push(limit, offset);
 
-  console.log(`📊 [getQueryLogs] Ejecutando query: ${queryText}`);
-  console.log(`📊 [getQueryLogs] Parámetros:`, params);
-
   const result = await query<QueryLog>(queryText, params);
-  
-  console.log(`✅ [getQueryLogs] Retornando ${result.rows.length} logs`);
-  if (result.rows.length > 0) {
-    const userIds = Array.from(new Set(result.rows.map(r => r.user_id)));
-    console.log(`📋 [getQueryLogs] User IDs en los resultados: ${userIds.join(', ')}`);
-  }
   
   return result.rows;
 }
@@ -987,7 +949,7 @@ export async function cleanupExpiredCache(): Promise<number> {
     // Si la tabla no existe aún, retornar 0
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tabla query_cache no existe aún. Ejecuta la migración 003_query_cache.sql');
+      console.log('Tabla query_cache no existe aún. Ejecuta la migración 003_query_cache.sql');
       return 0;
     }
     throw error;
@@ -1027,7 +989,7 @@ export async function saveActionLog(log: Omit<ActionLog, 'id' | 'created_at'>): 
     // Esto permite que la aplicación funcione aunque la migración no se haya ejecutado
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tabla action_logs no existe. La acción no se registró. Ejecuta la migración 002_action_logs.sql');
+      console.log('Tabla action_logs no existe. La acción no se registró. Ejecuta la migración 002_action_logs.sql');
       return null;
     }
     // Si es otro error, lanzarlo
@@ -1049,14 +1011,6 @@ export async function getActionLogs(options: {
   const { userId, actionType, resourceType, zone, limit = 50, offset = 0 } = options;
   
   try {
-    console.log('🔍 [getActionLogs] Obteniendo action logs con filtros:', {
-      userId,
-      actionType,
-      resourceType,
-      zone,
-      limit,
-      offset,
-    });
     let queryText = 'SELECT * FROM action_logs WHERE 1=1';
     const params: unknown[] = [];
     let paramIndex = 1;
@@ -1083,8 +1037,6 @@ export async function getActionLogs(options: {
 
     const result = await query<ActionLog & { metadata: string | object }>(queryText, params);
     
-    console.log(`✅ [getActionLogs] Obtenidos ${result.rows.length} action logs de la base de datos`);
-    
     // Parsear metadata JSON solo si es una cadena
     // Si es JSONB en PostgreSQL, ya viene como objeto
     const parsedLogs = result.rows.map(row => {
@@ -1096,7 +1048,7 @@ export async function getActionLogs(options: {
           try {
             parsedMetadata = JSON.parse(row.metadata);
           } catch (e) {
-            console.warn('⚠️ [getActionLogs] Error parseando metadata:', e);
+            console.warn('[getActionLogs] Error parseando metadata:', e);
             parsedMetadata = undefined;
           }
         } else {
@@ -1110,15 +1062,13 @@ export async function getActionLogs(options: {
         metadata: parsedMetadata,
       } as ActionLog;
     });
-    
-    console.log(`✅ [getActionLogs] Retornando ${parsedLogs.length} action logs procesados`);
     return parsedLogs;
   } catch (error) {
     // Si la tabla no existe, retornar array vacío
     // Esto puede pasar si la migración no se ha ejecutado aún
     if (error instanceof Error && error.message.includes('no existe la relación') || 
         error instanceof Error && error.message.includes('does not exist')) {
-      console.log('⚠️ Tabla action_logs no existe aún, retornando array vacío. Ejecuta la migración 002_action_logs.sql');
+      console.log('Tabla action_logs no existe aún, retornando array vacío. Ejecuta la migración 002_action_logs.sql');
       return [];
     }
     // Si es otro error, lanzarlo
@@ -1192,7 +1142,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         : 0;
     } else {
       // La columna no existe, usar valor por defecto
-      console.log('⚠️ Columna feedback_rating no disponible en query_logs, usando valor por defecto');
+      console.log('Columna feedback_rating no disponible en query_logs, usando valor por defecto');
       averageRating = 0;
     }
   } catch (error) {
@@ -1200,10 +1150,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     // Esto puede pasar si la base de datos no tiene la columna aún o hay problemas de permisos
     const errorMsg = error instanceof Error ? error.message : String(error);
     if (errorMsg.includes('feedback_rating') || errorMsg.includes('no existe la columna')) {
-      console.log('⚠️ Columna feedback_rating no disponible, usando valor por defecto');
+      console.log('Columna feedback_rating no disponible, usando valor por defecto');
     } else {
       // Otro tipo de error, registrar como advertencia pero no fallar
-      console.warn('⚠️ Error obteniendo calificación promedio:', errorMsg);
+      console.warn('Error obteniendo calificación promedio:', errorMsg);
     }
     averageRating = 0;
   }
@@ -1225,7 +1175,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
  */
 export async function closePool(): Promise<void> {
   await pool.end();
-  console.log('🔒 Pool de PostgreSQL cerrado');
+  console.log('Pool de PostgreSQL cerrado');
 }
 
 // =====================================================
@@ -1478,7 +1428,7 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
       );
       
       if (logResult.rows.length === 0) {
-        console.log(`⚠️ Query log ${queryLogId} no encontrado para actualizar chunk stats`);
+        console.log(`Query log ${queryLogId} no encontrado para actualizar chunk stats`);
         return;
       }
       
@@ -1519,7 +1469,7 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
     // Si las tablas no existen aún, solo loguear
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tablas de aprendizaje no existen aún. Ejecuta la migración 004_learning_system.sql');
+      console.log('Tablas de aprendizaje no existen aún. Ejecuta la migración 004_learning_system.sql');
       return;
     }
     throw error;
@@ -1548,7 +1498,7 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
     // Si la tabla no existe, solo loguear
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tabla query_logs_chunks no existe aún. Ejecuta la migración 004_learning_system.sql');
+      console.log('Tabla query_logs_chunks no existe aún. Ejecuta la migración 004_learning_system.sql');
       return;
     }
     throw error;
@@ -1648,7 +1598,7 @@ export async function upsertLearnedResponse(
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tabla response_learning no existe aún. Ejecuta la migración 004_learning_system.sql');
+      console.log('Tabla response_learning no existe aún. Ejecuta la migración 004_learning_system.sql');
       return;
     }
     throw error;
@@ -1856,7 +1806,7 @@ export async function upsertAgentMemory(
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('⚠️ Tabla agent_memory no existe aún. Ejecuta la migración 004_learning_system.sql');
+      console.log('Tabla agent_memory no existe aún. Ejecuta la migración 004_learning_system.sql');
       return;
     }
     throw error;
