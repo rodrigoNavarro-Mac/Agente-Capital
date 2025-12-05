@@ -200,7 +200,7 @@ export default function AgentPage() {
       // Convertir logs a mensajes de chat
       const chatMessages: ChatMessage[] = [];
 
-      userHistory.forEach((log, index) => {
+      userHistory.forEach((log, _index) => {
         chatMessages.push({
           id: log.id * 2,
           role: 'user',

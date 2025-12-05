@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { changePassword, getUser, getUserDevelopments, getQueryLogs } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
-import { Lock, Eye, EyeOff, Loader2, User, Mail, Shield, Building2, CheckCircle2, XCircle, MapPin, FileText, MessageSquare, Upload as UploadIcon, BarChart3, Star, TrendingUp, Clock } from 'lucide-react';
+import { Lock, Eye, EyeOff, Loader2, User, Mail, Shield, Building2, CheckCircle2, XCircle, MapPin, MessageSquare, Upload as UploadIcon, BarChart3, Star, TrendingUp, Clock } from 'lucide-react';
 import type { User as UserType, UserDevelopment, UserRole, QueryLog } from '@/types/documents';
 
 export default function ProfilePage() {
@@ -438,7 +438,7 @@ export default function ProfilePage() {
                           </p>
                           {rating.feedback_comment && (
                             <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                              "{rating.feedback_comment}"
+                              &quot;{rating.feedback_comment}&quot;
                             </p>
                           )}
                           <div className="flex flex-wrap items-center gap-2 mt-2">

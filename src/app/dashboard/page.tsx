@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, MessageSquare, Activity, Database, Building2, MapPin, Star, TrendingUp, Loader2, CheckCircle2, ChevronDown, Bot, Users, BarChart3, Clock, TrendingDown, Award } from 'lucide-react';
+import { FileText, MessageSquare, Activity, Database, Building2, MapPin, Star, TrendingUp, Loader2, CheckCircle2, Bot, Users, BarChart3, Clock, Award } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { checkHealth, getDashboardStats, type DashboardStats, getDocuments, getQueryLogs, getChatHistory, getUser, getUserDevelopments, getAllUsers, getAgentConfig } from '@/lib/api';
@@ -35,13 +35,13 @@ const normalizeQuery = (query: string): string => {
 };
 
 export default function DashboardPage() {
-  const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [_userRole, setUserRole] = useState<UserRole | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [lmStudioStatus, setLmStudioStatus] = useState<string>('checking');
   const [openAIStatus, setOpenAIStatus] = useState<string>('checking');
   const [currentProvider, setCurrentProvider] = useState<string>('lmstudio');
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [userDevelopments, setUserDevelopments] = useState<UserDevelopment[]>([]);
+  const [_userDevelopments, setUserDevelopments] = useState<UserDevelopment[]>([]);
   const [developmentStats, setDevelopmentStats] = useState<DevelopmentStats[]>([]);
   const [goodRatings, setGoodRatings] = useState<QueryLog[]>([]);
   const [similarQueries, setSimilarQueries] = useState<SimilarQuery[]>([]);
@@ -68,6 +68,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadUserData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUserData = async () => {
@@ -116,7 +117,7 @@ export default function DashboardPage() {
       
       // Obtener modelo LLM desde la configuración
       try {
-        const config = await getAgentConfig();
+        const _config = await getAgentConfig();
         // El modelo se obtiene de las variables de entorno, pero podemos intentar obtenerlo
         // Por ahora, usamos el proveedor actual para determinar el modelo
         if (health.current === 'openai') {
@@ -289,13 +290,13 @@ export default function DashboardPage() {
       // Intentar obtener historial de chat (permite a usuarios ver su propio historial)
       // Esta función permite a usuarios regulares ver su propio historial
       userQueries = await getChatHistory({ userId, limit: 500 });
-    } catch (err) {
+    } catch {
       // Si falla getChatHistory, intentar con getQueryLogs (solo para admins/CEO)
       // Esto es un fallback por si acaso
       try {
         const logsResponse = await getQueryLogs({ userId, limit: 500 });
         userQueries = logsResponse.queries || [];
-      } catch (error) {
+      } catch {
         // Si ambos fallan, continuar sin consultas - no es crítico para el dashboard
         // El dashboard puede funcionar sin esta información
         console.warn('No se pudieron cargar las consultas del usuario. El dashboard continuará sin esta información.');
@@ -848,7 +849,7 @@ export default function DashboardPage() {
                       {query.feedback_comment && (
                         <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                           <p className="text-xs font-semibold text-green-900 mb-1">Comentario:</p>
-                          <p className="text-xs text-green-800">"{query.feedback_comment}"</p>
+                          <p className="text-xs text-green-800">&quot;{query.feedback_comment}&quot;</p>
                         </div>
                       )}
                     </div>
@@ -1191,7 +1192,7 @@ export default function DashboardPage() {
                             </p>
                             {rating.feedback_comment && (
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                                "{rating.feedback_comment}"
+                                &quot;{rating.feedback_comment}&quot;
                               </p>
                             )}
                             <div className="flex flex-wrap items-center gap-2 mt-2">

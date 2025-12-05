@@ -181,7 +181,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string, 
   params?: unknown[]
 ): Promise<QueryResult<T>> {
-  const start = Date.now();
+  const _start = Date.now();
   try {
     const result = await pool.query<T>(text, params);
     return result;
@@ -224,7 +224,7 @@ export async function getClient(): Promise<PoolClient> {
  */
 export async function checkConnection(): Promise<boolean> {
   try {
-    const result = await query('SELECT NOW()');
+    const _result = await query('SELECT NOW()');
     return true;
   } catch (error) {
     console.error('Error conectando a PostgreSQL:', error);
