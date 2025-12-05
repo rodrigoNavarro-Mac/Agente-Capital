@@ -52,6 +52,7 @@ function getPoolConfig() {
           user: username,
           password: password,
           database: database,
+          family: 4,  // Forzar IPv4 (Vercel NO soporta IPv6)
           ssl: {
             rejectUnauthorized: false,
           },
@@ -70,6 +71,7 @@ function getPoolConfig() {
     
     return {
       connectionString: connectionString,
+      family: 4,  // Forzar IPv4
       ssl: sslConfig,
     };
   }

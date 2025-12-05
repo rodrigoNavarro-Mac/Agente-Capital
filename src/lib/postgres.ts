@@ -110,6 +110,8 @@ function getPoolConfig() {
           max: 20,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
+          // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
+          family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
           ssl: {
             rejectUnauthorized: false, // Necesario para Supabase en Vercel
           },
@@ -136,6 +138,7 @@ function getPoolConfig() {
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
+      family: 4,  // Forzar IPv4 (Vercel NO soporta IPv6)
       ssl: sslConfig,
     };
   }
@@ -155,6 +158,7 @@ function getPoolConfig() {
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
+    family: 4,  // Forzar IPv4 para consistencia
   };
 }
 
