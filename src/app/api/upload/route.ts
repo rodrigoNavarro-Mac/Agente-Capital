@@ -43,27 +43,45 @@ import type {
  * Obtiene el directorio temporal correcto según el entorno
  * En producción/serverless (Vercel, AWS Lambda, etc.) usa /tmp
  * En desarrollo local usa ./tmp
+ * 
+ * Esta función se ejecuta dinámicamente para asegurar detección correcta
  */
 function getUploadDir(): string {
-  // Si hay una variable de entorno específica, usarla
+  // Si hay una variable de entorno específica, usarla (tiene prioridad)
   if (process.env.UPLOAD_DIR) {
     return process.env.UPLOAD_DIR;
   }
   
   // Detectar si estamos en un entorno serverless
-  // Vercel, AWS Lambda, y otros entornos serverless tienen estas variables
-  const isServerless = 
+  // Verificar múltiples indicadores de entornos serverless
+  const currentDir = process.cwd();
+  const isServerless = !!(
     process.env.VERCEL || 
+    process.env.VERCEL_ENV ||
     process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.AWS_EXECUTION_ENV ||
     process.env.NEXT_RUNTIME === 'nodejs' ||
-    process.env.NODE_ENV === 'production';
+    // En Vercel, el directorio de trabajo es /var/task (muy específico)
+    currentDir.startsWith('/var/task') ||
+    currentDir.startsWith('/var/runtime') ||
+    // Si estamos en producción y no estamos en Windows/Mac típico
+    (process.env.NODE_ENV === 'production' && 
+     !process.platform.startsWith('win') && 
+     !currentDir.includes('Users') &&
+     !currentDir.includes('home'))
+  );
   
   // En producción/serverless, usar /tmp (único directorio escribible)
   // En desarrollo, usar ./tmp relativo al proyecto
-  return isServerless ? '/tmp' : './tmp';
+  const uploadDir = isServerless ? '/tmp' : './tmp';
+  
+  // Log para debugging (útil también en producción para diagnosticar)
+  console.log(`📁 Directorio temporal: ${uploadDir} | CWD: ${currentDir} | Serverless: ${isServerless}`);
+  
+  return uploadDir;
 }
 
-const UPLOAD_DIR = getUploadDir();
+// No inicializar UPLOAD_DIR al nivel del módulo, calcularlo dinámicamente
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || '52428800'); // 50MB default
 
 // =====================================================
@@ -305,33 +323,56 @@ function getFileExtension(filename: string): string {
  * Guarda el archivo temporalmente
  */
 async function saveTemporaryFile(file: File): Promise<string> {
-  // Asegurar que existe el directorio
-  // En entornos serverless, /tmp siempre existe, pero verificamos por si acaso
-  try {
-    if (!existsSync(UPLOAD_DIR)) {
-      await mkdir(UPLOAD_DIR, { recursive: true });
-    }
-  } catch (error) {
-    // Si falla la creación del directorio, lanzar error más descriptivo
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `No se pudo crear el directorio temporal ${UPLOAD_DIR}: ${errorMessage}. ` +
-      `En entornos serverless, asegúrate de usar /tmp como directorio temporal.`
-    );
-  }
-
-  // Generar nombre único
+  // Obtener el directorio temporal dinámicamente
+  let uploadDir = getUploadDir();
+  
+  // Generar nombre único (lo necesitamos en ambos casos)
   const timestamp = Date.now();
   const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
   const filename = `${timestamp}_${safeName}`;
-  const filepath = join(UPLOAD_DIR, filename);
-
-  // Convertir File a Buffer y guardar
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  await writeFile(filepath, buffer);
-
-  return filepath;
+  
+  // Intentar guardar el archivo
+  // Si falla con el directorio detectado, intentar con /tmp como fallback
+  let lastError: Error | null = null;
+  
+  // Lista de directorios a intentar (el detectado primero, luego /tmp como fallback)
+  const dirsToTry = uploadDir !== '/tmp' ? [uploadDir, '/tmp'] : ['/tmp'];
+  
+  for (const dir of dirsToTry) {
+    try {
+      // Verificar si el directorio existe
+      // En serverless, /tmp siempre existe, pero verificamos por si acaso
+      if (!existsSync(dir)) {
+        await mkdir(dir, { recursive: true });
+      }
+      
+      // Intentar escribir el archivo
+      const filepath = join(dir, filename);
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      await writeFile(filepath, buffer);
+      
+      // Si llegamos aquí, el archivo se guardó exitosamente
+      return filepath;
+      
+    } catch (error) {
+      // Guardar el error pero continuar con el siguiente directorio
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`⚠️ No se pudo usar el directorio ${dir}, intentando siguiente opción...`, lastError.message);
+      
+      // Si este era el último directorio a intentar, lanzar el error
+      if (dir === dirsToTry[dirsToTry.length - 1]) {
+        throw new Error(
+          `No se pudo crear el archivo temporal en ningún directorio disponible. ` +
+          `Directorios intentados: ${dirsToTry.join(', ')}. ` +
+          `Último error: ${lastError.message}`
+        );
+      }
+    }
+  }
+  
+  // Esto no debería ejecutarse nunca, pero TypeScript lo requiere
+  throw new Error('Error inesperado al guardar archivo temporal');
 }
 
 /**

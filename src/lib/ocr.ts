@@ -28,20 +28,28 @@ const OCR_LANGUAGES = 'spa+eng'; // Detecta ambos idiomas
  * Obtiene el directorio temporal correcto según el entorno
  * En producción/serverless (Vercel, AWS Lambda, etc.) usa /tmp
  * En desarrollo local usa ./tmp
+ * 
+ * Esta función se ejecuta dinámicamente para asegurar detección correcta
  */
 function getTempDir(): string {
-  // Si hay una variable de entorno específica, usarla
+  // Si hay una variable de entorno específica, usarla (tiene prioridad)
   if (process.env.UPLOAD_DIR) {
     return process.env.UPLOAD_DIR;
   }
   
   // Detectar si estamos en un entorno serverless
-  // Vercel, AWS Lambda, y otros entornos serverless tienen estas variables
-  const isServerless = 
+  // Verificar múltiples indicadores de entornos serverless
+  const isServerless = !!(
     process.env.VERCEL || 
+    process.env.VERCEL_ENV ||
     process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.AWS_EXECUTION_ENV ||
     process.env.NEXT_RUNTIME === 'nodejs' ||
-    process.env.NODE_ENV === 'production';
+    // En Vercel, el directorio de trabajo es /var/task
+    process.cwd().startsWith('/var/task') ||
+    // Si estamos en producción y no estamos en Windows/Mac típico
+    (process.env.NODE_ENV === 'production' && !process.platform.startsWith('win') && !process.cwd().includes('Users'))
+  );
   
   // En producción/serverless, usar /tmp (único directorio escribible)
   // En desarrollo, usar ./tmp relativo al proyecto
