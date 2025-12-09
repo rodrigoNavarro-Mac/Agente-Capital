@@ -324,7 +324,7 @@ function getFileExtension(filename: string): string {
  */
 async function saveTemporaryFile(file: File): Promise<string> {
   // Obtener el directorio temporal dinámicamente
-  let uploadDir = getUploadDir();
+  const uploadDir = getUploadDir();
   
   // Generar nombre único (lo necesitamos en ambos casos)
   const timestamp = Date.now();
