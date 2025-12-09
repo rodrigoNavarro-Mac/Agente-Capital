@@ -103,7 +103,7 @@ export async function POST(
 
     // Verificar contraseña
     if (!user.password_hash) {
-      console.log(`❌ Usuario ${email} no tiene contraseña configurada`);
+      console.log(`Usuario ${email} no tiene contraseña configurada`);
       return NextResponse.json(
         {
           success: false,
@@ -116,7 +116,7 @@ export async function POST(
     const passwordValid = await verifyPassword(password, user.password_hash);
 
     if (!passwordValid) {
-      console.log(`❌ Contraseña inválida para usuario: ${email}`);
+      console.log(`Contraseña inválida para usuario: ${email}`);
       // Incrementar intentos fallidos
       await incrementFailedLoginAttempts(user.id);
 

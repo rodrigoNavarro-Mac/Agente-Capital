@@ -39,7 +39,31 @@ import type {
 // CONFIGURACIÓN
 // =====================================================
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './tmp';
+/**
+ * Obtiene el directorio temporal correcto según el entorno
+ * En producción/serverless (Vercel, AWS Lambda, etc.) usa /tmp
+ * En desarrollo local usa ./tmp
+ */
+function getUploadDir(): string {
+  // Si hay una variable de entorno específica, usarla
+  if (process.env.UPLOAD_DIR) {
+    return process.env.UPLOAD_DIR;
+  }
+  
+  // Detectar si estamos en un entorno serverless
+  // Vercel, AWS Lambda, y otros entornos serverless tienen estas variables
+  const isServerless = 
+    process.env.VERCEL || 
+    process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.NEXT_RUNTIME === 'nodejs' ||
+    process.env.NODE_ENV === 'production';
+  
+  // En producción/serverless, usar /tmp (único directorio escribible)
+  // En desarrollo, usar ./tmp relativo al proyecto
+  return isServerless ? '/tmp' : './tmp';
+}
+
+const UPLOAD_DIR = getUploadDir();
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || '52428800'); // 50MB default
 
 // =====================================================
@@ -282,8 +306,18 @@ function getFileExtension(filename: string): string {
  */
 async function saveTemporaryFile(file: File): Promise<string> {
   // Asegurar que existe el directorio
-  if (!existsSync(UPLOAD_DIR)) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
+  // En entornos serverless, /tmp siempre existe, pero verificamos por si acaso
+  try {
+    if (!existsSync(UPLOAD_DIR)) {
+      await mkdir(UPLOAD_DIR, { recursive: true });
+    }
+  } catch (error) {
+    // Si falla la creación del directorio, lanzar error más descriptivo
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `No se pudo crear el directorio temporal ${UPLOAD_DIR}: ${errorMessage}. ` +
+      `En entornos serverless, asegúrate de usar /tmp como directorio temporal.`
+    );
   }
 
   // Generar nombre único

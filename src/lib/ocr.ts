@@ -25,6 +25,30 @@ import pdfParse from 'pdf-parse';
 const OCR_LANGUAGES = 'spa+eng'; // Detecta ambos idiomas
 
 /**
+ * Obtiene el directorio temporal correcto según el entorno
+ * En producción/serverless (Vercel, AWS Lambda, etc.) usa /tmp
+ * En desarrollo local usa ./tmp
+ */
+function getTempDir(): string {
+  // Si hay una variable de entorno específica, usarla
+  if (process.env.UPLOAD_DIR) {
+    return process.env.UPLOAD_DIR;
+  }
+  
+  // Detectar si estamos en un entorno serverless
+  // Vercel, AWS Lambda, y otros entornos serverless tienen estas variables
+  const isServerless = 
+    process.env.VERCEL || 
+    process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.NEXT_RUNTIME === 'nodejs' ||
+    process.env.NODE_ENV === 'production';
+  
+  // En producción/serverless, usar /tmp (único directorio escribible)
+  // En desarrollo, usar ./tmp relativo al proyecto
+  return isServerless ? '/tmp' : './tmp';
+}
+
+/**
  * Función auxiliar para aplicar OCR a una imagen usando el script separado
  * Esto evita problemas con webpack y workers del navegador
  * 
@@ -180,9 +204,21 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
     const execAsync = promisify(exec);
     
     // Crear directorio temporal para imágenes
-    const tempDir = path.join(process.cwd(), 'tmp', `ocr-${Date.now()}`);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    // Usar getTempDir() para obtener el directorio correcto según el entorno
+    const baseTempDir = getTempDir();
+    const tempDir = path.join(baseTempDir, `ocr-${Date.now()}`);
+    
+    try {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+    } catch (error) {
+      // Si falla la creación del directorio, lanzar error más descriptivo
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `No se pudo crear el directorio temporal ${tempDir}: ${errorMessage}. ` +
+        `En entornos serverless, asegúrate de usar /tmp como directorio temporal.`
+      );
     }
 
     try {
