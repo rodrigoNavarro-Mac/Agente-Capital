@@ -7,8 +7,10 @@
  */
 
 import type { LMStudioMessage } from '@/types/documents';
+import type { PineconeMatch } from '@/types/documents';
 import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
 import { runLLM as runLLMProvider, checkLLMHealth, checkAllProvidersHealth } from './llm-provider';
+import { validateResponseAgainstChunks } from './responseValidator';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -56,13 +58,16 @@ export async function runLLM(
  * @param query - Pregunta del usuario
  * @param context - Contexto recuperado de Pinecone
  * @param queryType - Tipo de consulta para ajustar el prompt
- * @returns Respuesta del LLM
+ * @param memories - Memorias operativas del agente
+ * @param matches - Chunks recuperados para validación (opcional)
+ * @returns Respuesta del LLM validada contra los chunks
  */
 export async function runRAGQuery(
   query: string,
   context: string,
   queryType?: string,
-  memories?: Array<{ topic: string; summary: string; importance: number }>
+  memories?: Array<{ topic: string; summary: string; importance: number }>,
+  matches?: PineconeMatch[]
 ): Promise<string> {
   // Si no hay contexto, usar respuesta predeterminada
   if (!context || context.trim() === '') {
@@ -79,14 +84,32 @@ export async function runRAGQuery(
 Contexto recuperado de la base de conocimientos:
 ${context}
 
-**INSTRUCCIONES IMPORTANTES SOBRE CITAS:**
-- Cada fuente en el contexto está numerada como "Fuente 1", "Fuente 2", etc.
-- Cuando uses información de una fuente, DEBES incluir una cita numérica al final de la oración o frase en formato [1], [2], [3], etc.
-- El número de la cita corresponde al número de la fuente (Fuente 1 = [1], Fuente 2 = [2], etc.).
-- Si usas información de múltiples fuentes en la misma oración, incluye todas las citas: [1][2].
-- Ejemplo: "El precio es de $2,500,000 MXN [1] y está disponible en la zona norte [2]."
+**INSTRUCCIONES CRÍTICAS SOBRE EL USO DE INFORMACIÓN:**
 
-Por favor, responde la pregunta basándote en el contexto proporcionado. Si el contexto no contiene suficiente información para responder completamente, indícalo.`;
+1. **SOLO usa información que esté explícitamente en el contexto proporcionado arriba**
+   - NO inventes, supongas o agregues información que no esté en las fuentes
+   - NO uses conocimiento general que no esté en el contexto
+   - Si el contexto no contiene la información necesaria, di claramente "No encontré esta información en los documentos proporcionados"
+
+2. **CITAS OBLIGATORIAS:**
+   - Cada fuente en el contexto está numerada como "Fuente 1", "Fuente 2", etc.
+   - Cuando uses información de una fuente, DEBES incluir una cita numérica al final de la oración o frase en formato [1], [2], [3], etc.
+   - El número de la cita corresponde al número de la fuente (Fuente 1 = [1], Fuente 2 = [2], etc.).
+   - Si usas información de múltiples fuentes en la misma oración, incluye todas las citas: [1][2].
+   - Ejemplo: "El precio es de $2,500,000 MXN [1] y está disponible en la zona norte [2]."
+
+3. **REGLAS ESTRICTAS:**
+   - TODA información específica (precios, nombres, números, fechas, características) DEBE tener una cita
+   - Si mencionas un dato que no está en el contexto, NO lo incluyas en tu respuesta
+   - Si no estás 100% seguro de que la información está en el contexto, NO la uses
+   - Es mejor decir "No encontré esta información" que inventar o suponer
+
+4. **FORMATO:**
+   - Usa formato Markdown para estructurar tu respuesta
+   - Incluye citas para cada afirmación que uses del contexto
+   - Si el contexto no tiene suficiente información, indícalo claramente
+
+Por favor, responde la pregunta basándote ÚNICAMENTE en el contexto proporcionado. Si el contexto no contiene suficiente información para responder completamente, indícalo explícitamente.`;
 
   const messages: LMStudioMessage[] = [
     { role: 'system', content: systemPrompt },
@@ -95,6 +118,33 @@ Por favor, responde la pregunta basándote en el contexto proporcionado. Si el c
 
   try {
     const response = await runLLM(messages);
+    
+    // Validar la respuesta contra los chunks si están disponibles
+    if (matches && matches.length > 0) {
+      const validation = validateResponseAgainstChunks(response, matches);
+      
+      // Log de advertencias si las hay
+      if (validation.warnings.length > 0) {
+        console.log('⚠️ Advertencias de validación:');
+        validation.warnings.forEach(warning => console.log(`  - ${warning}`));
+      }
+      
+      // Si hay afirmaciones sin citas, loguearlas
+      if (validation.uncitedClaims.length > 0) {
+        console.log(`⚠️ Se encontraron ${validation.uncitedClaims.length} afirmación(es) sin citas:`);
+        validation.uncitedClaims.slice(0, 3).forEach(claim => {
+          console.log(`  - "${claim.substring(0, 80)}..."`);
+        });
+      }
+      
+      // Usar la respuesta filtrada
+      if (!validation.isValid && validation.warnings.length > 0) {
+        console.log('⚠️ La respuesta contiene información que puede no estar respaldada por los chunks');
+      }
+      
+      return validation.filteredResponse;
+    }
+    
     return response;
   } catch (error) {
     console.error('❌ Error en runRAGQuery:', error);

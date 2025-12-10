@@ -276,8 +276,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
         // Usar el query original (no procesado) para la respuesta, pero el contexto ya tiene
         // la información relevante gracias al query procesado
         console.log('🤖 Enviando al LLM con contexto RAG...');
-        answer = await runRAGQuery(query, context, type, memories);
-        console.log('✅ Respuesta RAG recibida del LLM');
+        answer = await runRAGQuery(query, context, type, memories, matches);
+        console.log('✅ Respuesta RAG recibida del LLM y validada contra los chunks');
 
         // 15. Preparar referencias de fuentes
         sources = buildSourceReferences(matches);
