@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { saveFeedback, updateChunkStats } from '@/lib/postgres';
+import { saveFeedback, updateChunkStats, getQueryLogById, invalidateCacheByQuery } from '@/lib/postgres';
 
 // =====================================================
 // TIPOS
@@ -90,7 +90,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Esto se hace automáticamente cuando se guarda el feedback
     await updateChunkStats(query_log_id, rating);
 
-    // 7. Retornar respuesta exitosa
+    // 7. Si el rating es bajo (<= 2), invalidar el caché para esta consulta
+    // Esto evita que se reutilicen respuestas incorrectas
+    if (rating <= 2) {
+      const queryLog = await getQueryLogById(query_log_id);
+      if (queryLog) {
+        const invalidatedCount = await invalidateCacheByQuery(
+          queryLog.query,
+          queryLog.zone,
+          queryLog.development
+        );
+        if (invalidatedCount > 0) {
+          console.log(`🗑️ Invalidadas ${invalidatedCount} entradas del caché debido a feedback negativo`);
+        }
+      }
+    }
+
+    // 8. Retornar respuesta exitosa
     return NextResponse.json({
       success: true,
       message: 'Feedback guardado exitosamente',

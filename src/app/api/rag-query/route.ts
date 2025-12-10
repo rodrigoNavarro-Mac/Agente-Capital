@@ -13,11 +13,12 @@ import { NextRequest, NextResponse } from 'next/server';
 // Importar utilidades
 import { queryChunks, buildContextFromMatches } from '@/lib/pinecone';
 import { runRAGQuery, runSimpleQuery, checkLMStudioHealth } from '@/lib/llm';
-import { checkUserAccess, hasPermission, saveQueryLog, getConfig, getUserById, registerQueryChunks, getAgentMemories } from '@/lib/postgres';
+import { checkUserAccess, hasPermission, saveQueryLog, getConfig, getUserById, registerQueryChunks, getAgentMemories, getLearnedResponse, incrementLearnedResponseUsage } from '@/lib/postgres';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { generatePreview } from '@/lib/cleanText';
 import { findCachedResponse, saveToCache } from '@/lib/cache';
 import { processQuery } from '@/lib/queryProcessing';
+import { invalidateCacheByQuery } from '@/lib/postgres';
 
 import type { 
   Zone, 
@@ -236,7 +237,44 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
       console.log(`🔄 Regenerando respuesta (ignorando caché)...`);
     }
 
-    if (!fromCache) {
+    // 10.5. Si no hay respuesta del caché, buscar respuestas aprendidas
+    // Solo buscar si no se está forzando a ignorar el caché y no hay respuesta aún
+    if (!fromCache && !answer && !skipCache) {
+      const learnedResponse = await getLearnedResponse(processedQuery);
+      if (learnedResponse && learnedResponse.quality_score >= 0.7) {
+        console.log(`📚 Usando respuesta aprendida (quality_score: ${learnedResponse.quality_score.toFixed(2)}, uso: ${learnedResponse.usage_count})`);
+        
+        // Incrementar contador de uso
+        await incrementLearnedResponseUsage(processedQuery);
+        
+        // Construir respuesta con la respuesta aprendida
+        answer = learnedResponse.answer;
+        
+        // Intentar obtener fuentes del caché si están disponibles
+        const cachedResult = await findCachedResponse(
+          processedQuery,
+          zone as Zone,
+          development,
+          type as DocumentContentType | undefined
+        );
+        
+        if (cachedResult && cachedResult.entry.sources_used && cachedResult.entry.sources_used.length > 0) {
+          sources = cachedResult.entry.sources_used.map((filename) => ({
+            filename,
+            page: 0,
+            chunk: 0,
+            relevance_score: cachedResult.similarity,
+            text_preview: '',
+          }));
+        } else {
+          sources = [];
+        }
+        
+        fromCache = false; // No es caché, es respuesta aprendida
+      }
+    }
+
+    if (!fromCache && !answer) {
       if (isSimple) {
         // Consulta simple: responder directamente sin buscar en Pinecone
         console.log('💬 Consulta simple detectada, respondiendo sin búsqueda RAG...');
@@ -284,6 +322,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
 
         // 16. Guardar en caché para futuras consultas (solo si no es simple)
         // Guardar con el query procesado para mejor matching futuro
+        // NOTA: saveToCache ya verifica si hay feedback negativo antes de guardar
         if (!isSimple && answer) {
           await saveToCache(
             processedQuery, // ✅ Guardar con query procesado para mejor matching

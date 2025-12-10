@@ -896,6 +896,104 @@ export async function saveCachedResponse(
 }
 
 /**
+ * Obtiene un query log por ID
+ */
+export async function getQueryLogById(queryLogId: number): Promise<{
+  id: number;
+  query: string;
+  response: string;
+  feedback_rating: number | null;
+  zone: string;
+  development: string;
+} | null> {
+  try {
+    const result = await query<{
+      id: number;
+      query: string;
+      response: string;
+      feedback_rating: number | null;
+      zone: string;
+      development: string;
+    }>(
+      `SELECT id, query, response, feedback_rating, zone, development
+       FROM query_logs
+       WHERE id = $1`,
+      [queryLogId]
+    );
+    
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('Error obteniendo query log:', error);
+    return null;
+  }
+}
+
+/**
+ * Elimina entradas del caché basado en query, zone y development
+ */
+export async function invalidateCacheByQuery(
+  query: string,
+  zone: string,
+  development: string,
+  documentType?: string
+): Promise<number> {
+  try {
+    const { createHash } = await import('crypto');
+    const queryHash = createHash('md5')
+      .update(query.toLowerCase().trim().replace(/\s+/g, ' '))
+      .digest('hex');
+    
+    const result = await query<{ count: number }>(
+      `DELETE FROM query_cache
+       WHERE query_hash = $1
+         AND zone = $2
+         AND development = $3
+         ${documentType ? 'AND document_type = $4' : 'AND document_type IS NULL'}
+       RETURNING id`,
+      documentType 
+        ? [queryHash, zone, development, documentType]
+        : [queryHash, zone, development]
+    );
+    
+    return result.rows.length;
+  } catch (error) {
+    console.error('Error invalidando caché:', error);
+    return 0;
+  }
+}
+
+/**
+ * Verifica si una respuesta en el caché tiene feedback negativo asociado
+ * Busca en query_logs si hay respuestas similares con rating <= 2
+ */
+export async function hasBadFeedbackInCache(
+  query: string,
+  zone: string,
+  development: string
+): Promise<boolean> {
+  try {
+    const normalizedQuery = query.toLowerCase().trim().replace(/\s+/g, ' ');
+    
+    // Buscar si hay query_logs con el mismo query (o similar) que tengan feedback negativo
+    const result = await query<{ count: number }>(
+      `SELECT COUNT(*) as count
+       FROM query_logs
+       WHERE LOWER(TRIM(query)) = $1
+         AND zone = $2
+         AND development = $3
+         AND feedback_rating IS NOT NULL
+         AND feedback_rating <= 2`,
+      [normalizedQuery, zone, development]
+    );
+    
+    return (result.rows[0]?.count || 0) > 0;
+  } catch (error) {
+    console.error('Error verificando feedback negativo:', error);
+    return false;
+  }
+}
+
+/**
  * Incrementa el contador de hits de una entrada de caché
  */
 export async function incrementCacheHit(cacheId: number): Promise<void> {
@@ -1510,7 +1608,20 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
 // =====================================================
 
 /**
+ * Normaliza un query para búsqueda (similar a processQuery pero más simple)
+ */
+function normalizeQueryForLearning(query: string): string {
+  return query
+    .toLowerCase()
+    .trim()
+    .replace(/[.,!?;:()\[\]{}'"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Obtiene respuestas aprendidas para una consulta
+ * Busca tanto coincidencias exactas como similares usando similitud de texto
  */
 export async function getLearnedResponse(queryText: string): Promise<{
   query: string;
@@ -1519,7 +1630,10 @@ export async function getLearnedResponse(queryText: string): Promise<{
   usage_count: number;
 } | null> {
   try {
-    const result = await query<{
+    const normalizedQuery = normalizeQueryForLearning(queryText);
+    
+    // Primero intentar búsqueda exacta
+    const exactResult = await query<{
       query: string;
       answer: string;
       quality_score: number;
@@ -1527,19 +1641,85 @@ export async function getLearnedResponse(queryText: string): Promise<{
     }>(
       `SELECT query, answer, quality_score, usage_count
        FROM response_learning
-       WHERE query = $1
+       WHERE LOWER(TRIM(query)) = $1
        ORDER BY quality_score DESC, usage_count DESC
        LIMIT 1`,
-      [queryText]
+      [normalizedQuery]
     );
     
-    return result.rows[0] || null;
+    if (exactResult.rows.length > 0) {
+      return exactResult.rows[0];
+    }
+    
+    // Si no hay coincidencia exacta, buscar similares usando similitud de texto
+    // Usar pg_trgm (trigram similarity) si está disponible, o búsqueda por palabras clave
+    const similarResult = await query<{
+      query: string;
+      answer: string;
+      quality_score: number;
+      usage_count: number;
+      similarity: number;
+    }>(
+      `SELECT query, answer, quality_score, usage_count,
+              CASE 
+                WHEN LOWER(query) LIKE '%' || $1 || '%' THEN 0.8
+                WHEN LOWER(query) LIKE $1 || '%' THEN 0.7
+                WHEN LOWER(query) LIKE '%' || $1 THEN 0.6
+                ELSE 0.5
+              END as similarity
+       FROM response_learning
+       WHERE LOWER(query) LIKE '%' || $1 || '%'
+          OR LOWER(query) LIKE $1 || '%'
+          OR LOWER(query) LIKE '%' || $1
+       ORDER BY quality_score DESC, similarity DESC, usage_count DESC
+       LIMIT 1`,
+      [normalizedQuery]
+    );
+    
+    // Solo retornar si la similitud es razonable y el quality_score es bueno (>= 0.7)
+    // Solo respuestas con buena calificación (quality_score >= 0.7 corresponde a rating >= 4)
+    if (similarResult.rows.length > 0) {
+      const bestMatch = similarResult.rows[0];
+      if (bestMatch.similarity >= 0.6 && bestMatch.quality_score >= 0.7) {
+        return {
+          query: bestMatch.query,
+          answer: bestMatch.answer,
+          quality_score: bestMatch.quality_score,
+          usage_count: bestMatch.usage_count,
+        };
+      }
+    }
+    
+    return null;
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       return null;
     }
     throw error;
+  }
+}
+
+/**
+ * Incrementa el contador de uso de una respuesta aprendida
+ */
+export async function incrementLearnedResponseUsage(queryText: string): Promise<void> {
+  try {
+    const normalizedQuery = normalizeQueryForLearning(queryText);
+    await query(
+      `UPDATE response_learning
+       SET usage_count = usage_count + 1
+       WHERE LOWER(TRIM(query)) = $1`,
+      [normalizedQuery]
+    );
+  } catch (error) {
+    // Silenciar errores si la tabla no existe
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return;
+    }
+    // No lanzar error, solo loguear
+    console.log('⚠️ Error incrementando uso de respuesta aprendida:', error);
   }
 }
 

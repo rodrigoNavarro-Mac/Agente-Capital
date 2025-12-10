@@ -14,6 +14,7 @@ import {
   incrementCacheHit,
   getSimilarCachedResponses,
   cleanupExpiredCache,
+  hasBadFeedbackInCache,
   type QueryCacheEntry 
 } from '@/lib/postgres';
 import type { Zone, DocumentContentType, SourceReference } from '@/types/documents';
@@ -78,6 +79,13 @@ export async function findCachedResponse(
   );
 
   if (exactMatch) {
+    // Verificar si esta respuesta tiene feedback negativo asociado
+    const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
+    if (hasBadFeedback) {
+      console.log(`⚠️ Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+      return null;
+    }
+    
     console.log(`✅ Caché HIT (exacto): "${query.substring(0, 50)}..."`);
     await incrementCacheHit(exactMatch.id);
     return { entry: exactMatch, similarity: 1.0 };
@@ -168,6 +176,14 @@ export async function findCachedResponse(
 
       if (similarEntries.length > 0) {
         const entry = similarEntries[0];
+        
+        // Verificar si esta respuesta tiene feedback negativo asociado
+        const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
+        if (hasBadFeedback) {
+          console.log(`⚠️ Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+          return null;
+        }
+        
         console.log(`✅ Caché HIT (similar, score: ${similarityScore.toFixed(2)}): "${query.substring(0, 50)}..."`);
         await incrementCacheHit(entry.id);
         return { entry, similarity: similarityScore };
@@ -184,6 +200,7 @@ export async function findCachedResponse(
 
 /**
  * Guarda una respuesta en el caché
+ * NO guarda si la respuesta tiene feedback negativo asociado
  */
 export async function saveToCache(
   query: string,
@@ -194,6 +211,13 @@ export async function saveToCache(
   documentType?: DocumentContentType
 ): Promise<void> {
   try {
+    // Verificar si esta respuesta tiene feedback negativo asociado
+    // Si tiene, no guardar en caché
+    const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
+    if (hasBadFeedback) {
+      console.log(`⚠️ No se guarda en caché (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+      return;
+    }
     const queryHash = generateQueryHash(query);
     const normalizedQuery = normalizeQuery(query);
 
