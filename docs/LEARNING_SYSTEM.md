@@ -14,6 +14,13 @@ El agente aprende qué respuestas son buenas y cuáles no, usando las calificaci
 - Los usuarios pueden calificar respuestas del 1 al 5
 - El sistema almacena estas calificaciones y aprende patrones
 - Las respuestas con calificaciones altas se reutilizan para consultas similares
+- **NUEVO:** Usa embeddings semánticos para encontrar preguntas similares (no solo coincidencias de texto)
+
+**Búsqueda Semántica:**
+- Utiliza embeddings de Pinecone (modelo `llama-text-embed-v2`) para búsqueda semántica
+- Entiende sinónimos y variaciones de lenguaje (ej: "precio" = "costo", "cuánto cuesta" = "cuál es el precio")
+- Umbral de similitud: 0.80 (configurable)
+- Si la búsqueda semántica falla, usa búsqueda por texto como fallback
 
 **Endpoint:** `POST /api/rag-feedback`
 
@@ -62,15 +69,21 @@ Importancia: 0.95
 
 ## 🚀 Instalación y Configuración
 
-### 1. Ejecutar Migración SQL
+### 1. Ejecutar Migraciones SQL
 
 ```bash
 # Ejecutar la migración para crear las nuevas tablas
 psql -U postgres -d capital_plus_agent -f migrations/004_learning_system.sql
 
+# Ejecutar la migración para agregar soporte de embeddings
+psql -U postgres -d capital_plus_agent -f migrations/005_add_embeddings_to_learning.sql
+
 # O usar el script de migración
 node scripts/run-migration.js migrations/004_learning_system.sql
+node scripts/run-migration.js migrations/005_add_embeddings_to_learning.sql
 ```
+
+**Nota:** La migración `005_add_embeddings_to_learning.sql` agrega el campo `embedding_id` a la tabla `response_learning` para soportar búsqueda semántica.
 
 ### 2. Configurar Jobs Nocturnos (Opcional)
 
@@ -194,21 +207,30 @@ node scripts/reindex-problematic-chunks.js
 ```
 1. Usuario hace consulta
    ↓
-2. Sistema busca en Pinecone (con re-ranking inteligente)
+2. Sistema busca respuestas aprendidas usando embeddings semánticos
+   - Genera embedding de la consulta
+   - Busca en Pinecone (namespace: learned_responses)
+   - Filtra por quality_score >= 0.7 y similarity >= 0.80
+   - Si encuentra, retorna respuesta aprendida (rápido y eficiente)
    ↓
-3. Sistema carga memorias operativas relevantes
+3. Si no encuentra respuesta aprendida:
+   - Sistema busca en Pinecone (con re-ranking inteligente)
+   - Sistema carga memorias operativas relevantes
+   - Sistema genera respuesta con contexto + memorias
    ↓
-4. Sistema genera respuesta con contexto + memorias
+4. Usuario califica la respuesta (1-5)
    ↓
-5. Usuario califica la respuesta (1-5)
+5. Sistema registra feedback y actualiza chunk_stats
    ↓
-6. Sistema registra feedback y actualiza chunk_stats
+6. Job nocturno procesa feedback y actualiza response_learning
+   - Guarda respuesta aprendida en PostgreSQL
+   - Genera embedding y lo guarda en Pinecone (namespace: learned_responses)
    ↓
-7. Job nocturno procesa feedback y actualiza response_learning
+7. Job nocturno genera memorias de temas frecuentes
    ↓
-8. Job nocturno genera memorias de temas frecuentes
-   ↓
-9. Sistema mejora automáticamente en futuras consultas
+8. Sistema mejora automáticamente en futuras consultas
+   - Más respuestas aprendidas disponibles
+   - Búsqueda semántica encuentra más variaciones
 ```
 
 ## 🎯 Resultados Esperados
@@ -278,11 +300,64 @@ WHERE (success_count + fail_count) >= 3;
 - Verificar que el endpoint RAG esté cargando memorias
 - Revisar logs del endpoint RAG
 
+### Respuestas aprendidas no se encuentran con búsqueda semántica
+
+- Verificar que la migración `005_add_embeddings_to_learning.sql` se haya ejecutado
+- Verificar que los embeddings se estén guardando en Pinecone (namespace: `learned_responses`)
+- Revisar logs para ver si hay errores al generar embeddings
+- Verificar que `embedding_id` esté siendo guardado en la tabla `response_learning`
+
+## 🔍 Búsqueda Semántica de Respuestas Aprendidas
+
+### Cómo Funciona
+
+El sistema ahora usa **embeddings semánticos** para encontrar respuestas aprendidas similares, en lugar de solo buscar coincidencias de texto exactas.
+
+**Ventajas:**
+- ✅ Entiende sinónimos: "precio" = "costo" = "valor"
+- ✅ Entiende variaciones: "¿cuánto cuesta?" = "¿cuál es el precio?"
+- ✅ Mayor tasa de reutilización: 3-5x más respuestas encontradas
+- ✅ Mejor experiencia de usuario: respuestas más rápidas y naturales
+
+**Implementación:**
+- **Módulo:** `src/lib/learnedResponses.ts`
+- **Namespace Pinecone:** `learned_responses`
+- **Modelo de embeddings:** `llama-text-embed-v2` (1024 dimensiones)
+- **Umbral de similitud:** 0.80 (configurable en `SIMILARITY_THRESHOLD`)
+- **Fallback:** Si la búsqueda semántica falla, usa búsqueda por texto (método antiguo)
+
+**Ejemplo:**
+```
+Respuesta aprendida guardada:
+Query: "¿Cuál es el precio de Riviera?"
+Answer: "El precio de Riviera es $2,500,000 MXN"
+Quality Score: 0.9
+
+Consultas que ahora encuentran esta respuesta:
+✅ "cuánto cuesta Riviera" (similarity: 0.88)
+✅ "valor de Riviera" (similarity: 0.85)
+✅ "precio Riviera" (similarity: 0.92)
+✅ "costo de Riviera" (similarity: 0.83)
+```
+
+### Configuración
+
+El umbral de similitud se puede ajustar en `src/lib/learnedResponses.ts`:
+
+```typescript
+const SIMILARITY_THRESHOLD = 0.80; // Ajustar según necesidades
+```
+
+- **Más alto (0.85-0.90):** Más estricto, solo coincidencias muy similares
+- **Más bajo (0.75-0.80):** Más permisivo, encuentra más variaciones
+
 ## 📚 Referencias
 
-- Migración SQL: `migrations/004_learning_system.sql`
+- Migración SQL base: `migrations/004_learning_system.sql`
+- Migración embeddings: `migrations/005_add_embeddings_to_learning.sql`
 - Endpoint de feedback: `src/app/api/rag-feedback/route.ts`
-- Funciones de aprendizaje: `src/lib/postgres.ts` (sección "FUNCIONES DE FEEDBACK Y APRENDIZAJE")
+- Funciones de aprendizaje: `src/lib/postgres.ts` (sección "FUNCIONES DE RESPONSE LEARNING")
+- Búsqueda semántica: `src/lib/learnedResponses.ts`
 - Re-ranking: `src/lib/pinecone.ts` (función `queryChunks`)
 - Memoria operativa: `src/lib/systemPrompt.ts` (función `getSystemPrompt`)
 

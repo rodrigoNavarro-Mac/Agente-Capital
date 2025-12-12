@@ -1608,6 +1608,18 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
 // =====================================================
 
 /**
+ * Tipo para respuestas aprendidas
+ */
+export type LearnedResponseEntry = {
+  id: number;
+  query: string;
+  answer: string;
+  quality_score: number;
+  usage_count: number;
+  embedding_id: string | null;
+};
+
+/**
  * Normaliza un query para búsqueda (similar a processQuery pero más simple)
  */
 function normalizeQueryForLearning(query: string): string {
@@ -1621,7 +1633,8 @@ function normalizeQueryForLearning(query: string): string {
 
 /**
  * Obtiene respuestas aprendidas para una consulta
- * Busca tanto coincidencias exactas como similares usando similitud de texto
+ * PRIMERO intenta usar embeddings semánticos (método nuevo y mejor)
+ * Si falla, usa búsqueda por texto como fallback (método antiguo)
  */
 export async function getLearnedResponse(queryText: string): Promise<{
   query: string;
@@ -1630,6 +1643,33 @@ export async function getLearnedResponse(queryText: string): Promise<{
   usage_count: number;
 } | null> {
   try {
+    // Intentar primero con embeddings semánticos (método nuevo)
+    try {
+      const { findLearnedResponse } = await import('@/lib/learnedResponses');
+      const semanticResult = await findLearnedResponse(queryText, 0.7);
+      
+      if (semanticResult) {
+        console.log(`📚 Respuesta aprendida encontrada usando embeddings semánticos`);
+        return {
+          query: semanticResult.entry.query,
+          answer: semanticResult.entry.answer,
+          quality_score: semanticResult.entry.quality_score,
+          usage_count: semanticResult.entry.usage_count,
+        };
+      }
+    } catch (semanticError) {
+      // Si falla la búsqueda semántica, continuar con el método antiguo
+      const errorMessage = semanticError instanceof Error ? semanticError.message : 'Error desconocido';
+      console.log(`⚠️ Búsqueda semántica no disponible (${errorMessage}), usando método de texto como fallback`);
+      
+      // Solo loggear el error completo en modo debug o si es un error crítico
+      if (semanticError instanceof Error && !errorMessage.includes('no existe la relación') && 
+          !errorMessage.includes('does not exist')) {
+        console.error('❌ Error en búsqueda semántica de respuestas aprendidas:', semanticError);
+      }
+    }
+
+    // Fallback: búsqueda por texto (método antiguo)
     const normalizedQuery = normalizeQueryForLearning(queryText);
     
     // Primero intentar búsqueda exacta
@@ -1652,7 +1692,6 @@ export async function getLearnedResponse(queryText: string): Promise<{
     }
     
     // Si no hay coincidencia exacta, buscar similares usando similitud de texto
-    // Usar pg_trgm (trigram similarity) si está disponible, o búsqueda por palabras clave
     const similarResult = await query<{
       query: string;
       answer: string;
@@ -1677,7 +1716,6 @@ export async function getLearnedResponse(queryText: string): Promise<{
     );
     
     // Solo retornar si la similitud es razonable y el quality_score es bueno (>= 0.7)
-    // Solo respuestas con buena calificación (quality_score >= 0.7 corresponde a rating >= 4)
     if (similarResult.rows.length > 0) {
       const bestMatch = similarResult.rows[0];
       if (bestMatch.similarity >= 0.6 && bestMatch.quality_score >= 0.7) {
@@ -1695,6 +1733,55 @@ export async function getLearnedResponse(queryText: string): Promise<{
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene una respuesta aprendida por su ID
+ */
+export async function getLearnedResponseById(id: number): Promise<LearnedResponseEntry | null> {
+  try {
+    const result = await query<LearnedResponseEntry>(
+      `SELECT id, query, answer, quality_score, usage_count, embedding_id
+       FROM response_learning
+       WHERE id = $1`,
+      [id]
+    );
+    
+    return result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene respuestas aprendidas por sus embedding_ids
+ */
+export async function getSimilarLearnedResponses(embeddingIds: string[]): Promise<LearnedResponseEntry[]> {
+  try {
+    if (embeddingIds.length === 0) {
+      return [];
+    }
+
+    const result = await query<LearnedResponseEntry>(
+      `SELECT id, query, answer, quality_score, usage_count, embedding_id
+       FROM response_learning
+       WHERE embedding_id = ANY($1::text[])
+       ORDER BY quality_score DESC, usage_count DESC`,
+      [embeddingIds]
+    );
+    
+    return result.rows;
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return [];
     }
     throw error;
   }
@@ -1759,6 +1846,7 @@ export async function getRecentFeedback(hours: number = 24): Promise<Array<{
 
 /**
  * Actualiza o crea una respuesta aprendida
+ * También guarda el embedding en Pinecone para búsqueda semántica
  * Retorna true si fue creación, false si fue actualización
  */
 export async function upsertLearnedResponse(
@@ -1768,17 +1856,22 @@ export async function upsertLearnedResponse(
 ): Promise<{ created: boolean; updated: boolean }> {
   try {
     // Primero verificar si existe
-    const existing = await query<{ id: number; quality_score: number; usage_count: number }>(
-      `SELECT id, quality_score, usage_count 
+    const existing = await query<{ id: number; quality_score: number; usage_count: number; embedding_id: string | null }>(
+      `SELECT id, quality_score, usage_count, embedding_id
        FROM response_learning 
        WHERE query = $1`,
       [queryText]
     );
     
+    let responseId: number;
+    let wasCreated = false;
+    let wasUpdated = false;
+    
     if (existing.rows.length > 0) {
       // Actualizar respuesta existente
       const existingRow = existing.rows[0];
       const newQualityScore = (existingRow.quality_score * existingRow.usage_count + qualityScore) / (existingRow.usage_count + 1);
+      responseId = existingRow.id;
       
       await query(
         `UPDATE response_learning
@@ -1786,24 +1879,63 @@ export async function upsertLearnedResponse(
              usage_count = usage_count + 1,
              last_improved_at = NOW()
          WHERE id = $2`,
-        [newQualityScore, existingRow.id]
+        [newQualityScore, responseId]
       );
       
-      return { created: false, updated: true };
+      wasUpdated = true;
     } else {
       // Crear nueva respuesta aprendida
-      await query(
+      const insertResult = await query<{ id: number }>(
         `INSERT INTO response_learning (query, answer, quality_score, usage_count, last_improved_at)
          VALUES ($1, $2, $3, 1, NOW())
          ON CONFLICT (query) DO UPDATE SET
            quality_score = (response_learning.quality_score * response_learning.usage_count + $3) / (response_learning.usage_count + 1),
            usage_count = response_learning.usage_count + 1,
-           last_improved_at = NOW()`,
+           last_improved_at = NOW()
+         RETURNING id`,
         [queryText, answer, qualityScore]
       );
       
-      return { created: true, updated: false };
+      if (insertResult.rows.length > 0) {
+        responseId = insertResult.rows[0].id;
+        wasCreated = true;
+      } else {
+        // Si hubo conflicto y se actualizó, obtener el ID
+        const conflictResult = await query<{ id: number }>(
+          `SELECT id FROM response_learning WHERE query = $1`,
+          [queryText]
+        );
+        responseId = conflictResult.rows[0]?.id || 0;
+        wasUpdated = true;
+      }
     }
+
+    // Guardar embedding en Pinecone para búsqueda semántica
+    // Solo si quality_score es bueno (>= 0.7) o si es una nueva respuesta
+    if (responseId && (qualityScore >= 0.5 || wasCreated)) {
+      try {
+        const { saveLearnedResponseEmbedding } = await import('@/lib/learnedResponses');
+        const embeddingId = `learned-${responseId}`;
+        
+        // Guardar embedding en Pinecone
+        const embeddingSaved = await saveLearnedResponseEmbedding(embeddingId, queryText);
+        
+        if (embeddingSaved) {
+          // Actualizar embedding_id en la base de datos
+          await query(
+            `UPDATE response_learning
+             SET embedding_id = $1
+             WHERE id = $2`,
+            [embeddingId, responseId]
+          );
+        }
+      } catch (embeddingError) {
+        // No fallar si no se puede guardar el embedding, es opcional
+        console.log('⚠️ No se pudo guardar embedding de respuesta aprendida:', embeddingError);
+      }
+    }
+    
+    return { created: wasCreated, updated: wasUpdated };
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
