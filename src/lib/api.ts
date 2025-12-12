@@ -579,6 +579,8 @@ export interface ZohoLead {
   Lead_Source?: string;
   Industry?: string;
   Desarrollo?: string; // Campo para filtrar por desarrollo
+  Motivo_Descarte?: string; // Motivo de descarte del lead
+  Tiempo_En_Fase?: number; // Tiempo en días en la fase actual
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -598,6 +600,8 @@ export interface ZohoDeal {
   Lead_Source?: string;
   Type?: string;
   Desarrollo?: string; // Campo para filtrar por desarrollo
+  Motivo_Descarte?: string; // Motivo de descarte del deal
+  Tiempo_En_Fase?: number; // Tiempo en días en la fase actual
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -663,6 +667,15 @@ export interface ZohoStats {
   leadsByDate?: Record<string, number>;
   dealsByDate?: Record<string, number>;
   dealValueByDate?: Record<string, number>;
+  // Análisis de embudos
+  leadsFunnel?: Record<string, number>; // Embudo de leads por estado
+  dealsFunnel?: Record<string, number>; // Embudo de deals por etapa
+  // Tiempos en fases
+  averageTimeInPhaseLeads?: Record<string, number>; // Tiempo promedio en días por estado
+  averageTimeInPhaseDeals?: Record<string, number>; // Tiempo promedio en días por etapa
+  // Motivos de descarte
+  leadsDiscardReasons?: Record<string, number>; // Motivos de descarte de leads
+  dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
 }
 
 export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {

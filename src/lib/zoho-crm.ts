@@ -21,6 +21,8 @@ export interface ZohoLead {
   Lead_Source?: string;
   Industry?: string;
   Desarrollo?: string; // Campo para filtrar por desarrollo
+  Motivo_Descarte?: string; // Motivo de descarte del lead
+  Tiempo_En_Fase?: number; // Tiempo en días en la fase actual
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -40,6 +42,8 @@ export interface ZohoDeal {
   Lead_Source?: string;
   Type?: string;
   Desarrollo?: string; // Campo para filtrar por desarrollo
+  Motivo_Descarte?: string; // Motivo de descarte del deal
+  Tiempo_En_Fase?: number; // Tiempo en días en la fase actual
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -105,6 +109,15 @@ export interface ZohoStats {
   leadsByDate?: Record<string, number>;
   dealsByDate?: Record<string, number>;
   dealValueByDate?: Record<string, number>;
+  // Análisis de embudos
+  leadsFunnel?: Record<string, number>; // Embudo de leads por estado
+  dealsFunnel?: Record<string, number>; // Embudo de deals por etapa
+  // Tiempos en fases
+  averageTimeInPhaseLeads?: Record<string, number>; // Tiempo promedio en días por estado
+  averageTimeInPhaseDeals?: Record<string, number>; // Tiempo promedio en días por etapa
+  // Motivos de descarte
+  leadsDiscardReasons?: Record<string, number>; // Motivos de descarte de leads
+  dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
 }
 
 // =====================================================
@@ -155,7 +168,23 @@ async function getAccessToken(): Promise<string> {
     throw new Error('ZOHO_ACCOUNTS_URL no está configurado. Usa: https://accounts.zoho.com (o la URL correspondiente a tu región)');
   }
 
-  const tokenUrl = `${ZOHO_ACCOUNTS_URL}/oauth/v2/token`;
+  // Normalizar la URL: remover cualquier ruta duplicada
+  // Si la URL ya contiene /oauth/v2/token, usar solo la base
+  let normalizedAccountsUrl = ZOHO_ACCOUNTS_URL.trim();
+  
+  // Remover trailing slash
+  if (normalizedAccountsUrl.endsWith('/')) {
+    normalizedAccountsUrl = normalizedAccountsUrl.slice(0, -1);
+  }
+  
+  // Si la URL ya contiene /oauth/v2/token, extraer solo la base
+  const oauthPathIndex = normalizedAccountsUrl.indexOf('/oauth/v2/token');
+  if (oauthPathIndex !== -1) {
+    normalizedAccountsUrl = normalizedAccountsUrl.substring(0, oauthPathIndex);
+  }
+  
+  // Construir la URL del token correctamente
+  const tokenUrl = `${normalizedAccountsUrl}/oauth/v2/token`;
   
   console.log('🔑 Intentando obtener token de Zoho...', {
     accountsUrl: ZOHO_ACCOUNTS_URL,
@@ -461,6 +490,98 @@ export async function getZohoStats(filters?: {
       ? totalDealValue / filteredDeals.length 
       : 0;
 
+    // Análisis de embudos (ordenados por cantidad descendente)
+    const leadsFunnel: Record<string, number> = {};
+    Object.entries(leadsByStatus)
+      .sort(([, a], [, b]) => b - a)
+      .forEach(([status, count]) => {
+        leadsFunnel[status] = count;
+      });
+
+    const dealsFunnel: Record<string, number> = {};
+    Object.entries(dealsByStage)
+      .sort(([, a], [, b]) => b - a)
+      .forEach(([stage, count]) => {
+        dealsFunnel[stage] = count;
+      });
+
+    // Calcular tiempos promedio en fases
+    const averageTimeInPhaseLeads: Record<string, { total: number; count: number }> = {};
+    filteredLeads.forEach(lead => {
+      const status = lead.Lead_Status || 'Sin Estado';
+      let timeInPhase = 0;
+
+      // Si tiene Tiempo_En_Fase, usarlo directamente
+      if (lead.Tiempo_En_Fase) {
+        timeInPhase = lead.Tiempo_En_Fase;
+      } else if (lead.Created_Time && lead.Modified_Time) {
+        // Calcular tiempo entre creación y modificación
+        const created = new Date(lead.Created_Time);
+        const modified = new Date(lead.Modified_Time);
+        timeInPhase = Math.floor((modified.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)); // días
+      }
+
+      if (!averageTimeInPhaseLeads[status]) {
+        averageTimeInPhaseLeads[status] = { total: 0, count: 0 };
+      }
+      if (timeInPhase > 0) {
+        averageTimeInPhaseLeads[status].total += timeInPhase;
+        averageTimeInPhaseLeads[status].count += 1;
+      }
+    });
+
+    const averageTimeInPhaseDeals: Record<string, { total: number; count: number }> = {};
+    filteredDeals.forEach(deal => {
+      const stage = deal.Stage || 'Sin Etapa';
+      let timeInPhase = 0;
+
+      // Si tiene Tiempo_En_Fase, usarlo directamente
+      if (deal.Tiempo_En_Fase) {
+        timeInPhase = deal.Tiempo_En_Fase;
+      } else if (deal.Created_Time && deal.Modified_Time) {
+        // Calcular tiempo entre creación y modificación
+        const created = new Date(deal.Created_Time);
+        const modified = new Date(deal.Modified_Time);
+        timeInPhase = Math.floor((modified.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)); // días
+      }
+
+      if (!averageTimeInPhaseDeals[stage]) {
+        averageTimeInPhaseDeals[stage] = { total: 0, count: 0 };
+      }
+      if (timeInPhase > 0) {
+        averageTimeInPhaseDeals[stage].total += timeInPhase;
+        averageTimeInPhaseDeals[stage].count += 1;
+      }
+    });
+
+    // Convertir a promedios
+    const avgTimeLeads: Record<string, number> = {};
+    Object.entries(averageTimeInPhaseLeads).forEach(([status, data]) => {
+      avgTimeLeads[status] = data.count > 0 ? Math.round((data.total / data.count) * 10) / 10 : 0;
+    });
+
+    const avgTimeDeals: Record<string, number> = {};
+    Object.entries(averageTimeInPhaseDeals).forEach(([stage, data]) => {
+      avgTimeDeals[stage] = data.count > 0 ? Math.round((data.total / data.count) * 10) / 10 : 0;
+    });
+
+    // Motivos de descarte
+    const leadsDiscardReasons: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      if (lead.Motivo_Descarte) {
+        const motivo = lead.Motivo_Descarte;
+        leadsDiscardReasons[motivo] = (leadsDiscardReasons[motivo] || 0) + 1;
+      }
+    });
+
+    const dealsDiscardReasons: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      if (deal.Motivo_Descarte) {
+        const motivo = deal.Motivo_Descarte;
+        dealsDiscardReasons[motivo] = (dealsDiscardReasons[motivo] || 0) + 1;
+      }
+    });
+
     return {
       totalLeads: filteredLeads.length,
       totalDeals: filteredDeals.length,
@@ -474,6 +595,12 @@ export async function getZohoStats(filters?: {
       leadsByDate,
       dealsByDate,
       dealValueByDate,
+      leadsFunnel,
+      dealsFunnel,
+      averageTimeInPhaseLeads: avgTimeLeads,
+      averageTimeInPhaseDeals: avgTimeDeals,
+      leadsDiscardReasons,
+      dealsDiscardReasons,
     };
   } catch (error) {
     console.error('❌ Error obteniendo estadísticas de ZOHO:', error);

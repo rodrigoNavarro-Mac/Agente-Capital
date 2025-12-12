@@ -130,16 +130,32 @@ function getPoolConfig() {
   // Si no encontramos ninguna cadena de conexión, usar variables individuales (desarrollo local)
   const host = process.env.POSTGRES_HOST || 'localhost';
   const port = parseInt(process.env.POSTGRES_PORT || '5432');
+  const user = process.env.POSTGRES_USER || 'postgres';
+  const password = process.env.POSTGRES_PASSWORD || '';
+  const database = process.env.POSTGRES_DB || 'capital_plus_agent';
+  
+  // En desarrollo local, dar mensajes más útiles si falta configuración
+  if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL) {
+    if (!password) {
+      console.warn('⚠️ ADVERTENCIA: POSTGRES_PASSWORD no está configurado. Usando contraseña vacía.');
+      console.warn('   Para desarrollo local, crea un archivo .env.local con:');
+      console.warn('   POSTGRES_HOST=localhost');
+      console.warn('   POSTGRES_PORT=5432');
+      console.warn('   POSTGRES_USER=postgres');
+      console.warn('   POSTGRES_PASSWORD=tu_contraseña');
+      console.warn('   POSTGRES_DB=capital_plus_agent');
+    }
+  }
   
   return {
     host,
     port,
-    user: process.env.POSTGRES_USER || 'postgres',
-    password: process.env.POSTGRES_PASSWORD || '',
-    database: process.env.POSTGRES_DB || 'capital_plus_agent',
+    user,
+    password,
+    database,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 10000, // Aumentado para desarrollo local
     family: 4,  // Forzar IPv4 para consistencia
   };
 }
@@ -234,23 +250,46 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
       
       // Mensajes más descriptivos para errores de conexión
       if (error instanceof Error) {
+        const isLocalDev = process.env.NODE_ENV !== 'production' && 
+                          (!process.env.DATABASE_URL && !process.env.POSTGRES_URL);
+        
         if (isConnectionError) {
           console.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.');
-          console.error('   La base de datos puede estar en mantenimiento o sobrecargada.');
+          if (isLocalDev) {
+            console.error('   DESARROLLO LOCAL: Verifica que:');
+            console.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)');
+            console.error('   2. Las variables de entorno estén configuradas en .env.local:');
+            console.error('      POSTGRES_HOST=localhost');
+            console.error('      POSTGRES_PORT=5432');
+            console.error('      POSTGRES_USER=postgres');
+            console.error('      POSTGRES_PASSWORD=tu_contraseña');
+            console.error('      POSTGRES_DB=capital_plus_agent');
+            console.error('   3. La base de datos exista: createdb capital_plus_agent');
+            console.error('   4. Las credenciales sean correctas');
+          } else {
+            console.error('   La base de datos puede estar en mantenimiento o sobrecargada.');
+          }
         } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
           console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
-          console.error('   Esto generalmente significa que:');
-          console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
-          console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
-          console.error('   3. Hay un problema de red/DNS en Vercel');
-          console.error('');
-          console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
-          console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
-          console.error('   Si no existe, verifica la integración o crea manualmente:');
-          console.error('   - POSTGRES_URL (recomendado)');
-          console.error('   - POSTGRES_PRISMA_URL');
-          console.error('   - POSTGRES_URL_NON_POOLING');
-          console.error('   - DATABASE_URL (compatibilidad)');
+          if (isLocalDev) {
+            console.error('   DESARROLLO LOCAL: Verifica que:');
+            console.error('   1. PostgreSQL esté corriendo en localhost');
+            console.error('   2. POSTGRES_HOST esté configurado correctamente en .env.local');
+            console.error('   3. No haya problemas de firewall bloqueando la conexión');
+          } else {
+            console.error('   Esto generalmente significa que:');
+            console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
+            console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
+            console.error('   3. Hay un problema de red/DNS en Vercel');
+            console.error('');
+            console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
+            console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
+            console.error('   Si no existe, verifica la integración o crea manualmente:');
+            console.error('   - POSTGRES_URL (recomendado)');
+            console.error('   - POSTGRES_PRISMA_URL');
+            console.error('   - POSTGRES_URL_NON_POOLING');
+            console.error('   - DATABASE_URL (compatibilidad)');
+          }
         }
       }
       
