@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-feedback-learning",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
+

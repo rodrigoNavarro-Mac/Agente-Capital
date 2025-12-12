@@ -932,7 +932,7 @@ export async function getQueryLogById(queryLogId: number): Promise<{
  * Elimina entradas del caché basado en query, zone y development
  */
 export async function invalidateCacheByQuery(
-  query: string,
+  queryString: string,
   zone: string,
   development: string,
   documentType?: string
@@ -940,7 +940,7 @@ export async function invalidateCacheByQuery(
   try {
     const { createHash } = await import('crypto');
     const queryHash = createHash('md5')
-      .update(query.toLowerCase().trim().replace(/\s+/g, ' '))
+      .update(queryString.toLowerCase().trim().replace(/\s+/g, ' '))
       .digest('hex');
     
     const result = await query<{ count: number }>(
@@ -967,12 +967,12 @@ export async function invalidateCacheByQuery(
  * Busca en query_logs si hay respuestas similares con rating <= 2
  */
 export async function hasBadFeedbackInCache(
-  query: string,
+  queryString: string,
   zone: string,
   development: string
 ): Promise<boolean> {
   try {
-    const normalizedQuery = query.toLowerCase().trim().replace(/\s+/g, ' ');
+    const normalizedQuery = queryString.toLowerCase().trim().replace(/\s+/g, ' ');
     
     // Buscar si hay query_logs con el mismo query (o similar) que tengan feedback negativo
     const result = await query<{ count: number }>(
@@ -1759,27 +1759,56 @@ export async function getRecentFeedback(hours: number = 24): Promise<Array<{
 
 /**
  * Actualiza o crea una respuesta aprendida
+ * Retorna true si fue creación, false si fue actualización
  */
 export async function upsertLearnedResponse(
   queryText: string,
   answer: string,
   qualityScore: number
-): Promise<void> {
+): Promise<{ created: boolean; updated: boolean }> {
   try {
-    await query(
-      `INSERT INTO response_learning (query, answer, quality_score, usage_count, last_improved_at)
-       VALUES ($1, $2, $3, 1, NOW())
-       ON CONFLICT (query) DO UPDATE SET
-         quality_score = (response_learning.quality_score * response_learning.usage_count + $3) / (response_learning.usage_count + 1),
-         usage_count = response_learning.usage_count + 1,
-         last_improved_at = NOW()`,
-      [queryText, answer, qualityScore]
+    // Primero verificar si existe
+    const existing = await query<{ id: number; quality_score: number; usage_count: number }>(
+      `SELECT id, quality_score, usage_count 
+       FROM response_learning 
+       WHERE query = $1`,
+      [queryText]
     );
+    
+    if (existing.rows.length > 0) {
+      // Actualizar respuesta existente
+      const existingRow = existing.rows[0];
+      const newQualityScore = (existingRow.quality_score * existingRow.usage_count + qualityScore) / (existingRow.usage_count + 1);
+      
+      await query(
+        `UPDATE response_learning
+         SET quality_score = $1,
+             usage_count = usage_count + 1,
+             last_improved_at = NOW()
+         WHERE id = $2`,
+        [newQualityScore, existingRow.id]
+      );
+      
+      return { created: false, updated: true };
+    } else {
+      // Crear nueva respuesta aprendida
+      await query(
+        `INSERT INTO response_learning (query, answer, quality_score, usage_count, last_improved_at)
+         VALUES ($1, $2, $3, 1, NOW())
+         ON CONFLICT (query) DO UPDATE SET
+           quality_score = (response_learning.quality_score * response_learning.usage_count + $3) / (response_learning.usage_count + 1),
+           usage_count = response_learning.usage_count + 1,
+           last_improved_at = NOW()`,
+        [queryText, answer, qualityScore]
+      );
+      
+      return { created: true, updated: false };
+    }
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       console.log('Tabla response_learning no existe aún. Ejecuta la migración 004_learning_system.sql');
-      return;
+      return { created: false, updated: false };
     }
     throw error;
   }

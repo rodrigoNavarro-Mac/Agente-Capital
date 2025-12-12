@@ -18,7 +18,7 @@ import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { generatePreview } from '@/lib/cleanText';
 import { findCachedResponse, saveToCache } from '@/lib/cache';
 import { processQuery } from '@/lib/queryProcessing';
-import { invalidateCacheByQuery } from '@/lib/postgres';
+
 
 import type { 
   Zone, 
