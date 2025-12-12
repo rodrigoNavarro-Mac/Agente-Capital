@@ -2493,8 +2493,8 @@ export async function getZohoLeadsFromDB(
   }
 ): Promise<{ leads: ZohoLead[]; total: number }> {
   try {
-    let whereConditions: string[] = [];
-    let params: any[] = [];
+    const whereConditions: string[] = [];
+    const params: any[] = [];
     let paramIndex = 1;
 
     if (filters?.desarrollo) {
@@ -2562,8 +2562,8 @@ export async function getZohoDealsFromDB(
   }
 ): Promise<{ deals: ZohoDeal[]; total: number }> {
   try {
-    let whereConditions: string[] = [];
-    let params: any[] = [];
+    const whereConditions: string[] = [];
+    const params: any[] = [];
     let paramIndex = 1;
 
     if (filters?.desarrollo) {
