@@ -20,7 +20,7 @@ import {
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
