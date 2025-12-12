@@ -8,7 +8,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { getUserById } from '@/lib/postgres';
 import { getZohoPipelines } from '@/lib/zoho-crm';
 import type { APIResponse } from '@/types/documents';
 
@@ -20,18 +19,13 @@ const ALLOWED_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing
 
 /**
  * Verifica si el usuario tiene permisos para acceder a ZOHO CRM
+ * Optimizado: verifica el rol desde el token JWT para evitar consultas a la BD
  */
-async function checkZohoAccess(userId: number): Promise<boolean> {
-  try {
-    const user = await getUserById(userId);
-    if (!user || !user.role) {
-      return false;
-    }
-    return ALLOWED_ROLES.includes(user.role);
-  } catch (error) {
-    console.error('Error verificando acceso a ZOHO:', error);
+function checkZohoAccessFromToken(role?: string): boolean {
+  if (!role) {
     return false;
   }
+  return ALLOWED_ROLES.includes(role);
 }
 
 /**
@@ -66,7 +60,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     }
 
     // 2. Verificar permisos (solo admin, ceo, post_sales, legal_manager, marketing_manager)
-    const hasAccess = await checkZohoAccess(payload.userId);
+    // Optimizado: verificar rol desde el token sin consultar la BD
+    const hasAccess = checkZohoAccessFromToken(payload.role);
     if (!hasAccess) {
       return NextResponse.json(
         {
