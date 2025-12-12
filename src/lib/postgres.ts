@@ -21,6 +21,7 @@ import type {
   ActionType,
   ResourceType
 } from '@/types/documents';
+import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -2278,4 +2279,342 @@ export async function getFrequentQueries(days: number = 7, minCount: number = 10
   }
 }
 
+// =====================================================
+// FUNCIONES DE SINCRONIZACIÓN DE ZOHO CRM
+// =====================================================
+
+/**
+ * Sincroniza un lead de Zoho a la base de datos local
+ * Extrae campos conocidos y guarda el resto en JSONB
+ */
+export async function syncZohoLead(lead: ZohoLead): Promise<void> {
+  try {
+    // Extraer campos conocidos
+    const fullName = lead.Full_Name || null;
+    const email = lead.Email || null;
+    const phone = lead.Phone || null;
+    const company = lead.Company || null;
+    const leadStatus = lead.Lead_Status || null;
+    const leadSource = lead.Lead_Source || null;
+    const industry = lead.Industry || null;
+    const desarrollo = lead.Desarrollo || null;
+    const motivoDescarte = lead.Motivo_Descarte || null;
+    const tiempoEnFase = lead.Tiempo_En_Fase || null;
+    const ownerId = lead.Owner?.id || null;
+    const ownerName = lead.Owner?.name || null;
+    const createdTime = lead.Created_Time ? new Date(lead.Created_Time) : null;
+    const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
+
+    // Guardar TODOS los campos en JSONB (incluyendo personalizados)
+    await query(
+      `INSERT INTO zoho_leads (
+        id, zoho_id, data, full_name, email, phone, company,
+        lead_status, lead_source, industry, desarrollo, motivo_descarte,
+        tiempo_en_fase, owner_id, owner_name, created_time, modified_time,
+        last_sync_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+      ON CONFLICT (zoho_id) DO UPDATE SET
+        data = EXCLUDED.data,
+        full_name = EXCLUDED.full_name,
+        email = EXCLUDED.email,
+        phone = EXCLUDED.phone,
+        company = EXCLUDED.company,
+        lead_status = EXCLUDED.lead_status,
+        lead_source = EXCLUDED.lead_source,
+        industry = EXCLUDED.industry,
+        desarrollo = EXCLUDED.desarrollo,
+        motivo_descarte = EXCLUDED.motivo_descarte,
+        tiempo_en_fase = EXCLUDED.tiempo_en_fase,
+        owner_id = EXCLUDED.owner_id,
+        owner_name = EXCLUDED.owner_name,
+        created_time = EXCLUDED.created_time,
+        modified_time = EXCLUDED.modified_time,
+        last_sync_at = NOW()`,
+      [
+        lead.id,
+        lead.id,
+        JSON.stringify(lead), // TODOS los campos en JSONB
+        fullName,
+        email,
+        phone,
+        company,
+        leadStatus,
+        leadSource,
+        industry,
+        desarrollo,
+        motivoDescarte,
+        tiempoEnFase,
+        ownerId,
+        ownerName,
+        createdTime,
+        modifiedTime,
+      ]
+    );
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      throw new Error('Tabla zoho_leads no existe. Ejecuta la migración 007_zoho_sync_tables.sql');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sincroniza un deal de Zoho a la base de datos local
+ * Extrae campos conocidos y guarda el resto en JSONB
+ */
+export async function syncZohoDeal(deal: ZohoDeal): Promise<void> {
+  try {
+    // Extraer campos conocidos
+    const dealName = deal.Deal_Name || null;
+    const amount = deal.Amount || null;
+    const stage = deal.Stage || null;
+    const closingDate = deal.Closing_Date ? new Date(deal.Closing_Date) : null;
+    const probability = deal.Probability || null;
+    const leadSource = deal.Lead_Source || null;
+    const type = deal.Type || null;
+    const desarrollo = deal.Desarrollo || null;
+    const motivoDescarte = deal.Motivo_Descarte || null;
+    const tiempoEnFase = deal.Tiempo_En_Fase || null;
+    const ownerId = deal.Owner?.id || null;
+    const ownerName = deal.Owner?.name || null;
+    const accountId = deal.Account_Name?.id || null;
+    const accountName = deal.Account_Name?.name || null;
+    const createdTime = deal.Created_Time ? new Date(deal.Created_Time) : null;
+    const modifiedTime = deal.Modified_Time ? new Date(deal.Modified_Time) : null;
+
+    // Guardar TODOS los campos en JSONB (incluyendo personalizados)
+    await query(
+      `INSERT INTO zoho_deals (
+        id, zoho_id, data, deal_name, amount, stage, closing_date,
+        probability, lead_source, type, desarrollo, motivo_descarte,
+        tiempo_en_fase, owner_id, owner_name, account_id, account_name,
+        created_time, modified_time, last_sync_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+      ON CONFLICT (zoho_id) DO UPDATE SET
+        data = EXCLUDED.data,
+        deal_name = EXCLUDED.deal_name,
+        amount = EXCLUDED.amount,
+        stage = EXCLUDED.stage,
+        closing_date = EXCLUDED.closing_date,
+        probability = EXCLUDED.probability,
+        lead_source = EXCLUDED.lead_source,
+        type = EXCLUDED.type,
+        desarrollo = EXCLUDED.desarrollo,
+        motivo_descarte = EXCLUDED.motivo_descarte,
+        tiempo_en_fase = EXCLUDED.tiempo_en_fase,
+        owner_id = EXCLUDED.owner_id,
+        owner_name = EXCLUDED.owner_name,
+        account_id = EXCLUDED.account_id,
+        account_name = EXCLUDED.account_name,
+        created_time = EXCLUDED.created_time,
+        modified_time = EXCLUDED.modified_time,
+        last_sync_at = NOW()`,
+      [
+        deal.id,
+        deal.id,
+        JSON.stringify(deal), // TODOS los campos en JSONB
+        dealName,
+        amount,
+        stage,
+        closingDate,
+        probability,
+        leadSource,
+        type,
+        desarrollo,
+        motivoDescarte,
+        tiempoEnFase,
+        ownerId,
+        ownerName,
+        accountId,
+        accountName,
+        createdTime,
+        modifiedTime,
+      ]
+    );
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      throw new Error('Tabla zoho_deals no existe. Ejecuta la migración 007_zoho_sync_tables.sql');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Registra un log de sincronización
+ */
+export async function logZohoSync(
+  syncType: 'leads' | 'deals' | 'full',
+  status: 'success' | 'error' | 'partial',
+  stats: {
+    recordsSynced: number;
+    recordsUpdated: number;
+    recordsCreated: number;
+    recordsFailed: number;
+    errorMessage?: string;
+    durationMs: number;
+  }
+): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO zoho_sync_log (
+        sync_type, status, records_synced, records_updated,
+        records_created, records_failed, error_message,
+        started_at, completed_at, duration_ms
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() - INTERVAL '${stats.durationMs} milliseconds', NOW(), $8)`,
+      [
+        syncType,
+        status,
+        stats.recordsSynced,
+        stats.recordsUpdated,
+        stats.recordsCreated,
+        stats.recordsFailed,
+        stats.errorMessage || null,
+        stats.durationMs,
+      ]
+    );
+  } catch (error) {
+    // No lanzar error si la tabla no existe, solo loguear
+    console.error('Error registrando log de sincronización:', error);
+  }
+}
+
+/**
+ * Obtiene leads desde la base de datos local
+ */
+export async function getZohoLeadsFromDB(
+  page: number = 1,
+  perPage: number = 200,
+  filters?: {
+    desarrollo?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }
+): Promise<{ leads: ZohoLead[]; total: number }> {
+  try {
+    let whereConditions: string[] = [];
+    let params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters?.desarrollo) {
+      whereConditions.push(`desarrollo = $${paramIndex}`);
+      params.push(filters.desarrollo);
+      paramIndex++;
+    }
+
+    if (filters?.startDate) {
+      whereConditions.push(`created_time >= $${paramIndex}`);
+      params.push(filters.startDate);
+      paramIndex++;
+    }
+
+    if (filters?.endDate) {
+      whereConditions.push(`created_time <= $${paramIndex}`);
+      params.push(filters.endDate);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
+
+    // Obtener total
+    const countResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_leads ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
+
+    // Obtener leads paginados
+    const offset = (page - 1) * perPage;
+    params.push(perPage, offset);
+    
+    const result = await query<{
+      data: string;
+    }>(
+      `SELECT data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      params
+    );
+
+    const leads: ZohoLead[] = result.rows.map(row => JSON.parse(row.data));
+
+    return { leads, total };
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return { leads: [], total: 0 };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene deals desde la base de datos local
+ */
+export async function getZohoDealsFromDB(
+  page: number = 1,
+  perPage: number = 200,
+  filters?: {
+    desarrollo?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }
+): Promise<{ deals: ZohoDeal[]; total: number }> {
+  try {
+    let whereConditions: string[] = [];
+    let params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters?.desarrollo) {
+      whereConditions.push(`desarrollo = $${paramIndex}`);
+      params.push(filters.desarrollo);
+      paramIndex++;
+    }
+
+    if (filters?.startDate) {
+      whereConditions.push(`created_time >= $${paramIndex}`);
+      params.push(filters.startDate);
+      paramIndex++;
+    }
+
+    if (filters?.endDate) {
+      whereConditions.push(`created_time <= $${paramIndex}`);
+      params.push(filters.endDate);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
+
+    // Obtener total
+    const countResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_deals ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
+
+    // Obtener deals paginados
+    const offset = (page - 1) * perPage;
+    params.push(perPage, offset);
+    
+    const result = await query<{
+      data: string;
+    }>(
+      `SELECT data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      params
+    );
+
+    const deals: ZohoDeal[] = result.rows.map(row => JSON.parse(row.data));
+
+    return { deals, total };
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return { deals: [], total: 0 };
+    }
+    throw error;
+  }
+}
 

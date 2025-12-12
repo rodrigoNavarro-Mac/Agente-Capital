@@ -352,6 +352,90 @@ export async function getZohoPipelines(): Promise<ZohoPipelinesResponse> {
 }
 
 /**
+ * Interfaz para campos de Zoho CRM
+ */
+export interface ZohoField {
+  api_name: string;
+  data_type: string;
+  display_label: string;
+  required?: boolean;
+  read_only?: boolean;
+  length?: number;
+  decimal_place?: number;
+  pick_list_values?: Array<{
+    display_value: string;
+    sequence_number: number;
+    actual_value: string;
+  }>;
+}
+
+export interface ZohoFieldsResponse {
+  fields: ZohoField[];
+}
+
+/**
+ * Obtiene todos los campos disponibles de un módulo de ZOHO CRM
+ * @param module Nombre del módulo (Leads, Deals, etc.)
+ */
+export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFieldsResponse> {
+  try {
+    const response = await zohoRequest<{ fields: ZohoField[] }>(`/settings/fields?module=${module}`);
+    return { fields: response.fields || [] };
+  } catch (error) {
+    console.error(`❌ Error obteniendo campos de ${module} de ZOHO:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Obtiene todos los leads de ZOHO CRM (sin paginación, todos los registros)
+ * Útil para sincronización completa
+ */
+export async function getAllZohoLeads(): Promise<ZohoLead[]> {
+  const allLeads: ZohoLead[] = [];
+  let currentPage = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const response = await getZohoLeads(currentPage, 200);
+    if (response.data) {
+      allLeads.push(...response.data);
+    }
+    hasMore = response.info?.more_records || false;
+    currentPage++;
+    
+    // Limitar a 50 páginas (10,000 registros) para evitar demasiadas peticiones
+    if (currentPage > 50) break;
+  }
+
+  return allLeads;
+}
+
+/**
+ * Obtiene todos los deals de ZOHO CRM (sin paginación, todos los registros)
+ * Útil para sincronización completa
+ */
+export async function getAllZohoDeals(): Promise<ZohoDeal[]> {
+  const allDeals: ZohoDeal[] = [];
+  let currentPage = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const response = await getZohoDeals(currentPage, 200);
+    if (response.data) {
+      allDeals.push(...response.data);
+    }
+    hasMore = response.info?.more_records || false;
+    currentPage++;
+    
+    // Limitar a 50 páginas (10,000 registros) para evitar demasiadas peticiones
+    if (currentPage > 50) break;
+  }
+
+  return allDeals;
+}
+
+/**
  * Obtiene estadísticas generales de leads y deals
  * @param filters Filtros opcionales para las estadísticas
  */
