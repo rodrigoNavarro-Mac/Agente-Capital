@@ -578,6 +578,7 @@ export interface ZohoLead {
   Lead_Status?: string;
   Lead_Source?: string;
   Industry?: string;
+  Desarrollo?: string; // Campo para filtrar por desarrollo
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -596,6 +597,7 @@ export interface ZohoDeal {
   Probability?: number;
   Lead_Source?: string;
   Type?: string;
+  Desarrollo?: string; // Campo para filtrar por desarrollo
   Created_Time?: string;
   Modified_Time?: string;
   Owner?: {
@@ -653,6 +655,14 @@ export interface ZohoStats {
   dealsByStage: Record<string, number>;
   totalDealValue: number;
   averageDealValue: number;
+  // Estadísticas por desarrollo
+  leadsByDevelopment?: Record<string, number>;
+  dealsByDevelopment?: Record<string, number>;
+  dealValueByDevelopment?: Record<string, number>;
+  // Estadísticas temporales
+  leadsByDate?: Record<string, number>;
+  dealsByDate?: Record<string, number>;
+  dealValueByDate?: Record<string, number>;
 }
 
 export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {
@@ -700,11 +710,34 @@ export async function getZohoPipelines(): Promise<ZohoPipelinesResponse> {
   return response.data;
 }
 
-export async function getZohoStats(): Promise<ZohoStats> {
+export async function getZohoStats(filters?: {
+  desarrollo?: string;
+  lastMonth?: boolean;
+  startDate?: Date;
+  endDate?: Date;
+}): Promise<ZohoStats> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   
+  // Construir query string con los filtros
+  const params = new URLSearchParams();
+  if (filters?.desarrollo) {
+    params.append('desarrollo', filters.desarrollo);
+  }
+  if (filters?.lastMonth) {
+    params.append('lastMonth', 'true');
+  }
+  if (filters?.startDate) {
+    params.append('startDate', filters.startDate.toISOString());
+  }
+  if (filters?.endDate) {
+    params.append('endDate', filters.endDate.toISOString());
+  }
+  
+  const queryString = params.toString();
+  const url = queryString ? `/api/zoho/stats?${queryString}` : '/api/zoho/stats';
+  
   const response = await fetcher<{ success: boolean; data: ZohoStats }>(
-    '/api/zoho/stats',
+    url,
     {
       headers: token ? {
         'Authorization': `Bearer ${token}`,

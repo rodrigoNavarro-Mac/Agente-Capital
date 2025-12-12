@@ -147,8 +147,20 @@ function getPoolConfig() {
 const pool = new Pool(getPoolConfig());
 
 // Manejar errores del pool
-pool.on('error', (err) => {
+pool.on('error', (err: Error & { code?: string }) => {
   console.error('Error inesperado en el pool de PostgreSQL:', err);
+  
+  // Detectar errores específicos de terminación de conexión
+  if (err.code === 'XX000' || 
+      (err.message && (err.message.includes('shutdown') || err.message.includes('db_termination')))) {
+    console.error('⚠️ DIAGNÓSTICO: La base de datos cerró la conexión inesperadamente.');
+    console.error('   Esto puede ocurrir por:');
+    console.error('   1. Timeout de conexión (común en serverless)');
+    console.error('   2. Reinicio o mantenimiento de la base de datos');
+    console.error('   3. Límite de conexiones alcanzado');
+    console.error('   El pool intentará reconectar automáticamente en la próxima query.');
+    return; // No es un error crítico, el pool manejará la reconexión
+  }
   
   // Mensajes más descriptivos para errores comunes
   if (err instanceof Error) {
@@ -163,6 +175,9 @@ pool.on('error', (err) => {
       console.error('DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
     } else if (err.message.includes('password authentication failed')) {
       console.error('DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.');
+    } else if (err.code === '57P01' || err.message.includes('terminating connection')) {
+      console.error('⚠️ DIAGNÓSTICO: Conexión terminada por el servidor.');
+      console.error('   Esto puede ser temporal. El pool intentará reconectar.');
     }
   }
 });
@@ -177,38 +192,74 @@ pool.on('error', (err) => {
  * @param params - Parámetros de la query
  * @returns Resultado de la query
  */
+/**
+ * Ejecuta una query con retry automático para errores de conexión
+ */
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string, 
-  params?: unknown[]
+  params?: unknown[],
+  retries: number = 1
 ): Promise<QueryResult<T>> {
   const _start = Date.now();
-  try {
-    const result = await pool.query<T>(text, params);
-    return result;
-  } catch (error) {
-    console.error('Error en query:', error);
-    
-    // Mensajes más descriptivos para errores de conexión
-    if (error instanceof Error) {
-      if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
-        console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
-        console.error('   Esto generalmente significa que:');
-        console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
-        console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
-        console.error('   3. Hay un problema de red/DNS en Vercel');
-        console.error('');
-        console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
-        console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
-        console.error('   Si no existe, verifica la integración o crea manualmente:');
-        console.error('   - POSTGRES_URL (recomendado)');
-        console.error('   - POSTGRES_PRISMA_URL');
-        console.error('   - POSTGRES_URL_NON_POOLING');
-        console.error('   - DATABASE_URL (compatibilidad)');
+  let lastError: unknown;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await pool.query<T>(text, params);
+      return result;
+    } catch (error) {
+      lastError = error;
+      
+      // Verificar si es un error de conexión que puede recuperarse
+      const isConnectionError = error instanceof Error && (
+        error.message.includes('shutdown') ||
+        error.message.includes('db_termination') ||
+        error.message.includes('terminating connection') ||
+        (error as Error & { code?: string }).code === 'XX000' ||
+        (error as Error & { code?: string }).code === '57P01' ||
+        error.message.includes('Connection terminated') ||
+        error.message.includes('server closed the connection')
+      );
+      
+      // Si es un error de conexión y aún tenemos intentos, reintentar
+      if (isConnectionError && attempt < retries) {
+        const delay = Math.min(100 * Math.pow(2, attempt), 1000); // Backoff exponencial (max 1s)
+        console.log(`⚠️ Error de conexión detectado, reintentando en ${delay}ms (intento ${attempt + 1}/${retries + 1})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
+      
+      // Si no es un error de conexión o se agotaron los intentos, loggear y lanzar
+      console.error('Error en query:', error);
+      
+      // Mensajes más descriptivos para errores de conexión
+      if (error instanceof Error) {
+        if (isConnectionError) {
+          console.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.');
+          console.error('   La base de datos puede estar en mantenimiento o sobrecargada.');
+        } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+          console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
+          console.error('   Esto generalmente significa que:');
+          console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
+          console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
+          console.error('   3. Hay un problema de red/DNS en Vercel');
+          console.error('');
+          console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
+          console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
+          console.error('   Si no existe, verifica la integración o crea manualmente:');
+          console.error('   - POSTGRES_URL (recomendado)');
+          console.error('   - POSTGRES_PRISMA_URL');
+          console.error('   - POSTGRES_URL_NON_POOLING');
+          console.error('   - DATABASE_URL (compatibilidad)');
+        }
+      }
+      
+      throw error;
     }
-    
-    throw error;
   }
+  
+  // Esto no debería ejecutarse, pero TypeScript lo requiere
+  throw lastError;
 }
 
 /**

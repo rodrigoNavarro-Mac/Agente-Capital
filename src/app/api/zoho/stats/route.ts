@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getUserById } from '@/lib/postgres';
-import { getZohoStats } from '@/lib/zoho-crm';
+import { getZohoStats, getZohoStatsLastMonth } from '@/lib/zoho-crm';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers que es dinámico)
@@ -77,8 +77,26 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    // 3. Obtener estadísticas de ZOHO CRM
-    const stats = await getZohoStats();
+    // 3. Obtener parámetros de consulta
+    const { searchParams } = new URL(request.url);
+    const desarrollo = searchParams.get('desarrollo') || undefined;
+    const lastMonth = searchParams.get('lastMonth') === 'true';
+    const startDate = searchParams.get('startDate') ? new Date(searchParams.get('startDate')!) : undefined;
+    const endDate = searchParams.get('endDate') ? new Date(searchParams.get('endDate')!) : undefined;
+
+    // 4. Obtener estadísticas de ZOHO CRM
+    let stats;
+    if (lastMonth) {
+      // Si se solicita el mes anterior, usar la función específica
+      stats = await getZohoStatsLastMonth(desarrollo);
+    } else {
+      // Usar filtros normales
+      stats = await getZohoStats({
+        desarrollo,
+        startDate,
+        endDate,
+      });
+    }
 
     return NextResponse.json({
       success: true,

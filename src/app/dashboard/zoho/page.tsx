@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, RefreshCw, TrendingUp, Users, DollarSign, BarChart3, AlertCircle } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Users, DollarSign, BarChart3, AlertCircle, Calendar } from 'lucide-react';
 import { 
   getZohoLeads, 
   getZohoDeals, 
@@ -19,6 +20,7 @@ import {
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -28,10 +30,16 @@ export default function ZohoCRMPage() {
   
   // Datos
   const [stats, setStats] = useState<ZohoStats | null>(null);
+  const [lastMonthStats, setLastMonthStats] = useState<ZohoStats | null>(null);
   const [leads, setLeads] = useState<ZohoLead[]>([]);
   const [deals, setDeals] = useState<ZohoDeal[]>([]);
   const [pipelines, setPipelines] = useState<ZohoPipeline[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Filtros
+  const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
+  const [showLastMonth, setShowLastMonth] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
   
   const { toast } = useToast();
 
@@ -46,26 +54,67 @@ export default function ZohoCRMPage() {
     }
   }, []);
 
+  // Obtener lista de desarrollos únicos de los datos
+  const availableDevelopments = useMemo(() => {
+    const developments = new Set<string>();
+    leads.forEach(lead => {
+      if (lead.Desarrollo) {
+        developments.add(lead.Desarrollo);
+      }
+    });
+    deals.forEach(deal => {
+      if (deal.Desarrollo) {
+        developments.add(deal.Desarrollo);
+      }
+    });
+    return Array.from(developments).sort();
+  }, [leads, deals]);
+
+  // Cargar estadísticas con filtros
+  const loadStats = useCallback(async (desarrollo?: string, lastMonth: boolean = false) => {
+    setLoadingStats(true);
+    try {
+      const statsData = await getZohoStats({
+        desarrollo: desarrollo === 'all' ? undefined : desarrollo,
+        lastMonth,
+      });
+      if (lastMonth) {
+        setLastMonthStats(statsData);
+      } else {
+        setStats(statsData);
+      }
+    } catch (err) {
+      console.error('Error cargando estadísticas:', err);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar las estadísticas.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [toast]);
+
   // Cargar todos los datos
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Cargar estadísticas primero (más rápido)
-      const statsData = await getZohoStats();
-      setStats(statsData);
-      
       // Cargar otros datos en paralelo
       const [leadsData, dealsData, pipelinesData] = await Promise.all([
-        getZohoLeads(1, 50).catch(() => ({ data: [], info: {} })),
-        getZohoDeals(1, 50).catch(() => ({ data: [], info: {} })),
+        getZohoLeads(1, 200).catch(() => ({ data: [], info: {} })),
+        getZohoDeals(1, 200).catch(() => ({ data: [], info: {} })),
         getZohoPipelines().catch(() => ({ data: [] })),
       ]);
       
       setLeads(leadsData.data || []);
       setDeals(dealsData.data || []);
       setPipelines(pipelinesData.data || []);
+      
+      // Cargar estadísticas después de obtener los datos
+      await loadStats(selectedDesarrollo, false);
+      await loadStats(selectedDesarrollo, true);
       
     } catch (err) {
       console.error('Error cargando datos de ZOHO:', err);
@@ -78,7 +127,15 @@ export default function ZohoCRMPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, loadStats, selectedDesarrollo]);
+
+  // Recargar estadísticas cuando cambia el filtro (solo si ya se cargaron los datos iniciales)
+  useEffect(() => {
+    if (!loading && (stats !== null || lastMonthStats !== null)) {
+      loadStats(selectedDesarrollo, false);
+      loadStats(selectedDesarrollo, true);
+    }
+  }, [selectedDesarrollo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Verificar permisos
   useEffect(() => {
@@ -213,8 +270,57 @@ export default function ZohoCRMPage() {
 
         {/* Estadísticas */}
         <TabsContent value="stats" className="flex-1 overflow-auto">
-          {stats ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mt-4">
+          {/* Filtros */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>Filtros</CardTitle>
+              <CardDescription>Filtra las estadísticas por desarrollo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-sm font-medium mb-2 block">Desarrollo</label>
+                  <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar desarrollo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los desarrollos</SelectItem>
+                      {availableDevelopments.map((dev) => (
+                        <SelectItem key={dev} value={dev}>
+                          {dev}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={showLastMonth ? "default" : "outline"}
+                    onClick={() => setShowLastMonth(!showLastMonth)}
+                    className="mt-6 sm:mt-0"
+                  >
+                    <Calendar className="h-4 w-4 mr-2" />
+                    {showLastMonth ? 'Ver Actual' : 'Ver Mes Anterior'}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {loadingStats ? (
+            <Card className="mt-4">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <p className="text-muted-foreground">Cargando estadísticas...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (showLastMonth ? lastMonthStats : stats) ? (
+            <div className="mt-4 space-y-4">
+              {/* Tarjetas de resumen */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {/* Total Leads */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -222,9 +328,9 @@ export default function ZohoCRMPage() {
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalLeads}</div>
+                  <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalLeads || 0}</div>
                   <p className="text-xs text-muted-foreground">
-                    Leads registrados
+                    {showLastMonth ? 'Leads del mes anterior' : 'Leads registrados'}
                   </p>
                 </CardContent>
               </Card>
@@ -236,9 +342,9 @@ export default function ZohoCRMPage() {
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalDeals}</div>
+                  <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalDeals || 0}</div>
                   <p className="text-xs text-muted-foreground">
-                    Oportunidades activas
+                    {showLastMonth ? 'Deals del mes anterior' : 'Oportunidades activas'}
                   </p>
                 </CardContent>
               </Card>
@@ -251,10 +357,10 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {formatCurrency(stats.totalDealValue)}
+                    {formatCurrency((showLastMonth ? lastMonthStats : stats)?.totalDealValue || 0)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Valor de todos los deals
+                    {showLastMonth ? 'Valor del mes anterior' : 'Valor de todos los deals'}
                   </p>
                 </CardContent>
               </Card>
@@ -267,69 +373,235 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {formatCurrency(stats.averageDealValue)}
+                    {formatCurrency((showLastMonth ? lastMonthStats : stats)?.averageDealValue || 0)}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Por deal
                   </p>
                 </CardContent>
               </Card>
+              </div>
+
+              {/* Gráficas del mes anterior */}
+              {showLastMonth && lastMonthStats && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Gráfica de Leads por Fecha */}
+                  {lastMonthStats.leadsByDate && Object.keys(lastMonthStats.leadsByDate).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Leads por Día - Mes Anterior</CardTitle>
+                        <CardDescription>Evolución diaria de leads</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={Object.entries(lastMonthStats.leadsByDate).map(([date, count]) => ({
+                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                            leads: count
+                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="fecha" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="leads" stroke="#8884d8" name="Leads" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gráfica de Deals por Fecha */}
+                  {lastMonthStats.dealsByDate && Object.keys(lastMonthStats.dealsByDate).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Deals por Día - Mes Anterior</CardTitle>
+                        <CardDescription>Evolución diaria de deals</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={Object.entries(lastMonthStats.dealsByDate).map(([date, count]) => ({
+                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                            deals: count
+                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="fecha" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="deals" stroke="#82ca9d" name="Deals" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gráfica de Valor por Fecha */}
+                  {lastMonthStats.dealValueByDate && Object.keys(lastMonthStats.dealValueByDate).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Valor de Deals por Día - Mes Anterior</CardTitle>
+                        <CardDescription>Evolución diaria del valor</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={Object.entries(lastMonthStats.dealValueByDate).map(([date, value]) => ({
+                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                            valor: value
+                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="fecha" />
+                            <YAxis />
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Legend />
+                            <Bar dataKey="valor" fill="#8884d8" name="Valor (MXN)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gráfica de Leads por Desarrollo */}
+                  {lastMonthStats.leadsByDevelopment && Object.keys(lastMonthStats.leadsByDevelopment).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Leads por Desarrollo - Mes Anterior</CardTitle>
+                        <CardDescription>Distribución de leads</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={Object.entries(lastMonthStats.leadsByDevelopment).map(([dev, count]) => ({
+                            desarrollo: dev,
+                            leads: count
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="desarrollo" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="leads" fill="#8884d8" name="Leads" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gráfica de Deals por Desarrollo */}
+                  {lastMonthStats.dealsByDevelopment && Object.keys(lastMonthStats.dealsByDevelopment).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Deals por Desarrollo - Mes Anterior</CardTitle>
+                        <CardDescription>Distribución de deals</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={Object.entries(lastMonthStats.dealsByDevelopment).map(([dev, count]) => ({
+                            desarrollo: dev,
+                            deals: count
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="desarrollo" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="deals" fill="#82ca9d" name="Deals" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gráfica de Valor por Desarrollo */}
+                  {lastMonthStats.dealValueByDevelopment && Object.keys(lastMonthStats.dealValueByDevelopment).length > 0 && (
+                    <Card className="md:col-span-2">
+                      <CardHeader>
+                        <CardTitle>Valor de Deals por Desarrollo - Mes Anterior</CardTitle>
+                        <CardDescription>Valor total por desarrollo</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={Object.entries(lastMonthStats.dealValueByDevelopment).map(([dev, value]) => ({
+                            desarrollo: dev,
+                            valor: value
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="desarrollo" />
+                            <YAxis />
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Legend />
+                            <Bar dataKey="valor" fill="#ffc658" name="Valor (MXN)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* Estadísticas por Estado y Etapa */}
+              <div className="grid gap-4 md:grid-cols-2">
 
               {/* Leads por Estado */}
-              <Card className="md:col-span-2">
+              <Card>
                 <CardHeader>
                   <CardTitle>Leads por Estado</CardTitle>
                   <CardDescription>Distribución de leads según su estado</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {Object.entries(stats.leadsByStatus).map(([status, count]) => (
-                      <div key={status} className="flex items-center justify-between">
-                        <span className="text-sm">{status}</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-32 bg-muted rounded-full h-2">
-                            <div
-                              className="bg-primary h-2 rounded-full"
-                              style={{
-                                width: `${(count / stats.totalLeads) * 100}%`,
-                              }}
-                            />
+                    {Object.entries((showLastMonth ? lastMonthStats : stats)?.leadsByStatus || {}).map(([status, count]) => {
+                      const total = (showLastMonth ? lastMonthStats : stats)?.totalLeads || 1;
+                      return (
+                        <div key={status} className="flex items-center justify-between">
+                          <span className="text-sm">{status}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-32 bg-muted rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full"
+                                style={{
+                                  width: `${(count / total) * 100}%`,
+                                }}
+                              />
+                            </div>
+                            <Badge variant="secondary">{count}</Badge>
                           </div>
-                          <Badge variant="secondary">{count}</Badge>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
 
               {/* Deals por Etapa */}
-              <Card className="md:col-span-2">
+              <Card>
                 <CardHeader>
                   <CardTitle>Deals por Etapa</CardTitle>
                   <CardDescription>Distribución de deals según su etapa</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {Object.entries(stats.dealsByStage).map(([stage, count]) => (
-                      <div key={stage} className="flex items-center justify-between">
-                        <span className="text-sm">{stage}</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-32 bg-muted rounded-full h-2">
-                            <div
-                              className="bg-primary h-2 rounded-full"
-                              style={{
-                                width: `${(count / stats.totalDeals) * 100}%`,
-                              }}
-                            />
+                    {Object.entries((showLastMonth ? lastMonthStats : stats)?.dealsByStage || {}).map(([stage, count]) => {
+                      const total = (showLastMonth ? lastMonthStats : stats)?.totalDeals || 1;
+                      return (
+                        <div key={stage} className="flex items-center justify-between">
+                          <span className="text-sm">{stage}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-32 bg-muted rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full"
+                                style={{
+                                  width: `${(count / total) * 100}%`,
+                                }}
+                              />
+                            </div>
+                            <Badge variant="secondary">{count}</Badge>
                           </div>
-                          <Badge variant="secondary">{count}</Badge>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
+              </div>
             </div>
           ) : (
             <Card className="mt-4">
