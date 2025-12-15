@@ -7,12 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, RefreshCw, TrendingUp, Users, DollarSign, BarChart3, AlertCircle, Calendar } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Users, DollarSign, BarChart3, AlertCircle, Calendar, Database } from 'lucide-react';
 import { 
   getZohoLeads, 
   getZohoDeals, 
   getZohoPipelines, 
   getZohoStats,
+  triggerZohoSync,
   type ZohoLead,
   type ZohoDeal,
   type ZohoPipeline,
@@ -40,6 +41,7 @@ export default function ZohoCRMPage() {
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   
   const { toast } = useToast();
 
@@ -161,6 +163,39 @@ export default function ZohoCRMPage() {
     });
   };
 
+  // Sincronizar datos desde Zoho
+  const handleSync = async () => {
+    if (!userRole || !['admin'].includes(userRole)) {
+      toast({
+        title: 'Error',
+        description: 'Solo los administradores pueden sincronizar datos.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const result = await triggerZohoSync('full');
+      toast({
+        title: '✅ Sincronización completada',
+        description: `Se sincronizaron ${result.recordsSynced} registros (${result.recordsCreated} nuevos, ${result.recordsUpdated} actualizados)`,
+      });
+      
+      // Recargar datos después de sincronizar
+      await loadData();
+    } catch (error) {
+      console.error('Error sincronizando:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Error al sincronizar datos de Zoho',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Formatear moneda
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
@@ -228,23 +263,44 @@ export default function ZohoCRMPage() {
             Visualiza y gestiona leads, deals y pipelines desde ZOHO CRM
           </p>
         </div>
-        <Button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          variant="outline"
-        >
-          {refreshing ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Actualizando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Actualizar
-            </>
+        <div className="flex gap-2">
+          {userRole === 'admin' && (
+            <Button
+              onClick={handleSync}
+              disabled={syncing}
+              variant="default"
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <Database className="h-4 w-4 mr-2" />
+                  Sincronizar desde Zoho
+                </>
+              )}
+            </Button>
           )}
-        </Button>
+          <Button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            variant="outline"
+          >
+            {refreshing ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Actualizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Actualizar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -974,6 +1030,35 @@ export default function ZohoCRMPage() {
                               )}
                               {deal.Tiempo_En_Fase !== undefined && (
                                 <p>Tiempo en fase: {deal.Tiempo_En_Fase} días</p>
+                              )}
+                              {deal.Notes && deal.Notes.length > 0 && (
+                                <div className="mt-2 pt-2 border-t">
+                                  <p className="text-xs font-medium mb-1">Notas ({deal.Notes.length}):</p>
+                                  <div className="space-y-1">
+                                    {deal.Notes.slice(0, 3).map((note: any) => (
+                                      <div key={note.id} className="text-xs bg-muted p-2 rounded">
+                                        {note.Note_Title && (
+                                          <p className="font-medium">{note.Note_Title}</p>
+                                        )}
+                                        {note.Note_Content && (
+                                          <p className="text-muted-foreground line-clamp-2">
+                                            {note.Note_Content}
+                                          </p>
+                                        )}
+                                        {note.Created_Time && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            {formatDate(note.Created_Time)}
+                                          </p>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {deal.Notes.length > 3 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        +{deal.Notes.length - 3} notas más
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </div>

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getZohoDeals } from '@/lib/zoho-crm';
+import { getZohoDealsFromDB } from '@/lib/postgres';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
@@ -76,6 +77,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const perPage = parseInt(searchParams.get('per_page') || '200');
+    const forceSync = searchParams.get('force_sync') === 'true'; // Forzar sincronización desde Zoho
+    const useLocal = searchParams.get('use_local') !== 'false'; // Por defecto usar BD local
 
     // Validar parámetros
     if (page < 1) {
@@ -98,8 +101,37 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    // 4. Obtener deals de ZOHO CRM
-    const dealsResponse = await getZohoDeals(page, perPage);
+    // 4. Obtener deals (desde BD local o Zoho)
+    let dealsResponse;
+    
+    if (forceSync || !useLocal) {
+      // Forzar sincronización desde Zoho
+      dealsResponse = await getZohoDeals(page, perPage);
+    } else {
+      // Intentar obtener desde BD local primero
+      try {
+        const localData = await getZohoDealsFromDB(page, perPage);
+        if (localData.deals.length > 0) {
+          // Convertir a formato de respuesta de Zoho
+          dealsResponse = {
+            data: localData.deals,
+            info: {
+              count: localData.total,
+              page,
+              per_page: perPage,
+              more_records: (page * perPage) < localData.total,
+            },
+          };
+        } else {
+          // Si no hay datos locales, obtener desde Zoho
+          dealsResponse = await getZohoDeals(page, perPage);
+        }
+      } catch (error) {
+        // Si falla la BD local, obtener desde Zoho como fallback
+        console.warn('⚠️ Error obteniendo deals desde BD local, usando Zoho:', error);
+        dealsResponse = await getZohoDeals(page, perPage);
+      }
+    }
 
     return NextResponse.json({
       success: true,

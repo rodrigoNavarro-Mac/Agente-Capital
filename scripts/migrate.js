@@ -10,7 +10,7 @@
  *   npm run db:migrate -- reset → Eliminar y recrear todas las tablas
  */
 
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
@@ -19,13 +19,14 @@ require('dotenv').config();
 const isReset = process.argv.includes('reset') || process.argv.includes('--reset');
 
 // Configuración de conexión
-// Soporta múltiples variables: POSTGRES_URL (Vercel), DATABASE_URL, o variables individuales
+// Para migraciones, SIEMPRE usar POSTGRES_URL_NON_POOLING para evitar límites de conexiones
+// Soporta múltiples variables: POSTGRES_URL_NON_POOLING (prioridad), DATABASE_URL, o variables individuales
 function getPoolConfig() {
-  // Intentar obtener la cadena de conexión en orden de prioridad
-  // DATABASE_URL manual tiene prioridad sobre variables automáticas
+  // ⚠️ IMPORTANTE: Para migraciones, priorizar POSTGRES_URL_NON_POOLING
+  // Esta es la URL directa sin pooling que evita límites de conexiones en Supabase Session mode
   const connectionString =
-    process.env.DATABASE_URL ||               // ⭐ PRIORIDAD: Manual
-    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_URL_NON_POOLING ||   // ⭐ PRIORIDAD: URL directa sin pooling (mejor para migraciones)
+    process.env.DATABASE_URL ||               // Configuración manual
     process.env.POSTGRES_PRISMA_URL ||
     process.env.POSTGRES_URL;
 
@@ -57,6 +58,9 @@ function getPoolConfig() {
           user: username,
           password: password,
           database: database,
+          max: 5, // Límite bajo para migraciones
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 10000,
           family: 4,  // Forzar IPv4 (Vercel NO soporta IPv6)
           ssl: {
             rejectUnauthorized: false,
@@ -76,6 +80,9 @@ function getPoolConfig() {
     
     return {
       connectionString: connectionString,
+      max: 5, // Límite bajo para migraciones
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
       family: 4,  // Forzar IPv4
       ssl: sslConfig,
     };
@@ -87,10 +94,23 @@ function getPoolConfig() {
     user: process.env.POSTGRES_USER || 'postgres',
     password: process.env.POSTGRES_PASSWORD || '',
     database: process.env.POSTGRES_DB || 'capital_plus_agent',
+    max: 5, // Límite bajo para migraciones
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
   };
 }
 
-const pool = new Pool(getPoolConfig());
+// Para migraciones, usar una conexión directa (Client) en lugar de Pool
+// Esto evita problemas con límites de conexiones en Supabase Session mode
+// Las migraciones solo necesitan una conexión a la vez
+const poolConfig = getPoolConfig();
+// Eliminar configuraciones de pool que no aplican a Client
+delete poolConfig.max;
+delete poolConfig.idleTimeoutMillis;
+delete poolConfig.connectionTimeoutMillis;
+
+// Crear un cliente directo para migraciones
+let client = null;
 
 // =====================================================
 // SQL PARA LIMPIAR TABLAS (RESET)
@@ -430,11 +450,80 @@ const migrations = [
 async function runMigrations() {
   console.log('🚀 Iniciando migraciones de base de datos...\n');
   
+  // Mostrar qué URL estamos usando
+  const connectionString = 
+    process.env.POSTGRES_URL_NON_POOLING || 
+    process.env.DATABASE_URL || 
+    process.env.POSTGRES_PRISMA_URL || 
+    process.env.POSTGRES_URL;
+  
+  if (connectionString) {
+    try {
+      const url = new URL(connectionString);
+      console.log(`📡 Conectando a: ${url.hostname} (usando ${process.env.POSTGRES_URL_NON_POOLING ? 'POSTGRES_URL_NON_POOLING' : process.env.DATABASE_URL ? 'DATABASE_URL' : 'otra URL'})\n`);
+    } catch (e) {
+      // Ignorar error de parsing
+    }
+  }
+  
   if (isReset) {
     console.log('⚠️  MODO RESET: Se eliminarán todas las tablas existentes\n');
   }
   
-  const client = await pool.connect();
+  // Esperar un momento para que se liberen conexiones existentes
+  // Supabase Session mode tiene límites muy bajos (1-5 conexiones)
+  console.log('⏳ Esperando 5 segundos para liberar conexiones existentes...');
+  console.log('   (Si el error persiste, cierra el servidor de desarrollo y otros procesos que usen la BD)\n');
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // Usar conexión directa en lugar de pool para evitar límites de conexiones
+  // Intentar conectar con reintentos en caso de error de límite de conexiones
+  const maxRetries = 3;
+  let retryCount = 0;
+  let connected = false;
+  
+  while (retryCount < maxRetries && !connected) {
+    client = new Client(poolConfig);
+    
+    try {
+      await client.connect();
+      console.log('✅ Conexión establecida\n');
+      connected = true;
+    } catch (error) {
+      if (error.message && error.message.includes('max clients reached')) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          const waitTime = retryCount * 3; // 3, 6, 9 segundos
+          console.error(`\n⚠️  Error: Límite de conexiones alcanzado (intento ${retryCount}/${maxRetries})`);
+          console.error(`   Esperando ${waitTime} segundos antes de reintentar...\n`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          // Cerrar el cliente fallido antes de intentar de nuevo
+          try {
+            await client.end();
+          } catch (e) {
+            // Ignorar errores al cerrar
+          }
+          continue;
+        } else {
+          console.error('\n❌ ERROR: Se alcanzó el límite máximo de conexiones después de varios intentos.');
+          console.error('   Esto puede ocurrir si:');
+          console.error('   1. Hay otras aplicaciones o procesos usando la base de datos');
+          console.error('   2. El pool de conexiones no se cerró correctamente');
+          console.error('   3. Estás usando POSTGRES_URL (pooler) en lugar de POSTGRES_URL_NON_POOLING');
+          console.error('\n   SOLUCIÓN:');
+          console.error('   - Cierra el servidor de desarrollo (npm run dev) y otros procesos Node.js');
+          console.error('   - Asegúrate de usar POSTGRES_URL_NON_POOLING en tu archivo .env');
+          console.error('   - Espera 1-2 minutos y vuelve a intentar');
+          console.error('   - Verifica en Supabase Dashboard > Database > Connection Pooling que no haya conexiones activas\n');
+        }
+      }
+      throw error;
+    }
+  }
+  
+  if (!connected) {
+    throw new Error('No se pudo establecer conexión después de varios intentos');
+  }
   
   try {
     // Comenzar transacción
@@ -553,12 +642,18 @@ async function runMigrations() {
     
   } catch (error) {
     // Revertir en caso de error
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Error al hacer rollback:', rollbackError.message);
+    }
     console.error('\n❌ Error en migración, cambios revertidos:', error.message);
     process.exit(1);
   } finally {
-    client.release();
-    await pool.end();
+    // Cerrar la conexión directa
+    if (client) {
+      await client.end();
+    }
   }
 }
 

@@ -11,6 +11,23 @@
 // TIPOS Y INTERFACES
 // =====================================================
 
+export interface ZohoNote {
+  id: string;
+  Note_Title?: string;
+  Note_Content?: string;
+  Created_Time?: string;
+  Modified_Time?: string;
+  Owner?: {
+    id: string;
+    name: string;
+  };
+  Parent_Id?: {
+    id: string;
+    name: string;
+  };
+  [key: string]: any; // Para campos adicionales
+}
+
 export interface ZohoLead {
   id: string;
   Full_Name?: string;
@@ -29,6 +46,7 @@ export interface ZohoLead {
     id: string;
     name: string;
   };
+  Notes?: ZohoNote[]; // Notas asociadas al lead
   [key: string]: any; // Para campos adicionales
 }
 
@@ -54,6 +72,7 @@ export interface ZohoDeal {
     id: string;
     name: string;
   };
+  Notes?: ZohoNote[]; // Notas asociadas al deal
   [key: string]: any; // Para campos adicionales
 }
 
@@ -388,6 +407,60 @@ export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFiel
 }
 
 /**
+ * Obtiene las notas asociadas a un lead o deal
+ * @param module Nombre del módulo (Leads o Deals)
+ * @param recordId ID del registro (lead o deal)
+ */
+export async function getZohoNotes(module: 'Leads' | 'Deals', recordId: string): Promise<ZohoNote[]> {
+  try {
+    const response = await zohoRequest<{ data: ZohoNote[] }>(`/${module}/${recordId}/Notes`);
+    return response.data || [];
+  } catch (error) {
+    console.error(`❌ Error obteniendo notas de ${module} ${recordId} de ZOHO:`, error);
+    // Si no hay notas o el registro no existe, retornar array vacío
+    return [];
+  }
+}
+
+/**
+ * Obtiene todas las notas de múltiples registros
+ * @param module Nombre del módulo (Leads o Deals)
+ * @param recordIds Array de IDs de registros para obtener sus notas
+ */
+export async function getZohoNotesForRecords(module: 'Leads' | 'Deals', recordIds: string[]): Promise<Map<string, ZohoNote[]>> {
+  const notesMap = new Map<string, ZohoNote[]>();
+  
+  // Obtener notas en lotes para evitar demasiadas peticiones
+  const batchSize = 10;
+  for (let i = 0; i < recordIds.length; i += batchSize) {
+    const batch = recordIds.slice(i, i + batchSize);
+    
+    // Obtener notas para cada registro del lote
+    const notesPromises = batch.map(async (recordId) => {
+      try {
+        const notes = await getZohoNotes(module, recordId);
+        return { recordId, notes };
+      } catch (error) {
+        console.error(`Error obteniendo notas para ${recordId}:`, error);
+        return { recordId, notes: [] };
+      }
+    });
+    
+    const results = await Promise.all(notesPromises);
+    results.forEach(({ recordId, notes }) => {
+      notesMap.set(recordId, notes);
+    });
+    
+    // Pequeño delay entre lotes para evitar rate limiting
+    if (i + batchSize < recordIds.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  return notesMap;
+}
+
+/**
  * Obtiene todos los leads de ZOHO CRM (sin paginación, todos los registros)
  * Útil para sincronización completa
  */
@@ -438,45 +511,79 @@ export async function getAllZohoDeals(): Promise<ZohoDeal[]> {
 /**
  * Obtiene estadísticas generales de leads y deals
  * @param filters Filtros opcionales para las estadísticas
+ * @param useLocal Si es true, usa la BD local primero (por defecto true)
  */
 export async function getZohoStats(filters?: {
   desarrollo?: string;
   startDate?: Date;
   endDate?: Date;
-}): Promise<ZohoStats> {
+}, useLocal: boolean = true): Promise<ZohoStats> {
   try {
-    // Obtener todos los leads (puede requerir múltiples páginas)
-    const allLeads: ZohoLead[] = [];
-    let currentPage = 1;
-    let hasMore = true;
+    let allLeads: ZohoLead[] = [];
+    let allDeals: ZohoDeal[] = [];
 
-    while (hasMore) {
-      const leadsResponse = await getZohoLeads(currentPage, 200);
-      if (leadsResponse.data) {
-        allLeads.push(...leadsResponse.data);
+    // Intentar obtener desde BD local primero
+    if (useLocal) {
+      try {
+        const { getZohoLeadsFromDB, getZohoDealsFromDB } = await import('@/lib/postgres');
+        
+        // Obtener todos los leads desde BD local
+        const leadsData = await getZohoLeadsFromDB(1, 10000, filters);
+        allLeads = leadsData.leads;
+
+        // Obtener todos los deals desde BD local
+        const dealsData = await getZohoDealsFromDB(1, 10000, filters);
+        allDeals = dealsData.deals;
+
+        // Si hay datos en BD local, usarlos
+        if (allLeads.length > 0 || allDeals.length > 0) {
+          console.log(`📊 Usando datos de BD local: ${allLeads.length} leads, ${allDeals.length} deals`);
+        } else {
+          // Si no hay datos locales, obtener desde Zoho
+          useLocal = false;
+        }
+      } catch (error) {
+        // Si falla la BD local, obtener desde Zoho
+        console.warn('⚠️ Error obteniendo datos desde BD local, usando Zoho:', error);
+        useLocal = false;
       }
-      hasMore = leadsResponse.info?.more_records || false;
-      currentPage++;
-      
-      // Limitar a 5 páginas para evitar demasiadas peticiones
-      if (currentPage > 5) break;
     }
 
-    // Obtener todos los deals (puede requerir múltiples páginas)
-    const allDeals: ZohoDeal[] = [];
-    currentPage = 1;
-    hasMore = true;
+    // Si no se usa BD local o no hay datos, obtener desde Zoho
+    if (!useLocal || (allLeads.length === 0 && allDeals.length === 0)) {
+      // Obtener todos los leads (puede requerir múltiples páginas)
+      allLeads = [];
+      let currentPage = 1;
+      let hasMore = true;
 
-    while (hasMore) {
-      const dealsResponse = await getZohoDeals(currentPage, 200);
-      if (dealsResponse.data) {
-        allDeals.push(...dealsResponse.data);
+      while (hasMore) {
+        const leadsResponse = await getZohoLeads(currentPage, 200);
+        if (leadsResponse.data) {
+          allLeads.push(...leadsResponse.data);
+        }
+        hasMore = leadsResponse.info?.more_records || false;
+        currentPage++;
+        
+        // Limitar a 5 páginas para evitar demasiadas peticiones
+        if (currentPage > 5) break;
       }
-      hasMore = dealsResponse.info?.more_records || false;
-      currentPage++;
-      
-      // Limitar a 5 páginas para evitar demasiadas peticiones
-      if (currentPage > 5) break;
+
+      // Obtener todos los deals (puede requerir múltiples páginas)
+      allDeals = [];
+      currentPage = 1;
+      hasMore = true;
+
+      while (hasMore) {
+        const dealsResponse = await getZohoDeals(currentPage, 200);
+        if (dealsResponse.data) {
+          allDeals.push(...dealsResponse.data);
+        }
+        hasMore = dealsResponse.info?.more_records || false;
+        currentPage++;
+        
+        // Limitar a 5 páginas para evitar demasiadas peticiones
+        if (currentPage > 5) break;
+      }
     }
 
     // Aplicar filtros
@@ -695,8 +802,9 @@ export async function getZohoStats(filters?: {
 /**
  * Obtiene estadísticas del mes anterior filtradas por desarrollo
  * @param desarrollo Desarrollo específico para filtrar (opcional)
+ * @param useLocal Si es true, usa la BD local primero (por defecto true)
  */
-export async function getZohoStatsLastMonth(desarrollo?: string): Promise<ZohoStats> {
+export async function getZohoStatsLastMonth(desarrollo?: string, useLocal: boolean = true): Promise<ZohoStats> {
   // Calcular fechas del mes anterior
   const now = new Date();
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -706,7 +814,7 @@ export async function getZohoStatsLastMonth(desarrollo?: string): Promise<ZohoSt
     desarrollo,
     startDate: lastMonth,
     endDate: lastMonthEnd,
-  });
+  }, useLocal);
 }
 
 /**

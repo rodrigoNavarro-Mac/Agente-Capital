@@ -761,3 +761,187 @@ export async function getZohoStats(filters?: {
   return response.data;
 }
 
+/**
+ * Inicia una sincronización de datos de Zoho CRM
+ * @param type Tipo de sincronización: 'leads', 'deals' o 'full'
+ */
+export async function triggerZohoSync(type: 'leads' | 'deals' | 'full' = 'full'): Promise<ZohoSyncResult> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  try {
+    const response = await fetcher<{ success: boolean; data: ZohoSyncResult; error?: string }>(
+      `/api/zoho/sync?type=${type}`,
+      {
+        method: 'POST',
+        headers: token ? {
+          'Authorization': `Bearer ${token}`,
+        } : undefined,
+      }
+    );
+    
+    if (!response.success) {
+      throw new Error(response.error || 'Error al sincronizar datos de Zoho');
+    }
+    
+    return response.data;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Error al sincronizar datos de Zoho');
+  }
+}
+
+// =====================================================
+// ZOHO CRM SYNC API
+// =====================================================
+
+export interface ZohoSyncLog {
+  id: number;
+  sync_type: 'leads' | 'deals' | 'full';
+  status: 'success' | 'error' | 'partial';
+  records_synced: number;
+  records_updated: number;
+  records_created: number;
+  records_failed: number;
+  error_message: string | null;
+  started_at: Date;
+  completed_at: Date | null;
+  duration_ms: number | null;
+}
+
+export interface ZohoSyncResult {
+  syncType: 'leads' | 'deals' | 'full';
+  status: 'success' | 'error' | 'partial';
+  recordsSynced: number;
+  recordsUpdated: number;
+  recordsCreated: number;
+  recordsFailed: number;
+  durationMs: number;
+  errorMessage?: string;
+}
+
+export interface ZohoField {
+  api_name: string;
+  data_type: string;
+  display_label: string;
+  required?: boolean;
+  read_only?: boolean;
+  length?: number;
+  decimal_place?: number;
+  pick_list_values?: Array<{
+    display_value: string;
+    sequence_number: number;
+    actual_value: string;
+  }>;
+}
+
+export interface ZohoFieldsResponse {
+  module: 'Leads' | 'Deals';
+  totalFields: number;
+  standardFields: number;
+  customFields: number;
+  fields: ZohoField[];
+  organized: {
+    standard: ZohoField[];
+    custom: ZohoField[];
+    byType: {
+      text: ZohoField[];
+      number: ZohoField[];
+      date: ZohoField[];
+      picklist: ZohoField[];
+      lookup: ZohoField[];
+      owner: ZohoField[];
+      boolean: ZohoField[];
+      other: ZohoField[];
+    };
+  };
+}
+
+/**
+ * Sincroniza datos de Zoho CRM
+ */
+export async function syncZohoData(type: 'leads' | 'deals' | 'full' = 'full'): Promise<ZohoSyncResult> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  const response = await fetcher<{ success: boolean; data: ZohoSyncResult }>(
+    `/api/zoho/sync?type=${type}`,
+    {
+      method: 'POST',
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
+  );
+  
+  return response.data;
+}
+
+/**
+ * Obtiene los logs de sincronización
+ */
+export async function getZohoSyncLogs(filters?: {
+  limit?: number;
+  offset?: number;
+  type?: 'leads' | 'deals' | 'full';
+  status?: 'success' | 'error' | 'partial';
+}): Promise<{ logs: ZohoSyncLog[]; total: number; limit: number; offset: number }> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  const params = new URLSearchParams();
+  if (filters?.limit) params.append('limit', filters.limit.toString());
+  if (filters?.offset) params.append('offset', filters.offset.toString());
+  if (filters?.type) params.append('type', filters.type);
+  if (filters?.status) params.append('status', filters.status);
+  
+  const queryString = params.toString();
+  const url = queryString ? `/api/zoho/sync/logs?${queryString}` : '/api/zoho/sync/logs';
+  
+  const response = await fetcher<{ success: boolean; data: { logs: ZohoSyncLog[]; total: number; limit: number; offset: number } }>(
+    url,
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
+  );
+  
+  return response.data;
+}
+
+/**
+ * Obtiene los campos disponibles de un módulo de Zoho
+ */
+export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFieldsResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  const response = await fetcher<{ success: boolean; data: ZohoFieldsResponse }>(
+    `/api/zoho/fields?module=${module}`,
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
+  );
+  
+  return response.data;
+}
+
+/**
+ * Obtiene el estado de la última sincronización
+ */
+export async function getLastZohoSync(): Promise<ZohoSyncLog | null> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  const response = await fetcher<{ success: boolean; data: ZohoSyncLog | null }>(
+    '/api/zoho/sync',
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
+  );
+  
+  return response.data;
+}
+

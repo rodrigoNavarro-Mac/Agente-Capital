@@ -6,12 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Activity, Eye, ChevronLeft, ChevronRight, X, Copy, Check, Upload, Trash2, Settings, MessageSquare } from 'lucide-react';
-import { getQueryLogs, getUser } from '@/lib/api';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Activity, Eye, ChevronLeft, ChevronRight, X, Copy, Check, Upload, Trash2, Settings, MessageSquare, RefreshCw, Database, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { getQueryLogs, getUser, syncZohoData, getZohoSyncLogs, getZohoFields, getLastZohoSync, type ZohoSyncLog, type ZohoFieldsResponse } from '@/lib/api';
 import { ZONES } from '@/lib/constants';
 import { formatRelativeTime, truncate, formatDate, copyToClipboard } from '@/lib/utils';
 import type { QueryLog, ActionLog } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { useToast } from '@/components/ui/use-toast';
 
 type UnifiedLog = {
   id: string;
@@ -196,6 +198,14 @@ export default function LogsPage() {
           Historial completo de acciones y consultas del sistema
         </p>
       </div>
+
+      <Tabs defaultValue="system" className="w-full">
+        <TabsList>
+          <TabsTrigger value="system">Logs del Sistema</TabsTrigger>
+          <TabsTrigger value="zoho">Sincronización Zoho CRM</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="system" className="space-y-6">
 
       {/* Filters */}
       <Card>
@@ -622,7 +632,474 @@ export default function LogsPage() {
           </div>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="zoho" className="space-y-6">
+          <ZohoSyncSection />
+        </TabsContent>
+      </Tabs>
     </div>
+  );
+}
+
+// =====================================================
+// COMPONENTE: Sección de Sincronización de Zoho
+// =====================================================
+
+function ZohoSyncSection() {
+  const { toast } = useToast();
+  const [syncing, setSyncing] = useState(false);
+  const [syncLogs, setSyncLogs] = useState<ZohoSyncLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(true);
+  const [lastSync, setLastSync] = useState<ZohoSyncLog | null>(null);
+  const [fieldsLeads, setFieldsLeads] = useState<ZohoFieldsResponse | null>(null);
+  const [fieldsDeals, setFieldsDeals] = useState<ZohoFieldsResponse | null>(null);
+  const [loadingFields, setLoadingFields] = useState(false);
+  const [syncTypeFilter, setSyncTypeFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [page, setPage] = useState(0);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const ITEMS_PER_PAGE = 20;
+
+  // Cargar logs de sincronización
+  const loadSyncLogs = useCallback(async () => {
+    setLoadingLogs(true);
+    try {
+      const data = await getZohoSyncLogs({
+        limit: ITEMS_PER_PAGE,
+        offset: page * ITEMS_PER_PAGE,
+        type: syncTypeFilter !== 'all' ? syncTypeFilter as 'leads' | 'deals' | 'full' : undefined,
+        status: statusFilter !== 'all' ? statusFilter as 'success' | 'error' | 'partial' : undefined,
+      });
+      setSyncLogs(data.logs);
+      setTotalLogs(data.total);
+    } catch (error) {
+      console.error('Error cargando logs de sincronización:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar los logs de sincronización',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [page, syncTypeFilter, statusFilter, toast]);
+
+  // Cargar última sincronización
+  const loadLastSync = useCallback(async () => {
+    try {
+      const last = await getLastZohoSync();
+      setLastSync(last);
+    } catch (error) {
+      console.error('Error cargando última sincronización:', error);
+    }
+  }, []);
+
+  // Cargar campos de Zoho
+  const loadFields = useCallback(async (module: 'Leads' | 'Deals') => {
+    setLoadingFields(true);
+    try {
+      const fields = await getZohoFields(module);
+      if (module === 'Leads') {
+        setFieldsLeads(fields);
+      } else {
+        setFieldsDeals(fields);
+      }
+    } catch (error) {
+      console.error(`Error cargando campos de ${module}:`, error);
+      toast({
+        title: 'Error',
+        description: `No se pudieron cargar los campos de ${module}`,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingFields(false);
+    }
+  }, [toast]);
+
+  // Sincronizar datos
+  const handleSync = async (type: 'leads' | 'deals' | 'full') => {
+    setSyncing(true);
+    try {
+      const result = await syncZohoData(type);
+      toast({
+        title: 'Sincronización completada',
+        description: `Sincronizados ${result.recordsSynced} registros (${result.recordsCreated} nuevos, ${result.recordsUpdated} actualizados)`,
+        variant: result.status === 'success' ? 'default' : 'destructive',
+      });
+      await loadSyncLogs();
+      await loadLastSync();
+    } catch (error) {
+      console.error('Error sincronizando:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Error al sincronizar datos',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSyncLogs();
+    loadLastSync();
+  }, [loadSyncLogs, loadLastSync]);
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, 'default' | 'destructive' | 'secondary'> = {
+      success: 'default',
+      error: 'destructive',
+      partial: 'secondary',
+    };
+    return (
+      <Badge variant={variants[status] || 'secondary'}>
+        {status === 'success' ? 'Éxito' : status === 'error' ? 'Error' : 'Parcial'}
+      </Badge>
+    );
+  };
+
+  const getStatusIcon = (status: string) => {
+    if (status === 'success') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    if (status === 'error') return <AlertCircle className="h-4 w-4 text-red-500" />;
+    return <Clock className="h-4 w-4 text-yellow-500" />;
+  };
+
+  return (
+    <>
+      {/* Última Sincronización */}
+      {lastSync && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5" />
+              Última Sincronización
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Tipo</p>
+                <p className="font-medium">{lastSync.sync_type === 'full' ? 'Completa' : lastSync.sync_type === 'leads' ? 'Leads' : 'Deals'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Estado</p>
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(lastSync.status)}
+                  {getStatusBadge(lastSync.status)}
+                </div>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Registros</p>
+                <p className="font-medium">{lastSync.records_synced} sincronizados</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Fecha</p>
+                <p className="font-medium">{formatDate(lastSync.started_at.toString())}</p>
+              </div>
+            </div>
+            {lastSync.error_message && (
+              <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded">
+                <p className="text-sm text-destructive">{lastSync.error_message}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Controles de Sincronización */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sincronizar Datos</CardTitle>
+          <CardDescription>
+            Sincroniza datos de Zoho CRM a la base de datos local
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <Button
+              onClick={() => handleSync('full')}
+              disabled={syncing}
+              variant="default"
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Sincronizar Todo
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={() => handleSync('leads')}
+              disabled={syncing}
+              variant="outline"
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Sincronizar Leads
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={() => handleSync('deals')}
+              disabled={syncing}
+              variant="outline"
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Sincronizar Deals
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Campos Disponibles */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Campos de Leads</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => loadFields('Leads')}
+                disabled={loadingFields}
+              >
+                {loadingFields ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Cargar Campos'
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {fieldsLeads ? (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Total: {fieldsLeads.totalFields}</span>
+                  <span>Estándar: {fieldsLeads.standardFields}</span>
+                  <span>Personalizados: {fieldsLeads.customFields}</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-1">
+                  {fieldsLeads.fields.slice(0, 20).map((field) => (
+                    <div key={field.api_name} className="text-xs p-2 bg-muted rounded">
+                      <div className="font-medium">{field.display_label}</div>
+                      <div className="text-muted-foreground">
+                        {field.api_name} ({field.data_type})
+                        {field.required && <Badge variant="outline" className="ml-2">Requerido</Badge>}
+                      </div>
+                    </div>
+                  ))}
+                  {fieldsLeads.fields.length > 20 && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      ... y {fieldsLeads.fields.length - 20} campos más
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Haz clic en &quot;Cargar Campos&quot; para ver los campos disponibles
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Campos de Deals</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => loadFields('Deals')}
+                disabled={loadingFields}
+              >
+                {loadingFields ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Cargar Campos'
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {fieldsDeals ? (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Total: {fieldsDeals.totalFields}</span>
+                  <span>Estándar: {fieldsDeals.standardFields}</span>
+                  <span>Personalizados: {fieldsDeals.customFields}</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-1">
+                  {fieldsDeals.fields.slice(0, 20).map((field) => (
+                    <div key={field.api_name} className="text-xs p-2 bg-muted rounded">
+                      <div className="font-medium">{field.display_label}</div>
+                      <div className="text-muted-foreground">
+                        {field.api_name} ({field.data_type})
+                        {field.required && <Badge variant="outline" className="ml-2">Requerido</Badge>}
+                      </div>
+                    </div>
+                  ))}
+                  {fieldsDeals.fields.length > 20 && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      ... y {fieldsDeals.fields.length - 20} campos más
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Haz clic en &quot;Cargar Campos&quot; para ver los campos disponibles
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filtros de Logs */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Filtros</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <div className="w-48">
+              <Select value={syncTypeFilter} onValueChange={setSyncTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Tipo de sincronización" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  <SelectItem value="full">Completa</SelectItem>
+                  <SelectItem value="leads">Leads</SelectItem>
+                  <SelectItem value="deals">Deals</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-48">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="success">Éxito</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                  <SelectItem value="partial">Parcial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Logs de Sincronización */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Historial de Sincronizaciones ({totalLogs})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingLogs ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Cargando logs...
+            </div>
+          ) : syncLogs.length === 0 ? (
+            <div className="text-center py-8">
+              <Database className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+              <p className="text-muted-foreground">No hay logs de sincronización</p>
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Registros</TableHead>
+                    <TableHead>Nuevos</TableHead>
+                    <TableHead>Actualizados</TableHead>
+                    <TableHead>Fallidos</TableHead>
+                    <TableHead>Duración</TableHead>
+                    <TableHead>Fecha</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {syncLogs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {log.sync_type === 'full' ? 'Completa' : log.sync_type === 'leads' ? 'Leads' : 'Deals'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(log.status)}
+                          {getStatusBadge(log.status)}
+                        </div>
+                      </TableCell>
+                      <TableCell>{log.records_synced}</TableCell>
+                      <TableCell className="text-green-600">{log.records_created}</TableCell>
+                      <TableCell className="text-blue-600">{log.records_updated}</TableCell>
+                      <TableCell className="text-red-600">{log.records_failed}</TableCell>
+                      <TableCell>
+                        {log.duration_ms ? `${(log.duration_ms / 1000).toFixed(1)}s` : 'N/A'}
+                      </TableCell>
+                      <TableCell>{formatDate(log.started_at.toString())}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Paginación */}
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Mostrando {page * ITEMS_PER_PAGE + 1} - {Math.min((page + 1) * ITEMS_PER_PAGE, totalLogs)} de {totalLogs}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={(page + 1) * ITEMS_PER_PAGE >= totalLogs}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

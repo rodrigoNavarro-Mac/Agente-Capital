@@ -2286,8 +2286,9 @@ export async function getFrequentQueries(days: number = 7, minCount: number = 10
 /**
  * Sincroniza un lead de Zoho a la base de datos local
  * Extrae campos conocidos y guarda el resto en JSONB
+ * @returns true si fue creado, false si fue actualizado
  */
-export async function syncZohoLead(lead: ZohoLead): Promise<void> {
+export async function syncZohoLead(lead: ZohoLead): Promise<boolean> {
   try {
     // Extraer campos conocidos
     const fullName = lead.Full_Name || null;
@@ -2304,6 +2305,13 @@ export async function syncZohoLead(lead: ZohoLead): Promise<void> {
     const ownerName = lead.Owner?.name || null;
     const createdTime = lead.Created_Time ? new Date(lead.Created_Time) : null;
     const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
+
+    // Verificar si existe antes de insertar
+    const existingResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_leads WHERE zoho_id = $1`,
+      [lead.id]
+    );
+    const exists = parseInt(existingResult.rows[0].count) > 0;
 
     // Guardar TODOS los campos en JSONB (incluyendo personalizados)
     await query(
@@ -2350,6 +2358,8 @@ export async function syncZohoLead(lead: ZohoLead): Promise<void> {
         modifiedTime,
       ]
     );
+
+    return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
@@ -2362,8 +2372,9 @@ export async function syncZohoLead(lead: ZohoLead): Promise<void> {
 /**
  * Sincroniza un deal de Zoho a la base de datos local
  * Extrae campos conocidos y guarda el resto en JSONB
+ * @returns true si fue creado, false si fue actualizado
  */
-export async function syncZohoDeal(deal: ZohoDeal): Promise<void> {
+export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean> {
   try {
     // Extraer campos conocidos
     const dealName = deal.Deal_Name || null;
@@ -2382,6 +2393,13 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<void> {
     const accountName = deal.Account_Name?.name || null;
     const createdTime = deal.Created_Time ? new Date(deal.Created_Time) : null;
     const modifiedTime = deal.Modified_Time ? new Date(deal.Modified_Time) : null;
+
+    // Verificar si existe antes de insertar
+    const existingResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_deals WHERE zoho_id = $1`,
+      [deal.id]
+    );
+    const exists = parseInt(existingResult.rows[0].count) > 0;
 
     // Guardar TODOS los campos en JSONB (incluyendo personalizados)
     await query(
@@ -2432,10 +2450,110 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<void> {
         modifiedTime,
       ]
     );
+
+    return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       throw new Error('Tabla zoho_deals no existe. Ejecuta la migración 007_zoho_sync_tables.sql');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sincroniza una nota de Zoho a la base de datos local
+ * @param note Nota de Zoho
+ * @param parentType Tipo de registro padre ('Leads' o 'Deals')
+ * @param parentId ID del registro padre
+ * @returns true si fue creada, false si fue actualizada
+ */
+export async function syncZohoNote(
+  note: any,
+  parentType: 'Leads' | 'Deals',
+  parentId: string
+): Promise<boolean> {
+  try {
+    const noteTitle = note.Note_Title || null;
+    const noteContent = note.Note_Content || null;
+    const ownerId = note.Owner?.id || null;
+    const ownerName = note.Owner?.name || null;
+    const createdTime = note.Created_Time ? new Date(note.Created_Time) : null;
+    const modifiedTime = note.Modified_Time ? new Date(note.Modified_Time) : null;
+
+    // Verificar si existe antes de insertar
+    const existingResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_notes WHERE zoho_id = $1`,
+      [note.id]
+    );
+    const exists = parseInt(existingResult.rows[0].count) > 0;
+
+    // Guardar TODOS los campos en JSONB
+    await query(
+      `INSERT INTO zoho_notes (
+        id, zoho_id, parent_type, parent_id, data, note_title, note_content,
+        owner_id, owner_name, created_time, modified_time, last_sync_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      ON CONFLICT (zoho_id) DO UPDATE SET
+        data = EXCLUDED.data,
+        parent_type = EXCLUDED.parent_type,
+        parent_id = EXCLUDED.parent_id,
+        note_title = EXCLUDED.note_title,
+        note_content = EXCLUDED.note_content,
+        owner_id = EXCLUDED.owner_id,
+        owner_name = EXCLUDED.owner_name,
+        created_time = EXCLUDED.created_time,
+        modified_time = EXCLUDED.modified_time,
+        last_sync_at = NOW()`,
+      [
+        note.id,
+        note.id,
+        parentType,
+        parentId,
+        JSON.stringify(note),
+        noteTitle,
+        noteContent,
+        ownerId,
+        ownerName,
+        createdTime,
+        modifiedTime,
+      ]
+    );
+
+    return !exists; // true si fue creada, false si fue actualizada
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      // Si la tabla no existe, simplemente retornar false (no crítico)
+      console.warn('Tabla zoho_notes no existe. Ejecuta la migración 008_zoho_notes_table.sql');
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene las notas de un registro desde la base de datos local
+ * @param parentType Tipo de registro padre ('Leads' o 'Deals')
+ * @param parentId ID del registro padre
+ */
+export async function getZohoNotesFromDB(
+  parentType: 'Leads' | 'Deals',
+  parentId: string
+): Promise<any[]> {
+  try {
+    const result = await query<{ data: string }>(
+      `SELECT data FROM zoho_notes 
+       WHERE parent_type = $1 AND parent_id = $2 
+       ORDER BY created_time DESC`,
+      [parentType, parentId]
+    );
+
+    return result.rows.map(row => JSON.parse(row.data));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || 
+        error.message.includes('does not exist'))) {
+      return [];
     }
     throw error;
   }
@@ -2532,12 +2650,24 @@ export async function getZohoLeadsFromDB(
     
     const result = await query<{
       data: string;
+      id: string;
     }>(
-      `SELECT data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      `SELECT id, data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       params
     );
 
-    const leads: ZohoLead[] = result.rows.map(row => JSON.parse(row.data));
+    const leads: ZohoLead[] = await Promise.all(result.rows.map(async (row) => {
+      const lead = JSON.parse(row.data);
+      // Obtener notas del lead
+      try {
+        const notes = await getZohoNotesFromDB('Leads', row.id);
+        lead.Notes = notes;
+      } catch {
+        // Si falla, simplemente no incluir notas
+        lead.Notes = [];
+      }
+      return lead;
+    }));
 
     return { leads, total };
   } catch (error) {
@@ -2601,12 +2731,24 @@ export async function getZohoDealsFromDB(
     
     const result = await query<{
       data: string;
+      id: string;
     }>(
-      `SELECT data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      `SELECT id, data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       params
     );
 
-    const deals: ZohoDeal[] = result.rows.map(row => JSON.parse(row.data));
+    const deals: ZohoDeal[] = await Promise.all(result.rows.map(async (row) => {
+      const deal = JSON.parse(row.data);
+      // Obtener notas del deal
+      try {
+        const notes = await getZohoNotesFromDB('Deals', row.id);
+        deal.Notes = notes;
+      } catch {
+        // Si falla, simplemente no incluir notas
+        deal.Notes = [];
+      }
+      return deal;
+    }));
 
     return { deals, total };
   } catch (error) {
