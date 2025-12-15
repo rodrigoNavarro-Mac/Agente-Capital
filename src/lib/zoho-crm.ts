@@ -558,83 +558,77 @@ export async function getZohoStats(filters?: {
 
     // Si no hay datos de BD local, obtener desde Zoho y sincronizar automáticamente
     if (!dataFromLocalDB) {
-      console.log('📊 Obteniendo datos desde Zoho (BD local vacía o no disponible)...');
+      console.log('📊 BD local vacía o no disponible. Obteniendo datos desde Zoho y sincronizando...');
       
-      // Obtener todos los leads (puede requerir múltiples páginas)
-      allLeads = [];
-      let currentPage = 1;
-      let hasMore = true;
+      try {
+        // Usar las funciones completas que obtienen todos los registros
+        allLeads = await getAllZohoLeads();
+        console.log(`📊 Obtenidos ${allLeads.length} leads desde Zoho`);
 
-      while (hasMore) {
-        const leadsResponse = await getZohoLeads(currentPage, 200);
-        if (leadsResponse.data) {
-          allLeads.push(...leadsResponse.data);
-        }
-        hasMore = leadsResponse.info?.more_records || false;
-        currentPage++;
-        
-        // Limitar a 5 páginas para evitar demasiadas peticiones
-        if (currentPage > 5) break;
-      }
+        allDeals = await getAllZohoDeals();
+        console.log(`📊 Obtenidos ${allDeals.length} deals desde Zoho`);
 
-      console.log(`📊 Obtenidos ${allLeads.length} leads desde Zoho`);
-
-      // Obtener todos los deals (puede requerir múltiples páginas)
-      allDeals = [];
-      currentPage = 1;
-      hasMore = true;
-
-      while (hasMore) {
-        const dealsResponse = await getZohoDeals(currentPage, 200);
-        if (dealsResponse.data) {
-          allDeals.push(...dealsResponse.data);
-        }
-        hasMore = dealsResponse.info?.more_records || false;
-        currentPage++;
-        
-        // Limitar a 5 páginas para evitar demasiadas peticiones
-        if (currentPage > 5) break;
-      }
-
-      console.log(`📊 Obtenidos ${allDeals.length} deals desde Zoho`);
-
-      // Sincronizar automáticamente a la BD local si useLocal es true
-      if (useLocal && (allLeads.length > 0 || allDeals.length > 0)) {
-        console.log('💾 Sincronizando datos obtenidos de Zoho a la BD local...');
-        try {
-          const { syncZohoLead, syncZohoDeal } = await import('@/lib/postgres');
-          
-          // Sincronizar leads
-          let leadsSynced = 0;
-          let leadsFailed = 0;
-          for (const lead of allLeads) {
-            try {
-              await syncZohoLead(lead);
-              leadsSynced++;
-            } catch (error) {
-              leadsFailed++;
-              console.warn(`⚠️ Error sincronizando lead ${lead.id}:`, error);
+        // Sincronizar automáticamente a la BD local si useLocal es true
+        if (useLocal && (allLeads.length > 0 || allDeals.length > 0)) {
+          console.log('💾 Iniciando sincronización automática a la BD local...');
+          try {
+            const { syncZohoLead, syncZohoDeal } = await import('@/lib/postgres');
+            
+            // Sincronizar leads
+            let leadsSynced = 0;
+            let leadsCreated = 0;
+            let leadsUpdated = 0;
+            let leadsFailed = 0;
+            
+            console.log(`🔄 Sincronizando ${allLeads.length} leads...`);
+            for (const lead of allLeads) {
+              try {
+                const wasCreated = await syncZohoLead(lead);
+                leadsSynced++;
+                if (wasCreated) {
+                  leadsCreated++;
+                } else {
+                  leadsUpdated++;
+                }
+              } catch (error) {
+                leadsFailed++;
+                console.warn(`⚠️ Error sincronizando lead ${lead.id}:`, error);
+              }
             }
-          }
-          console.log(`✅ Sincronizados ${leadsSynced} leads a BD local (${leadsFailed} fallidos)`);
+            console.log(`✅ Leads sincronizados: ${leadsSynced} total (${leadsCreated} nuevos, ${leadsUpdated} actualizados, ${leadsFailed} fallidos)`);
 
-          // Sincronizar deals
-          let dealsSynced = 0;
-          let dealsFailed = 0;
-          for (const deal of allDeals) {
-            try {
-              await syncZohoDeal(deal);
-              dealsSynced++;
-            } catch (error) {
-              dealsFailed++;
-              console.warn(`⚠️ Error sincronizando deal ${deal.id}:`, error);
+            // Sincronizar deals
+            let dealsSynced = 0;
+            let dealsCreated = 0;
+            let dealsUpdated = 0;
+            let dealsFailed = 0;
+            
+            console.log(`🔄 Sincronizando ${allDeals.length} deals...`);
+            for (const deal of allDeals) {
+              try {
+                const wasCreated = await syncZohoDeal(deal);
+                dealsSynced++;
+                if (wasCreated) {
+                  dealsCreated++;
+                } else {
+                  dealsUpdated++;
+                }
+              } catch (error) {
+                dealsFailed++;
+                console.warn(`⚠️ Error sincronizando deal ${deal.id}:`, error);
+              }
             }
+            console.log(`✅ Deals sincronizados: ${dealsSynced} total (${dealsCreated} nuevos, ${dealsUpdated} actualizados, ${dealsFailed} fallidos)`);
+            
+            console.log(`🎉 Sincronización automática completada: ${leadsSynced + dealsSynced} registros sincronizados`);
+          } catch (error) {
+            console.error('❌ Error crítico sincronizando datos a BD local:', error);
+            // No fallar la función si la sincronización falla, solo continuar con los datos obtenidos
           }
-          console.log(`✅ Sincronizados ${dealsSynced} deals a BD local (${dealsFailed} fallidos)`);
-        } catch (error) {
-          console.error('❌ Error sincronizando datos a BD local:', error);
-          // No fallar la función si la sincronización falla, solo continuar
         }
+      } catch (error) {
+        console.error('❌ Error obteniendo datos desde Zoho:', error);
+        throw error; // Re-lanzar el error para que se maneje arriba
       }
     }
 

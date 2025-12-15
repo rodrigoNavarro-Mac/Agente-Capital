@@ -152,15 +152,27 @@ export default function ZohoCRMPage() {
     }
   }, [userRole, loadData]);
 
-  // Refrescar datos
+  // Refrescar datos (sincroniza automáticamente si la BD está vacía)
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-    toast({
-      title: '✅ Datos actualizados',
-      description: 'Los datos de ZOHO CRM se han actualizado correctamente',
-    });
+    try {
+      // Primero intentar cargar datos (esto sincronizará automáticamente si la BD está vacía)
+      await loadData();
+      
+      toast({
+        title: '✅ Datos actualizados',
+        description: 'Los datos de ZOHO CRM se han actualizado correctamente',
+      });
+    } catch (error) {
+      console.error('Error actualizando datos:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron actualizar los datos. Intenta nuevamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Sincronizar datos desde Zoho
