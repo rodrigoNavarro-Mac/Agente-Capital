@@ -84,7 +84,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     let stats;
     if (lastMonth) {
       // Si se solicita el mes anterior, usar la función específica
-      stats = await getZohoStatsLastMonth(desarrollo);
+      stats = await getZohoStatsLastMonth(desarrollo, useLocal);
     } else {
       // Usar filtros normales (con opción de usar BD local)
       stats = await getZohoStats({

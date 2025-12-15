@@ -549,6 +549,9 @@ export async function getZohoStats(filters?: {
       }
     }
 
+    // Variable para rastrear si los datos vienen de BD local (ya filtrados)
+    const dataFromLocalDB = useLocal && (allLeads.length > 0 || allDeals.length > 0);
+
     // Si no se usa BD local o no hay datos, obtener desde Zoho
     if (!useLocal || (allLeads.length === 0 && allDeals.length === 0)) {
       // Obtener todos los leads (puede requerir múltiples páginas)
@@ -586,40 +589,44 @@ export async function getZohoStats(filters?: {
       }
     }
 
-    // Aplicar filtros
+    // Aplicar filtros solo si los datos vienen de Zoho (no de BD local)
+    // Los datos de BD local ya vienen filtrados por la consulta SQL
     let filteredLeads = allLeads;
     let filteredDeals = allDeals;
 
-    // Filtrar por desarrollo si se especifica
-    if (filters?.desarrollo) {
-      filteredLeads = filteredLeads.filter(lead => 
-        lead.Desarrollo === filters.desarrollo
-      );
-      filteredDeals = filteredDeals.filter(deal => 
-        deal.Desarrollo === filters.desarrollo
-      );
-    }
+    if (!dataFromLocalDB) {
+      // Solo aplicar filtros en memoria si los datos vienen de Zoho
+      // Filtrar por desarrollo si se especifica
+      if (filters?.desarrollo) {
+        filteredLeads = filteredLeads.filter(lead => 
+          lead.Desarrollo === filters.desarrollo
+        );
+        filteredDeals = filteredDeals.filter(deal => 
+          deal.Desarrollo === filters.desarrollo
+        );
+      }
 
-    // Filtrar por rango de fechas si se especifica
-    if (filters?.startDate || filters?.endDate) {
-      const startDate = filters.startDate ? new Date(filters.startDate) : null;
-      const endDate = filters.endDate ? new Date(filters.endDate) : null;
+      // Filtrar por rango de fechas si se especifica
+      if (filters?.startDate || filters?.endDate) {
+        const startDate = filters.startDate ? new Date(filters.startDate) : null;
+        const endDate = filters.endDate ? new Date(filters.endDate) : null;
 
-      filteredLeads = filteredLeads.filter(lead => {
-        if (!lead.Created_Time) return false;
-        const leadDate = new Date(lead.Created_Time);
-        if (startDate && leadDate < startDate) return false;
-        if (endDate && leadDate > endDate) return false;
-        return true;
-      });
+        filteredLeads = filteredLeads.filter(lead => {
+          if (!lead.Created_Time) return false;
+          const leadDate = new Date(lead.Created_Time);
+          if (startDate && leadDate < startDate) return false;
+          if (endDate && leadDate > endDate) return false;
+          return true;
+        });
 
-      filteredDeals = filteredDeals.filter(deal => {
-        if (!deal.Created_Time) return false;
-        const dealDate = new Date(deal.Created_Time);
-        if (startDate && dealDate < startDate) return false;
-        if (endDate && dealDate > endDate) return false;
-        return true;
-      });
+        filteredDeals = filteredDeals.filter(deal => {
+          if (!deal.Created_Time) return false;
+          const dealDate = new Date(deal.Created_Time);
+          if (startDate && dealDate < startDate) return false;
+          if (endDate && dealDate > endDate) return false;
+          return true;
+        });
+      }
     }
 
     // Calcular estadísticas
