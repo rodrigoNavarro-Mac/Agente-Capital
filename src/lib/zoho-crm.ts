@@ -522,6 +522,9 @@ export async function getZohoStats(filters?: {
     let allLeads: ZohoLead[] = [];
     let allDeals: ZohoDeal[] = [];
 
+    // Variable para rastrear si los datos vienen de BD local (ya filtrados)
+    let dataFromLocalDB = false;
+
     // Intentar obtener desde BD local primero
     if (useLocal) {
       try {
@@ -535,25 +538,28 @@ export async function getZohoStats(filters?: {
         const dealsData = await getZohoDealsFromDB(1, 10000, filters);
         allDeals = dealsData.deals;
 
-        // Si hay datos en BD local, usarlos
+        // Si hay datos en BD local, marcarlos como provenientes de BD local
         if (allLeads.length > 0 || allDeals.length > 0) {
+          dataFromLocalDB = true;
           console.log(`📊 Usando datos de BD local: ${allLeads.length} leads, ${allDeals.length} deals`);
         } else {
-          // Si no hay datos locales, obtener desde Zoho
-          useLocal = false;
+          // Si no hay datos locales, limpiar arrays y obtener desde Zoho
+          allLeads = [];
+          allDeals = [];
+          console.log('📊 BD local vacía, obteniendo datos desde Zoho...');
         }
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho
         console.warn('⚠️ Error obteniendo datos desde BD local, usando Zoho:', error);
-        useLocal = false;
+        allLeads = [];
+        allDeals = [];
       }
     }
 
-    // Variable para rastrear si los datos vienen de BD local (ya filtrados)
-    const dataFromLocalDB = useLocal && (allLeads.length > 0 || allDeals.length > 0);
-
-    // Si no se usa BD local o no hay datos, obtener desde Zoho
-    if (!useLocal || (allLeads.length === 0 && allDeals.length === 0)) {
+    // Si no hay datos de BD local, obtener desde Zoho y sincronizar automáticamente
+    if (!dataFromLocalDB) {
+      console.log('📊 Obteniendo datos desde Zoho (BD local vacía o no disponible)...');
+      
       // Obtener todos los leads (puede requerir múltiples páginas)
       allLeads = [];
       let currentPage = 1;
@@ -571,6 +577,8 @@ export async function getZohoStats(filters?: {
         if (currentPage > 5) break;
       }
 
+      console.log(`📊 Obtenidos ${allLeads.length} leads desde Zoho`);
+
       // Obtener todos los deals (puede requerir múltiples páginas)
       allDeals = [];
       currentPage = 1;
@@ -587,6 +595,47 @@ export async function getZohoStats(filters?: {
         // Limitar a 5 páginas para evitar demasiadas peticiones
         if (currentPage > 5) break;
       }
+
+      console.log(`📊 Obtenidos ${allDeals.length} deals desde Zoho`);
+
+      // Sincronizar automáticamente a la BD local si useLocal es true
+      if (useLocal && (allLeads.length > 0 || allDeals.length > 0)) {
+        console.log('💾 Sincronizando datos obtenidos de Zoho a la BD local...');
+        try {
+          const { syncZohoLead, syncZohoDeal } = await import('@/lib/postgres');
+          
+          // Sincronizar leads
+          let leadsSynced = 0;
+          let leadsFailed = 0;
+          for (const lead of allLeads) {
+            try {
+              await syncZohoLead(lead);
+              leadsSynced++;
+            } catch (error) {
+              leadsFailed++;
+              console.warn(`⚠️ Error sincronizando lead ${lead.id}:`, error);
+            }
+          }
+          console.log(`✅ Sincronizados ${leadsSynced} leads a BD local (${leadsFailed} fallidos)`);
+
+          // Sincronizar deals
+          let dealsSynced = 0;
+          let dealsFailed = 0;
+          for (const deal of allDeals) {
+            try {
+              await syncZohoDeal(deal);
+              dealsSynced++;
+            } catch (error) {
+              dealsFailed++;
+              console.warn(`⚠️ Error sincronizando deal ${deal.id}:`, error);
+            }
+          }
+          console.log(`✅ Sincronizados ${dealsSynced} deals a BD local (${dealsFailed} fallidos)`);
+        } catch (error) {
+          console.error('❌ Error sincronizando datos a BD local:', error);
+          // No fallar la función si la sincronización falla, solo continuar
+        }
+      }
     }
 
     // Aplicar filtros solo si los datos vienen de Zoho (no de BD local)
@@ -598,18 +647,26 @@ export async function getZohoStats(filters?: {
       // Solo aplicar filtros en memoria si los datos vienen de Zoho
       // Filtrar por desarrollo si se especifica
       if (filters?.desarrollo) {
+        const leadsBefore = filteredLeads.length;
+        const dealsBefore = filteredDeals.length;
+        
         filteredLeads = filteredLeads.filter(lead => 
           lead.Desarrollo === filters.desarrollo
         );
         filteredDeals = filteredDeals.filter(deal => 
           deal.Desarrollo === filters.desarrollo
         );
+        
+        console.log(`🔍 Filtro desarrollo "${filters.desarrollo}": ${leadsBefore} → ${filteredLeads.length} leads, ${dealsBefore} → ${filteredDeals.length} deals`);
       }
 
       // Filtrar por rango de fechas si se especifica
       if (filters?.startDate || filters?.endDate) {
         const startDate = filters.startDate ? new Date(filters.startDate) : null;
         const endDate = filters.endDate ? new Date(filters.endDate) : null;
+        
+        const leadsBefore = filteredLeads.length;
+        const dealsBefore = filteredDeals.length;
 
         filteredLeads = filteredLeads.filter(lead => {
           if (!lead.Created_Time) return false;
@@ -626,6 +683,8 @@ export async function getZohoStats(filters?: {
           if (endDate && dealDate > endDate) return false;
           return true;
         });
+        
+        console.log(`🔍 Filtro fechas (${startDate?.toISOString()} - ${endDate?.toISOString()}): ${leadsBefore} → ${filteredLeads.length} leads, ${dealsBefore} → ${filteredDeals.length} deals`);
       }
     }
 
