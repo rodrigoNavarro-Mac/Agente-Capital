@@ -16,11 +16,11 @@ module.exports = {
     },
     extend: {
       colors: {
-        // Capital Plus Corporate Colors
-        'capital-navy': '#0B1F3A',
-        'capital-gold': '#C4A062',
-        'capital-white': '#FFFFFF',
-        'capital-gray': '#F5F5F5',
+        // Capital Plus Corporate Colors - New Dark Theme
+        'capital-navy': '#153356',
+        'capital-gold': '#fdc23e',
+        'capital-white': '#ffffff',
+        'capital-gray': '#1e3d5c',
         
         // ShadCN Theme
         border: "hsl(var(--border))",
@@ -78,7 +78,12 @@ module.exports = {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        heading: ['Montserrat', 'sans-serif'],
         poppins: ['Poppins', 'sans-serif'],
+      },
+      fontSize: {
+        'body': ['clamp(18px, 2vw, 24px)', { lineHeight: '1.6' }],
+        'heading': ['clamp(60px, 8vw, 80px)', { lineHeight: '1.2', fontWeight: '700' }],
       },
     },
   },

@@ -9,10 +9,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getAllZohoLeads, getAllZohoDeals, getZohoNotesForRecords } from '@/lib/zoho-crm';
-import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync } from '@/lib/postgres';
+import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 minutos máximo para sincronización
 
 // Roles permitidos para sincronizar
 const ALLOWED_ROLES = ['admin'];
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
   let recordsUpdated = 0;
   let recordsCreated = 0;
   let recordsFailed = 0;
+  let recordsDeleted = 0;
   let errorMessage: string | undefined;
 
   try {
@@ -89,11 +91,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     }
 
     // 4. Sincronizar datos
+    let zohoLeadIds: string[] = [];
+    let zohoDealIds: string[] = [];
+    
     if (syncType === 'leads' || syncType === 'full') {
       try {
         console.log('🔄 Sincronizando leads de Zoho...');
         const leads = await getAllZohoLeads();
+        zohoLeadIds = leads.map(lead => lead.id);
+        console.log(`📊 Total de leads a sincronizar: ${leads.length}`);
         
+        let leadsProcessed = 0;
         for (const lead of leads) {
           try {
             const wasCreated = await syncZohoLead(lead);
@@ -113,14 +121,36 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
               }
             } catch (noteError) {
               // No crítico si falla la sincronización de notas
-              console.warn(`Advertencia: No se pudieron sincronizar notas del lead ${lead.id}:`, noteError);
+              // Solo loggear si no es un error de respuesta vacía
+              const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
+              if (!errorMsg.includes('Unexpected end of JSON')) {
+                console.warn(`⚠️ Advertencia: No se pudieron sincronizar notas del lead ${lead.id}`);
+              }
+            }
+            
+            leadsProcessed++;
+            // Log de progreso cada 50 leads
+            if (leadsProcessed % 50 === 0) {
+              console.log(`📈 Progreso leads: ${leadsProcessed}/${leads.length} (${Math.round(leadsProcessed / leads.length * 100)}%)`);
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`Error sincronizando lead ${lead.id}:`, error);
+            console.error(`❌ Error sincronizando lead ${lead.id}:`, error);
           }
         }
-        console.log(`✅ Sincronizados ${recordsSynced} leads`);
+        console.log(`✅ Sincronizados ${recordsSynced} leads (${recordsCreated} nuevos, ${recordsUpdated} actualizados, ${recordsFailed} fallidos)`);
+        
+        // Eliminar leads que ya no existen en Zoho
+        try {
+          console.log('🗑️ Verificando leads eliminados en Zoho...');
+          const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
+          recordsDeleted += deletedCount;
+          if (deletedCount > 0) {
+            console.log(`✅ Eliminados ${deletedCount} leads que ya no existen en Zoho`);
+          }
+        } catch (deleteError) {
+          console.warn('⚠️ Error eliminando leads eliminados en Zoho:', deleteError);
+        }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
         console.error('❌', errorMessage);
@@ -131,7 +161,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       try {
         console.log('🔄 Sincronizando deals de Zoho...');
         const deals = await getAllZohoDeals();
+        zohoDealIds = deals.map(deal => deal.id);
+        console.log(`📊 Total de deals a sincronizar: ${deals.length}`);
         
+        let dealsProcessed = 0;
         for (const deal of deals) {
           try {
             const wasCreated = await syncZohoDeal(deal);
@@ -151,14 +184,35 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
               }
             } catch (noteError) {
               // No crítico si falla la sincronización de notas
-              console.warn(`Advertencia: No se pudieron sincronizar notas del deal ${deal.id}:`, noteError);
+              const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
+              if (!errorMsg.includes('Unexpected end of JSON')) {
+                console.warn(`⚠️ Advertencia: No se pudieron sincronizar notas del deal ${deal.id}`);
+              }
+            }
+            
+            dealsProcessed++;
+            // Log de progreso cada 25 deals
+            if (dealsProcessed % 25 === 0) {
+              console.log(`📈 Progreso deals: ${dealsProcessed}/${deals.length} (${Math.round(dealsProcessed / deals.length * 100)}%)`);
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`Error sincronizando deal ${deal.id}:`, error);
+            console.error(`❌ Error sincronizando deal ${deal.id}:`, error);
           }
         }
-        console.log(`✅ Sincronizados ${recordsSynced} deals`);
+        console.log(`✅ Sincronizados ${recordsSynced} deals (${recordsCreated} nuevos, ${recordsUpdated} actualizados, ${recordsFailed} fallidos)`);
+        
+        // Eliminar deals que ya no existen en Zoho
+        try {
+          console.log('🗑️ Verificando deals eliminados en Zoho...');
+          const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
+          recordsDeleted += deletedCount;
+          if (deletedCount > 0) {
+            console.log(`✅ Eliminados ${deletedCount} deals que ya no existen en Zoho`);
+          }
+        } catch (deleteError) {
+          console.warn('⚠️ Error eliminando deals eliminados en Zoho:', deleteError);
+        }
       } catch (error) {
         errorMessage = errorMessage 
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
@@ -168,7 +222,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     }
 
     const durationMs = Date.now() - startTime;
+    const durationSeconds = Math.round(durationMs / 1000);
     const status = recordsFailed === 0 ? 'success' : (recordsSynced > 0 ? 'partial' : 'error');
+
+    console.log(`\n📊 RESUMEN DE SINCRONIZACIÓN:`);
+    console.log(`   Tipo: ${syncType}`);
+    console.log(`   Estado: ${status}`);
+    console.log(`   Registros sincronizados: ${recordsSynced}`);
+    console.log(`   - Nuevos: ${recordsCreated}`);
+    console.log(`   - Actualizados: ${recordsUpdated}`);
+    console.log(`   - Fallidos: ${recordsFailed}`);
+    console.log(`   - Eliminados: ${recordsDeleted}`);
+    console.log(`   Duración: ${durationSeconds}s (${durationMs}ms)\n`);
 
     // 5. Registrar log de sincronización
     await logZohoSync(syncType, status, {
@@ -176,6 +241,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       recordsUpdated,
       recordsCreated,
       recordsFailed,
+      recordsDeleted,
       errorMessage,
       durationMs,
     });
@@ -189,7 +255,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         recordsUpdated,
         recordsCreated,
         recordsFailed,
+        recordsDeleted,
         durationMs,
+        durationSeconds,
         errorMessage,
       },
     });
@@ -203,6 +271,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       recordsUpdated,
       recordsCreated,
       recordsFailed,
+      recordsDeleted,
       errorMessage: errorMsg,
       durationMs,
     });

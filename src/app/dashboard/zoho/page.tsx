@@ -7,21 +7,18 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, RefreshCw, TrendingUp, Users, DollarSign, BarChart3, AlertCircle, Calendar, Database } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter } from 'lucide-react';
 import { 
   getZohoLeads, 
   getZohoDeals, 
-  getZohoPipelines, 
-  getZohoStats,
   triggerZohoSync,
   type ZohoLead,
   type ZohoDeal,
-  type ZohoPipeline,
   type ZohoStats
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -34,13 +31,15 @@ export default function ZohoCRMPage() {
   const [lastMonthStats, setLastMonthStats] = useState<ZohoStats | null>(null);
   const [leads, setLeads] = useState<ZohoLead[]>([]);
   const [deals, setDeals] = useState<ZohoDeal[]>([]);
-  const [pipelines, setPipelines] = useState<ZohoPipeline[]>([]);
   const [error, setError] = useState<string | null>(null);
   
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
+  const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [selectedOwner, setSelectedOwner] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'quarter' | 'year'>('month');
   const [showLastMonth, setShowLastMonth] = useState(false);
-  const [loadingStats, setLoadingStats] = useState(false);
   const [syncing, setSyncing] = useState(false);
   
   const { toast } = useToast();
@@ -60,63 +59,623 @@ export default function ZohoCRMPage() {
   const availableDevelopments = useMemo(() => {
     const developments = new Set<string>();
     leads.forEach(lead => {
-      if (lead.Desarrollo) {
-        developments.add(lead.Desarrollo);
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
+      if (leadDesarrollo) {
+        developments.add(leadDesarrollo);
       }
     });
     deals.forEach(deal => {
-      if (deal.Desarrollo) {
-        developments.add(deal.Desarrollo);
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+      if (dealDesarrollo) {
+        developments.add(dealDesarrollo);
       }
     });
     return Array.from(developments).sort();
   }, [leads, deals]);
 
-  // Cargar estadísticas con filtros
-  const loadStats = useCallback(async (desarrollo?: string, lastMonth: boolean = false) => {
-    setLoadingStats(true);
-    try {
-      const statsData = await getZohoStats({
-        desarrollo: desarrollo === 'all' ? undefined : desarrollo,
-        lastMonth,
-      });
-      if (lastMonth) {
-        setLastMonthStats(statsData);
-      } else {
-        setStats(statsData);
+  // Obtener lista de fuentes únicas
+  const availableSources = useMemo(() => {
+    const sources = new Set<string>();
+    leads.forEach(lead => {
+      if (lead.Lead_Source) {
+        sources.add(lead.Lead_Source);
       }
-    } catch (err) {
-      console.error('Error cargando estadísticas:', err);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar las estadísticas.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingStats(false);
-    }
-  }, [toast]);
+    });
+    deals.forEach(deal => {
+      if (deal.Lead_Source) {
+        sources.add(deal.Lead_Source);
+      }
+    });
+    return Array.from(sources).sort();
+  }, [leads, deals]);
 
-  // Cargar todos los datos
+  // Obtener lista de asesores únicos
+  const availableOwners = useMemo(() => {
+    const owners = new Set<string>();
+    leads.forEach(lead => {
+      if (lead.Owner?.name) {
+        owners.add(lead.Owner.name);
+      }
+    });
+    deals.forEach(deal => {
+      if (deal.Owner?.name) {
+        owners.add(deal.Owner.name);
+      }
+    });
+    return Array.from(owners).sort();
+  }, [leads, deals]);
+
+  // Obtener lista de estados únicos
+  const availableStatuses = useMemo(() => {
+    const statuses = new Set<string>();
+    leads.forEach(lead => {
+      if (lead.Lead_Status) {
+        statuses.add(lead.Lead_Status);
+      }
+    });
+    deals.forEach(deal => {
+      if (deal.Stage) {
+        statuses.add(deal.Stage);
+      }
+    });
+    return Array.from(statuses).sort();
+  }, [leads, deals]);
+
+  // Calcular fechas según el periodo seleccionado
+  const getPeriodDates = useCallback((period: 'month' | 'quarter' | 'year', isLastPeriod: boolean = false) => {
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+
+    if (isLastPeriod) {
+      // Para comparativo con periodo anterior
+      if (period === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      } else if (period === 'quarter') {
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        const lastQuarter = currentQuarter === 0 ? 3 : currentQuarter - 1;
+        const lastQuarterYear = currentQuarter === 0 ? now.getFullYear() - 1 : now.getFullYear();
+        startDate = new Date(lastQuarterYear, lastQuarter * 3, 1);
+        endDate = new Date(lastQuarterYear, (lastQuarter + 1) * 3, 0, 23, 59, 59, 999);
+      } else {
+        startDate = new Date(now.getFullYear() - 1, 0, 1);
+        endDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+      }
+    } else {
+      // Periodo actual
+      if (period === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (period === 'quarter') {
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
+        endDate = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59, 999);
+      } else {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    return { startDate, endDate };
+  }, []);
+
+  // Función helper para calcular estadísticas en memoria (sin llamadas a API)
+  const calculateStatsFromData = useCallback((
+    allLeads: ZohoLead[],
+    allDeals: ZohoDeal[],
+    period: 'month' | 'quarter' | 'year',
+    isLastPeriod: boolean,
+    desarrollo?: string,
+    source?: string,
+    owner?: string,
+    status?: string
+  ): ZohoStats => {
+    const { startDate, endDate } = getPeriodDates(period, isLastPeriod);
+
+    // Aplicar filtros en memoria
+    const filteredLeads = allLeads.filter(lead => {
+      // Filtro de fecha
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (!createdTime) return false;
+      const leadDate = new Date(createdTime);
+      if (leadDate < startDate || leadDate > endDate) return false;
+
+      // Filtro de desarrollo
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      if (desarrollo && desarrollo !== 'all') {
+        const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
+        if (leadDesarrollo !== desarrollo) return false;
+      }
+
+      // Filtro de fuente
+      if (source && source !== 'all' && lead.Lead_Source !== source) return false;
+
+      // Filtro de asesor
+      if (owner && owner !== 'all' && lead.Owner?.name !== owner) return false;
+
+      // Filtro de estado
+      if (status && status !== 'all' && lead.Lead_Status !== status) return false;
+
+      return true;
+    });
+
+    const filteredDeals = allDeals.filter(deal => {
+      // Filtro de fecha - usar Created_Time o buscar en JSONB si no existe
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (!dealCreatedTime) return false;
+      const dealDate = new Date(dealCreatedTime);
+      if (dealDate < startDate || dealDate > endDate) return false;
+
+      // Filtro de desarrollo
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      if (desarrollo && desarrollo !== 'all') {
+        const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+        if (dealDesarrollo !== desarrollo) return false;
+      }
+
+      // Filtro de fuente
+      if (source && source !== 'all' && deal.Lead_Source !== source) return false;
+
+      // Filtro de asesor
+      if (owner && owner !== 'all' && deal.Owner?.name !== owner) return false;
+
+      // Filtro de estado
+      if (status && status !== 'all' && deal.Stage !== status) return false;
+
+      return true;
+    });
+
+    // Debug: Log para verificar filtrado
+    console.log(`🔍 Filtros aplicados - Leads: ${filteredLeads.length}/${allLeads.length}, Deals: ${filteredDeals.length}/${allDeals.length}`, {
+      periodo: period,
+      desarrollo,
+      source,
+      owner,
+      status,
+      fechaInicio: startDate.toISOString(),
+      fechaFin: endDate.toISOString()
+    });
+
+    // Calcular estadísticas básicas
+    const leadsByStatus: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      const status = lead.Lead_Status || 'Sin Estado';
+      leadsByStatus[status] = (leadsByStatus[status] || 0) + 1;
+    });
+
+    const dealsByStage: Record<string, number> = {};
+    let totalDealValue = 0;
+    filteredDeals.forEach(deal => {
+      const stage = deal.Stage || 'Sin Etapa';
+      dealsByStage[stage] = (dealsByStage[stage] || 0) + 1;
+      if (deal.Amount) {
+        totalDealValue += deal.Amount;
+      }
+    });
+
+    const averageDealValue = filteredDeals.length > 0 
+      ? totalDealValue / filteredDeals.length 
+      : 0;
+
+    // Estadísticas por desarrollo
+    const leadsByDevelopment: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      const desarrollo = lead.Desarrollo || (lead as any).Desarollo || 'Sin Desarrollo';
+      leadsByDevelopment[desarrollo] = (leadsByDevelopment[desarrollo] || 0) + 1;
+    });
+
+    const dealsByDevelopment: Record<string, number> = {};
+    const dealValueByDevelopment: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+      const desarrollo = deal.Desarrollo || (deal as any).Desarollo || 'Sin Desarrollo';
+      dealsByDevelopment[desarrollo] = (dealsByDevelopment[desarrollo] || 0) + 1;
+      if (deal.Amount) {
+        dealValueByDevelopment[desarrollo] = (dealValueByDevelopment[desarrollo] || 0) + deal.Amount;
+      }
+    });
+
+    // Estadísticas por fecha
+    const leadsByDate: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (createdTime) {
+        const date = new Date(createdTime).toISOString().split('T')[0];
+        leadsByDate[date] = (leadsByDate[date] || 0) + 1;
+      }
+    });
+
+    const dealsByDate: Record<string, number> = {};
+    const dealValueByDate: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (dealCreatedTime) {
+        const date = new Date(dealCreatedTime).toISOString().split('T')[0];
+        dealsByDate[date] = (dealsByDate[date] || 0) + 1;
+        if (deal.Amount) {
+          dealValueByDate[date] = (dealValueByDate[date] || 0) + deal.Amount;
+        }
+      }
+    });
+
+    // Embudos
+    const leadsFunnel: Record<string, number> = {};
+    Object.entries(leadsByStatus)
+      .sort(([, a], [, b]) => b - a)
+      .forEach(([status, count]) => {
+        leadsFunnel[status] = count;
+      });
+
+    const dealsFunnel: Record<string, number> = {};
+    Object.entries(dealsByStage)
+      .sort(([, a], [, b]) => b - a)
+      .forEach(([stage, count]) => {
+        dealsFunnel[stage] = count;
+      });
+
+    // Motivos de descarte
+    const leadsDiscardReasons: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      const motivo = (lead as any).Raz_n_de_descarte || lead.Motivo_Descarte;
+      if (motivo) {
+        leadsDiscardReasons[motivo] = (leadsDiscardReasons[motivo] || 0) + 1;
+      }
+    });
+
+    const dealsDiscardReasons: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      if (deal.Motivo_Descarte) {
+        dealsDiscardReasons[deal.Motivo_Descarte] = (dealsDiscardReasons[deal.Motivo_Descarte] || 0) + 1;
+      }
+    });
+
+    // KPIs básicos
+    const conversionRate = filteredLeads.length > 0 
+      ? Math.round((filteredDeals.length / filteredLeads.length) * 10000) / 100 
+      : 0;
+
+    const discardedLeads = Object.values(leadsDiscardReasons).reduce((sum, count) => sum + count, 0);
+    const discardedLeadsPercentage = filteredLeads.length > 0
+      ? Math.round((discardedLeads / filteredLeads.length) * 10000) / 100
+      : 0;
+
+    // Estadísticas por fuente
+    const leadsBySource: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      const source = lead.Lead_Source || 'Sin Fuente';
+      leadsBySource[source] = (leadsBySource[source] || 0) + 1;
+    });
+
+    const dealsBySource: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      const source = deal.Lead_Source || 'Sin Fuente';
+      dealsBySource[source] = (dealsBySource[source] || 0) + 1;
+    });
+
+    const conversionBySource: Record<string, number> = {};
+    Object.keys({ ...leadsBySource, ...dealsBySource }).forEach(source => {
+      const leadsCount = leadsBySource[source] || 0;
+      const dealsCount = dealsBySource[source] || 0;
+      conversionBySource[source] = leadsCount > 0 
+        ? Math.round((dealsCount / leadsCount) * 10000) / 100 
+        : 0;
+    });
+
+    // Estadísticas por asesor
+    const leadsByOwner: Record<string, number> = {};
+    filteredLeads.forEach(lead => {
+      const owner = lead.Owner?.name || 'Sin Asesor';
+      leadsByOwner[owner] = (leadsByOwner[owner] || 0) + 1;
+    });
+
+    const dealsByOwner: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      const owner = deal.Owner?.name || 'Sin Asesor';
+      dealsByOwner[owner] = (dealsByOwner[owner] || 0) + 1;
+    });
+
+    // Calcular tiempo promedio a primer contacto SOLO dentro del horario laboral (08:30-20:30)
+    let totalTimeToFirstContact = 0;
+    let countWithFirstContact = 0;
+    const businessStart = 8 * 60 + 30; // 08:30 en minutos
+    const businessEnd = 20 * 60 + 30; // 20:30 en minutos
+    
+    filteredLeads.forEach(lead => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      const firstContactTime = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
+      
+      if (createdTime && firstContactTime) {
+        const created = new Date(createdTime);
+        const firstContact = new Date(firstContactTime);
+        
+        // Verificar que el primer contacto sea dentro del horario laboral
+        const contactHour = firstContact.getHours();
+        const contactMinute = firstContact.getMinutes();
+        const contactTimeInMinutes = contactHour * 60 + contactMinute;
+        const dayOfWeek = firstContact.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // 0 = domingo, 6 = sábado
+        
+        // Solo contar si el contacto fue dentro del horario laboral y no es fin de semana
+        if (!isWeekend && contactTimeInMinutes >= businessStart && contactTimeInMinutes <= businessEnd) {
+          const diffMinutes = (firstContact.getTime() - created.getTime()) / (1000 * 60);
+          if (diffMinutes > 0 && diffMinutes < 100000) { // Validar rango razonable
+            totalTimeToFirstContact += diffMinutes;
+            countWithFirstContact++;
+          }
+        }
+      }
+    });
+    
+    const averageTimeToFirstContact = countWithFirstContact > 0
+      ? Math.round(totalTimeToFirstContact / countWithFirstContact)
+      : 0;
+
+    // Leads fuera de horario laboral (08:30-20:30)
+    let leadsOutsideBusinessHours = 0;
+    filteredLeads.forEach(lead => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (createdTime) {
+        const date = new Date(createdTime);
+        const hour = date.getHours();
+        const minute = date.getMinutes();
+        const timeInMinutes = hour * 60 + minute;
+        const businessStart = 8 * 60 + 30; // 08:30
+        const businessEnd = 20 * 60 + 30; // 20:30
+        if (timeInMinutes < businessStart || timeInMinutes > businessEnd) {
+          leadsOutsideBusinessHours++;
+        }
+      }
+    });
+    const leadsOutsideBusinessHoursPercentage = filteredLeads.length > 0
+      ? Math.round((leadsOutsideBusinessHours / filteredLeads.length) * 10000) / 100
+      : 0;
+
+    // Leads de calidad (simplificado: contactados con solicitud de visita/cita)
+    let qualityLeads = 0;
+    filteredLeads.forEach(lead => {
+      const solicitoVisitaCita = (lead as any).Solicito_visita_cita;
+      const hasFirstContact = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
+      if (solicitoVisitaCita && hasFirstContact) {
+        qualityLeads++;
+      }
+    });
+    const qualityLeadsPercentage = filteredLeads.length > 0
+      ? Math.round((qualityLeads / filteredLeads.length) * 10000) / 100
+      : 0;
+
+    // Dependencia de canal (concentración)
+    const channelConcentration: Record<string, number> = {};
+    const totalLeadsBySource = Object.values(leadsBySource).reduce((sum, count) => sum + count, 0);
+    Object.entries(leadsBySource).forEach(([source, count]) => {
+      channelConcentration[source] = totalLeadsBySource > 0
+        ? Math.round((count / totalLeadsBySource) * 10000) / 100
+        : 0;
+    });
+
+    // Estadísticas por semana y mes (simplificado)
+    const leadsByWeek: Record<string, number> = {};
+    const dealsByWeek: Record<string, number> = {};
+    const leadsByMonth: Record<string, number> = {};
+    const dealsByMonth: Record<string, number> = {};
+
+    filteredLeads.forEach(lead => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (createdTime) {
+        const date = new Date(createdTime);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const week = getWeekNumber(date);
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+        const weekKey = `${year}-W${String(week).padStart(2, '0')}`;
+        leadsByMonth[monthKey] = (leadsByMonth[monthKey] || 0) + 1;
+        leadsByWeek[weekKey] = (leadsByWeek[weekKey] || 0) + 1;
+      }
+    });
+
+    filteredDeals.forEach(deal => {
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (dealCreatedTime) {
+        const date = new Date(dealCreatedTime);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const week = getWeekNumber(date);
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+        const weekKey = `${year}-W${String(week).padStart(2, '0')}`;
+        dealsByMonth[monthKey] = (dealsByMonth[monthKey] || 0) + 1;
+        dealsByWeek[weekKey] = (dealsByWeek[weekKey] || 0) + 1;
+      }
+    });
+
+    // Conversión por fecha
+    const conversionByDate: Record<string, number> = {};
+    Object.keys({ ...leadsByDate, ...dealsByDate }).forEach(date => {
+      const leadsCount = leadsByDate[date] || 0;
+      const dealsCount = dealsByDate[date] || 0;
+      conversionByDate[date] = leadsCount > 0 
+        ? Math.round((dealsCount / leadsCount) * 10000) / 100 
+        : 0;
+    });
+
+    return {
+      totalLeads: filteredLeads.length,
+      totalDeals: filteredDeals.length,
+      leadsByStatus,
+      dealsByStage,
+      totalDealValue,
+      averageDealValue,
+      leadsByDevelopment,
+      dealsByDevelopment,
+      dealValueByDevelopment,
+      leadsByDate,
+      dealsByDate,
+      dealValueByDate,
+      leadsFunnel,
+      dealsFunnel,
+      leadsDiscardReasons,
+      dealsDiscardReasons,
+      conversionRate,
+      averageTimeToFirstContact,
+      leadsOutsideBusinessHours,
+      leadsOutsideBusinessHoursPercentage,
+      discardedLeads,
+      discardedLeadsPercentage,
+      leadsBySource,
+      dealsBySource,
+      conversionBySource,
+      channelConcentration,
+      leadsByOwner,
+      dealsByOwner,
+      qualityLeads,
+      qualityLeadsPercentage,
+      leadsByWeek,
+      dealsByWeek,
+      leadsByMonth,
+      dealsByMonth,
+      conversionByDate,
+      // Campos que requieren datos adicionales (se pueden cargar después si es necesario)
+      averageTimeInPhaseLeads: {},
+      averageTimeInPhaseDeals: {},
+      averageTimeToFirstContactByOwner: {},
+      activitiesByType: {},
+      activitiesByOwner: {},
+    };
+  }, [getPeriodDates]);
+
+  // Helper para obtener número de semana
+  const getWeekNumber = (date: Date): number => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  };
+
+  // Calcular estadísticas usando useMemo (se recalcula automáticamente cuando cambian los filtros)
+  const currentStats = useMemo(() => {
+    if (leads.length === 0 && deals.length === 0) return null;
+    return calculateStatsFromData(
+      leads,
+      deals,
+      selectedPeriod,
+      false,
+      selectedDesarrollo,
+      selectedSource,
+      selectedOwner,
+      selectedStatus
+    );
+  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData]);
+
+  const previousStats = useMemo(() => {
+    if (leads.length === 0 && deals.length === 0) return null;
+    return calculateStatsFromData(
+      leads,
+      deals,
+      selectedPeriod,
+      true,
+      selectedDesarrollo,
+      selectedSource,
+      selectedOwner,
+      selectedStatus
+    );
+  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData]);
+
+  // Actualizar estados cuando cambian las estadísticas calculadas
+  useEffect(() => {
+    if (currentStats) {
+      setStats(currentStats);
+    }
+  }, [currentStats]);
+
+  useEffect(() => {
+    if (previousStats) {
+      setLastMonthStats(previousStats);
+    }
+  }, [previousStats]);
+
+  // Cargar todos los datos una vez (sin filtros de fecha para tener todos los datos disponibles)
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Cargar otros datos en paralelo
-      const [leadsData, dealsData, pipelinesData] = await Promise.all([
-        getZohoLeads(1, 200).catch(() => ({ data: [], info: {} })),
-        getZohoDeals(1, 200).catch(() => ({ data: [], info: {} })),
-        getZohoPipelines().catch(() => ({ data: [] })),
+      // Función helper para obtener todos los leads
+      const getAllLeads = async (): Promise<ZohoLead[]> => {
+        const allLeads: ZohoLead[] = [];
+        let currentPage = 1;
+        const perPage = 200;
+        let hasMore = true;
+
+        while (hasMore) {
+          try {
+            const leadsData = await getZohoLeads(currentPage, perPage);
+            if (leadsData.data && leadsData.data.length > 0) {
+              allLeads.push(...leadsData.data);
+            }
+            
+            // Verificar si hay más registros
+            hasMore = leadsData.info?.more_records === true;
+            currentPage++;
+            
+            // Limitar a 50 páginas (10,000 registros) para evitar loops infinitos
+            if (currentPage > 50) {
+              console.warn('⚠️ Límite de páginas alcanzado para leads (50 páginas = 10,000 registros)');
+              break;
+            }
+          } catch (err) {
+            console.error(`Error obteniendo leads página ${currentPage}:`, err);
+            break;
+          }
+        }
+
+        console.log(`✅ Total de leads obtenidos: ${allLeads.length}`);
+        return allLeads;
+      };
+
+      // Función helper para obtener todos los deals
+      const getAllDeals = async (): Promise<ZohoDeal[]> => {
+        const allDeals: ZohoDeal[] = [];
+        let currentPage = 1;
+        const perPage = 200;
+        let hasMore = true;
+
+        while (hasMore) {
+          try {
+            const dealsData = await getZohoDeals(currentPage, perPage);
+            if (dealsData.data && dealsData.data.length > 0) {
+              allDeals.push(...dealsData.data);
+            }
+            
+            // Verificar si hay más registros
+            hasMore = dealsData.info?.more_records === true;
+            currentPage++;
+            
+            // Limitar a 50 páginas (10,000 registros) para evitar loops infinitos
+            if (currentPage > 50) {
+              console.warn('⚠️ Límite de páginas alcanzado para deals (50 páginas = 10,000 registros)');
+              break;
+            }
+          } catch (err) {
+            console.error(`Error obteniendo deals página ${currentPage}:`, err);
+            break;
+          }
+        }
+
+        console.log(`✅ Total de deals obtenidos: ${allDeals.length}`);
+        return allDeals;
+      };
+
+      // Cargar todos los datos en paralelo
+      const [allLeads, allDeals] = await Promise.all([
+        getAllLeads().catch(() => []),
+        getAllDeals().catch(() => []),
       ]);
       
-      setLeads(leadsData.data || []);
-      setDeals(dealsData.data || []);
-      setPipelines(pipelinesData.data || []);
-      
-      // Cargar estadísticas después de obtener los datos
-      await loadStats(selectedDesarrollo, false);
-      await loadStats(selectedDesarrollo, true);
+      setLeads(allLeads);
+      setDeals(allDeals);
       
     } catch (err) {
       console.error('Error cargando datos de ZOHO:', err);
@@ -129,15 +688,7 @@ export default function ZohoCRMPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast, loadStats, selectedDesarrollo]);
-
-  // Recargar estadísticas cuando cambia el filtro (solo si ya se cargaron los datos iniciales)
-  useEffect(() => {
-    if (!loading && (stats !== null || lastMonthStats !== null)) {
-      loadStats(selectedDesarrollo, false);
-      loadStats(selectedDesarrollo, true);
-    }
-  }, [selectedDesarrollo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [toast]);
 
   // Verificar permisos
   useEffect(() => {
@@ -272,7 +823,7 @@ export default function ZohoCRMPage() {
         <div>
           <h1 className="text-3xl font-bold navy-text">ZOHO CRM</h1>
           <p className="text-muted-foreground">
-            Visualiza y gestiona leads, deals y pipelines desde ZOHO CRM
+            Visualiza y gestiona leads y deals desde ZOHO CRM
           </p>
         </div>
         <div className="flex gap-2">
@@ -330,23 +881,305 @@ export default function ZohoCRMPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <TabsList>
+          <TabsTrigger value="executive">Vista Ejecutiva</TabsTrigger>
           <TabsTrigger value="stats">Estadísticas</TabsTrigger>
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="deals">Deals</TabsTrigger>
-          <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
         </TabsList>
+
+        {/* Vista Ejecutiva */}
+        <TabsContent value="executive" className="flex-1 overflow-auto">
+          {loading ? (
+            <Card className="mt-4">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <p className="text-muted-foreground">Cargando vista ejecutiva...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : stats && lastMonthStats ? (
+            <div className="mt-4 space-y-4">
+              {/* Resumen Ejecutivo */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Resumen Ejecutivo - Zoho CRM</CardTitle>
+                  <CardDescription>Vista consolidada para Dirección General</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {/* KPIs Globales */}
+                    <div className="space-y-2">
+                      <h3 className="font-semibold text-sm">KPIs Globales</h3>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>Leads Totales:</span>
+                          <span className="font-medium">{stats.totalLeads}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Deals Creados:</span>
+                          <span className="font-medium">{stats.totalDeals}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>% Conversión:</span>
+                          <span className={`font-medium ${(stats.conversionRate || 0) >= 15 ? 'text-green-600' : 'text-red-600'}`}>
+                            {(stats.conversionRate || 0).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Valor Total:</span>
+                          <span className="font-medium">{formatCurrency(stats.totalDealValue || 0)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pipeline */}
+                    <div className="space-y-2">
+                      <h3 className="font-semibold text-sm">Pipeline</h3>
+                      {stats.leadsFunnel && Object.keys(stats.leadsFunnel).length > 0 && (
+                        <div className="space-y-1 text-sm">
+                          {Object.entries(stats.leadsFunnel)
+                            .slice(0, 5)
+                            .map(([status, count]) => (
+                              <div key={status} className="flex justify-between">
+                                <span className="truncate">{status}:</span>
+                                <span className="font-medium ml-2">{count}</span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ventas */}
+                    <div className="space-y-2">
+                      <h3 className="font-semibold text-sm">Ventas</h3>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>Deals Activos:</span>
+                          <span className="font-medium">{stats.totalDeals}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Valor Promedio:</span>
+                          <span className="font-medium">{formatCurrency(stats.averageDealValue || 0)}</span>
+                        </div>
+                        {stats.dealsByStage && (
+                          <div className="pt-2 border-t">
+                            <p className="text-xs text-muted-foreground mb-1">Top Etapas:</p>
+                            {Object.entries(stats.dealsByStage)
+                              .sort(([, a], [, b]) => b - a)
+                              .slice(0, 3)
+                              .map(([stage, count]) => (
+                                <div key={stage} className="flex justify-between text-xs">
+                                  <span className="truncate">{stage}:</span>
+                                  <span className="ml-2">{count}</span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Riesgos y Oportunidades */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Riesgos */}
+                <Card className="border-red-200">
+                  <CardHeader>
+                    <CardTitle className="text-red-600">Riesgos</CardTitle>
+                    <CardDescription>Áreas que requieren atención</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {(stats.discardedLeadsPercentage || 0) > 30 && (
+                        <div className="p-3 bg-red-50 rounded-lg">
+                          <p className="text-sm font-medium text-red-800">Alta Tasa de Descarte</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            {(stats.discardedLeadsPercentage || 0).toFixed(1)}% de leads descartados
+                          </p>
+                        </div>
+                      )}
+                      {stats.channelConcentration && Object.entries(stats.channelConcentration).some(([, p]) => p > 50) && (
+                        <div className="p-3 bg-red-50 rounded-lg">
+                          <p className="text-sm font-medium text-red-800">Dependencia de Canal</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            Alta concentración en un solo canal de captación
+                          </p>
+                        </div>
+                      )}
+                      {(stats.averageTimeToFirstContact || 0) > 60 && (
+                        <div className="p-3 bg-red-50 rounded-lg">
+                          <p className="text-sm font-medium text-red-800">Tiempos de Contacto Elevados</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            Tiempo promedio: {(stats.averageTimeToFirstContact || 0).toFixed(0)} min (Meta: 30 min)
+                          </p>
+                        </div>
+                      )}
+                      {(stats.conversionRate || 0) < 10 && (
+                        <div className="p-3 bg-red-50 rounded-lg">
+                          <p className="text-sm font-medium text-red-800">Baja Conversión</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            {(stats.conversionRate || 0).toFixed(1)}% (Meta: 15%)
+                          </p>
+                        </div>
+                      )}
+                      {(!stats.channelConcentration || Object.keys(stats.channelConcentration).length === 0) && 
+                       (!stats.discardedLeadsPercentage || stats.discardedLeadsPercentage < 30) &&
+                       (!stats.averageTimeToFirstContact || stats.averageTimeToFirstContact <= 60) &&
+                       (stats.conversionRate || 0) >= 10 && (
+                        <p className="text-sm text-muted-foreground">No se detectaron riesgos significativos</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Oportunidades */}
+                <Card className="border-green-200">
+                  <CardHeader>
+                    <CardTitle className="text-green-600">Oportunidades</CardTitle>
+                    <CardDescription>Áreas con potencial de mejora</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {(stats.averageTimeToFirstContact || 0) <= 30 && (
+                        <div className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-800">Excelente Tiempo de Contacto</p>
+                          <p className="text-xs text-green-600 mt-1">
+                            Tiempo promedio: {(stats.averageTimeToFirstContact || 0).toFixed(0)} min (Meta alcanzada)
+                          </p>
+                        </div>
+                      )}
+                      {(stats.conversionRate || 0) >= 15 && (
+                        <div className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-800">Alta Conversión</p>
+                          <p className="text-xs text-green-600 mt-1">
+                            {(stats.conversionRate || 0).toFixed(1)}% (Meta alcanzada)
+                          </p>
+                        </div>
+                      )}
+                      {(stats.qualityLeadsPercentage || 0) > 50 && (
+                        <div className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-800">Alta Calidad de Leads</p>
+                          <p className="text-xs text-green-600 mt-1">
+                            {(stats.qualityLeadsPercentage || 0).toFixed(1)}% de leads de calidad
+                          </p>
+                        </div>
+                      )}
+                      {stats && lastMonthStats && (stats.totalLeads > lastMonthStats.totalLeads) && (
+                        <div className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-800">Crecimiento en Leads</p>
+                          <p className="text-xs text-green-600 mt-1">
+                            +{stats.totalLeads - lastMonthStats.totalLeads} leads vs mes anterior
+                          </p>
+                        </div>
+                      )}
+                      {(!stats.averageTimeToFirstContact || stats.averageTimeToFirstContact > 30) &&
+                       (!stats.conversionRate || stats.conversionRate < 15) &&
+                       (!stats.qualityLeadsPercentage || stats.qualityLeadsPercentage <= 50) && (
+                        <p className="text-sm text-muted-foreground">Oportunidades de mejora identificadas en las métricas principales</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Comparativo vs Mes Anterior */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Comparativo vs Mes Anterior</CardTitle>
+                  <CardDescription>Variación del periodo actual respecto al mes anterior</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-1">Leads</p>
+                      <p className="text-2xl font-bold">{stats.totalLeads}</p>
+                      {lastMonthStats.totalLeads > 0 && stats.totalLeads !== lastMonthStats.totalLeads && (
+                        <p className={`text-xs mt-1 ${stats.totalLeads > lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
+                          {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
+                          {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}%
+                        </p>
+                      )}
+                      {lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
+                        <p className="text-xs text-green-600 mt-1">Nuevo</p>
+                      )}
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-1">Deals</p>
+                      <p className="text-2xl font-bold">{stats.totalDeals}</p>
+                      {lastMonthStats.totalDeals > 0 && stats.totalDeals !== lastMonthStats.totalDeals && (
+                        <p className={`text-xs mt-1 ${stats.totalDeals > lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
+                          {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
+                          {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}%
+                        </p>
+                      )}
+                      {lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
+                        <p className="text-xs text-green-600 mt-1">Nuevo</p>
+                      )}
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-1">Conversión</p>
+                      <p className="text-2xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
+                      {stats.conversionRate !== lastMonthStats.conversionRate && (
+                        <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                          {(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? '+' : ''}
+                          {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}%
+                        </p>
+                      )}
+                    </div>
+                    <div className="p-4 border rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-1">Tiempo Contacto</p>
+                      <p className="text-2xl font-bold">{(stats.averageTimeToFirstContact || 0).toFixed(0)} min</p>
+                      {stats.averageTimeToFirstContact !== lastMonthStats.averageTimeToFirstContact && (
+                        <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                          {(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                          {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <Card className="mt-4">
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No se pudieron cargar los datos para la vista ejecutiva
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         {/* Estadísticas */}
         <TabsContent value="stats" className="flex-1 overflow-auto">
-          {/* Filtros */}
+          {/* Filtros Globales */}
           <Card className="mt-4">
             <CardHeader>
-              <CardTitle>Filtros</CardTitle>
-              <CardDescription>Filtra las estadísticas por desarrollo</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Filtros Globales
+              </CardTitle>
+              <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="flex-1 min-w-[200px]">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Periodo</label>
+                  <Select value={selectedPeriod} onValueChange={(value: 'month' | 'quarter' | 'year') => setSelectedPeriod(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar periodo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="month">Mensual</SelectItem>
+                      <SelectItem value="quarter">Trimestral</SelectItem>
+                      <SelectItem value="year">Anual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                   <label className="text-sm font-medium mb-2 block">Desarrollo</label>
                   <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
                     <SelectTrigger>
@@ -362,11 +1195,59 @@ export default function ZohoCRMPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center gap-2">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
+                  <Select value={selectedSource} onValueChange={setSelectedSource}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar fuente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las fuentes</SelectItem>
+                      {availableSources.map((source) => (
+                        <SelectItem key={source} value={source}>
+                          {source}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Asesor</label>
+                  <Select value={selectedOwner} onValueChange={setSelectedOwner}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar asesor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los asesores</SelectItem>
+                      {availableOwners.map((owner) => (
+                        <SelectItem key={owner} value={owner}>
+                          {owner}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
+                  <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los estados</SelectItem>
+                      {availableStatuses.map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {status}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
                   <Button
                     variant={showLastMonth ? "default" : "outline"}
                     onClick={() => setShowLastMonth(!showLastMonth)}
-                    className="mt-6 sm:mt-0"
+                    className="w-full"
                   >
                     <Calendar className="h-4 w-4 mr-2" />
                     {showLastMonth ? 'Ver Actual' : 'Ver Mes Anterior'}
@@ -376,7 +1257,7 @@ export default function ZohoCRMPage() {
             </CardContent>
           </Card>
 
-          {loadingStats ? (
+          {loading ? (
             <Card className="mt-4">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-center py-8">
@@ -387,17 +1268,57 @@ export default function ZohoCRMPage() {
             </Card>
           ) : (showLastMonth ? lastMonthStats : stats) ? (
             <div className="mt-4 space-y-4">
-              {/* Tarjetas de resumen */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* Resumen Informativo */}
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-blue-900 mb-1">
+                        Periodo: {selectedPeriod === 'month' ? 'Mensual' : selectedPeriod === 'quarter' ? 'Trimestral' : 'Anual'}
+                        {selectedDesarrollo !== 'all' && ` | Desarrollo: ${selectedDesarrollo}`}
+                        {selectedSource !== 'all' && ` | Fuente: ${selectedSource}`}
+                        {selectedOwner !== 'all' && ` | Asesor: ${selectedOwner}`}
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        Mostrando {showLastMonth ? 'datos del mes anterior' : 'datos del periodo actual'}
+                        {stats && ` - Total: ${stats.totalLeads} leads, ${stats.totalDeals} deals`}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Tarjetas KPI Principales */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {/* Total Leads */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
+                  <CardTitle className="text-sm font-medium">Leads Totales</CardTitle>
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalLeads || 0}</div>
-                  <p className="text-xs text-muted-foreground">
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads > 0 && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      stats.totalLeads >= lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {stats.totalLeads >= lastMonthStats.totalLeads ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
+                      {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}% vs mes anterior
+                    </p>
+                  )}
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
+                    <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
+                      <TrendingUp className="h-3 w-3" />
+                      Nuevo (sin datos previos)
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
                     {showLastMonth ? 'Leads del mes anterior' : 'Leads registrados'}
                   </p>
                 </CardContent>
@@ -406,49 +1327,550 @@ export default function ZohoCRMPage() {
               {/* Total Deals */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Deals</CardTitle>
+                  <CardTitle className="text-sm font-medium">Deals Creados</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalDeals || 0}</div>
-                  <p className="text-xs text-muted-foreground">
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals > 0 && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      stats.totalDeals >= lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {stats.totalDeals >= lastMonthStats.totalDeals ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
+                      {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}% vs mes anterior
+                    </p>
+                  )}
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
+                    <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
+                      <TrendingUp className="h-3 w-3" />
+                      Nuevo (sin datos previos)
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
                     {showLastMonth ? 'Deals del mes anterior' : 'Oportunidades activas'}
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Valor Total */}
+              {/* % Conversión */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm font-medium">% Conversión</CardTitle>
+                  <Target className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {formatCurrency((showLastMonth ? lastMonthStats : stats)?.totalDealValue || 0)}
+                    {((showLastMonth ? lastMonthStats : stats)?.conversionRate || 0).toFixed(1)}%
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {showLastMonth ? 'Valor del mes anterior' : 'Valor de todos los deals'}
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.conversionRate !== undefined && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      (stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? '+' : ''}
+                      {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Meta: 15%
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Valor Promedio */}
+              {/* Tiempo Promedio a Primer Contacto */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Valor Promedio</CardTitle>
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm font-medium">Tiempo Promedio</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {formatCurrency((showLastMonth ? lastMonthStats : stats)?.averageDealValue || 0)}
+                    {((showLastMonth ? lastMonthStats : stats)?.averageTimeToFirstContact || 0).toFixed(0)} min
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Por deal
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      (stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                      {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs mes anterior
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Meta: 30 min
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* % Leads Fuera de Horario Laboral */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">% Fuera Horario</CardTitle>
+                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {((showLastMonth ? lastMonthStats : stats)?.leadsOutsideBusinessHoursPercentage || 0).toFixed(1)}%
+                  </div>
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      (stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
+                      {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Horario: 08:30-20:30
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* % Leads Descartados */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">% Descartados</CardTitle>
+                  <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {((showLastMonth ? lastMonthStats : stats)?.discardedLeadsPercentage || 0).toFixed(1)}%
+                  </div>
+                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
+                    <p className={`text-xs flex items-center gap-1 mt-1 ${
+                      (stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? (
+                        <TrendingUp className="h-3 w-3" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3" />
+                      )}
+                      {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? '-' : '+'}
+                      {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {(showLastMonth ? lastMonthStats : stats)?.discardedLeads || 0} leads descartados
                   </p>
                 </CardContent>
               </Card>
               </div>
+
+              {/* SECCIÓN: EMBUDO DE VENTAS (PIPELINE) */}
+              {stats && stats.leadsFunnel && Object.keys(stats.leadsFunnel).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Embudo de Ventas (Pipeline)</CardTitle>
+                    <CardDescription>Distribución de leads por estado en el embudo de conversión</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="mb-4 grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                      {Object.entries(stats.leadsFunnel)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([status, count]) => {
+                          const porcentaje = stats.totalLeads > 0 ? Math.round((count / stats.totalLeads) * 100) : 0;
+                          return (
+                            <div key={status} className="p-2 border rounded bg-muted/50">
+                              <p className="font-medium text-xs truncate" title={status}>{status}</p>
+                              <p className="text-lg font-bold">{count}</p>
+                              <p className="text-xs text-muted-foreground">{porcentaje}%</p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                    <ResponsiveContainer width="100%" height={400}>
+                      <BarChart
+                        data={Object.entries(stats.leadsFunnel)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([status, count]) => ({
+                            estado: status.length > 20 ? status.substring(0, 20) + '...' : status,
+                            estadoCompleto: status,
+                            cantidad: count,
+                            porcentaje: stats.totalLeads > 0 ? Math.round((count / stats.totalLeads) * 100) : 0
+                          }))}
+                        layout="vertical"
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="estado" type="category" width={150} />
+                        <Tooltip 
+                          formatter={(value: number, name: string, props: any) => {
+                            if (name === 'cantidad') {
+                              return [`${value} leads (${props.payload.porcentaje}%)`, 'Cantidad'];
+                            }
+                            return value;
+                          }}
+                          labelFormatter={(label, payload) => payload?.[0]?.payload?.estadoCompleto || label}
+                        />
+                        <Legend />
+                        <Bar dataKey="cantidad" fill="#8884d8" name="Leads">
+                          {Object.entries(stats.leadsFunnel)
+                            .sort(([, a], [, b]) => b - a)
+                            .map((entry, index) => {
+                              const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
+                              return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                            })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* SECCIÓN: EVOLUCIÓN TEMPORAL */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {stats && stats.leadsByDate && Object.keys(stats.leadsByDate).length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Leads Generados en el Tiempo</CardTitle>
+                      <CardDescription>Evolución diaria de leads generados</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={Object.entries(stats.leadsByDate).map(([date, count]) => {
+                          const dateObj = new Date(date);
+                          const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+                          return {
+                            fecha: dateObj.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                            leads: count,
+                            isWeekend
+                          };
+                        }).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="fecha" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line 
+                            type="monotone" 
+                            dataKey="leads" 
+                            stroke="#8884d8" 
+                            name="Leads"
+                            strokeWidth={2}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {stats && stats.dealsByDate && Object.keys(stats.dealsByDate).length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Deals Creados en el Tiempo</CardTitle>
+                      <CardDescription>Evolución diaria de deals creados</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={Object.entries(stats.dealsByDate).map(([date, count]) => {
+                          const dateObj = new Date(date);
+                          return {
+                            fecha: dateObj.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                            deals: count
+                          };
+                        }).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="fecha" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="deals" stroke="#82ca9d" name="Deals" strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {stats && stats.conversionByDate && Object.keys(stats.conversionByDate).length > 0 && (
+                  <Card className="md:col-span-2">
+                    <CardHeader>
+                      <CardTitle>Conversión en el Tiempo</CardTitle>
+                      <CardDescription>Evolución del porcentaje de conversión diario</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={Object.entries(stats.conversionByDate).map(([date, rate]) => ({
+                          fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
+                          conversion: rate
+                        })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="fecha" />
+                          <YAxis />
+                          <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
+                          <Legend />
+                          <Line type="monotone" dataKey="conversion" stroke="#ffc658" name="% Conversión" strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* SECCIÓN: MARKETING & CALIDAD DE LEADS */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {stats && stats.leadsBySource && Object.entries(stats.leadsBySource).some(([_source, count]) => count > 0) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Leads por Fuente</CardTitle>
+                      <CardDescription>Distribución de leads según su fuente de captación</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                          <Pie
+                            data={Object.entries(stats.leadsBySource)
+                              .filter(([_source, count]) => count > 0) // Filtrar fuentes con valor 0
+                              .map(([source, count]) => ({
+                                name: source,
+                                value: count
+                              }))}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {Object.entries(stats.leadsBySource)
+                              .filter(([_source, count]) => count > 0) // Filtrar fuentes con valor 0 para los colores
+                              .map((entry, index) => {
+                                const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
+                                return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                              })}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {stats && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Calidad de Leads</CardTitle>
+                      <CardDescription>Leads de calidad vs leads totales</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Leads de Calidad</span>
+                          <Badge variant="default" className="text-lg px-3 py-1">
+                            {stats.qualityLeads || 0}
+                          </Badge>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-4">
+                          <div
+                            className="bg-primary h-4 rounded-full transition-all"
+                            style={{
+                              width: `${stats.qualityLeadsPercentage || 0}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {(stats.qualityLeadsPercentage || 0).toFixed(1)}% del total de leads
+                        </p>
+                        <div className="pt-4 border-t">
+                          <p className="text-xs text-muted-foreground">
+                            Un lead de calidad es aquel que ha sido contactado exitosamente y tiene solicitud de cotización o visita.
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {stats && stats.conversionBySource && Object.keys(stats.conversionBySource).length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Conversión por Fuente</CardTitle>
+                      <CardDescription>Porcentaje de conversión según la fuente de captación</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={Object.entries(stats.conversionBySource).map(([source, rate]) => ({
+                          fuente: source,
+                          conversion: rate
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="fuente" angle={-45} textAnchor="end" height={100} />
+                          <YAxis />
+                          <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
+                          <Legend />
+                          <Bar dataKey="conversion" fill="#82ca9d" name="% Conversión" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {stats && stats.channelConcentration && Object.keys(stats.channelConcentration).length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Dependencia de Canal</CardTitle>
+                      <CardDescription>Porcentaje de concentración por canal de captación</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {Object.entries(stats.channelConcentration)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([channel, percentage]) => (
+                            <div key={channel} className="space-y-1">
+                              <div className="flex items-center justify-between text-sm">
+                                <span>{channel}</span>
+                                <span className="font-medium">{percentage.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                  className={`h-2 rounded-full ${
+                                    percentage > 50 ? 'bg-red-500' : percentage > 30 ? 'bg-yellow-500' : 'bg-green-500'
+                                  }`}
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-4">
+                        {Object.entries(stats.channelConcentration).some(([, p]) => p > 50) && (
+                          <span className="text-red-600">⚠️ Alta dependencia de un solo canal detectada</span>
+                        )}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* SECCIÓN: DESCARTES */}
+              {stats && stats.leadsDiscardReasons && Object.keys(stats.leadsDiscardReasons).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Análisis de Descartes</CardTitle>
+                    <CardDescription>Motivos de descarte de leads y su impacto en la conversión</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div>
+                      <h4 className="text-sm font-medium mb-4">Tabla de Descartes</h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="text-left p-2">Motivo</th>
+                                <th className="text-right p-2">Cantidad</th>
+                                <th className="text-right p-2">%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(stats.leadsDiscardReasons)
+                                .sort(([, a], [, b]) => b - a)
+                                .map(([motivo, count]) => {
+                                  const porcentaje = stats.totalLeads > 0 
+                                    ? Math.round((count / stats.totalLeads) * 10000) / 100 
+                                    : 0;
+                                  return (
+                                    <tr key={motivo} className="border-b">
+                                      <td className="p-2">{motivo}</td>
+                                      <td className="text-right p-2">{count}</td>
+                                      <td className="text-right p-2">{porcentaje.toFixed(1)}%</td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="mt-4 p-3 bg-muted rounded-lg">
+                          <p className="text-xs font-medium mb-1">Principales Causas:</p>
+                          <ul className="text-xs text-muted-foreground list-disc list-inside">
+                            {Object.entries(stats.leadsDiscardReasons)
+                              .sort(([, a], [, b]) => b - a)
+                              .slice(0, 3)
+                              .map(([motivo, count]) => (
+                                <li key={motivo}>{motivo}: {count} leads</li>
+                              ))}
+                          </ul>
+                        </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* SECCIÓN: TIEMPOS DE CONTACTO */}
+              {stats && stats.averageTimeToFirstContactByOwner && Object.keys(stats.averageTimeToFirstContactByOwner).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Tiempos de Contacto</CardTitle>
+                    <CardDescription>Tiempo promedio a primer contacto por asesor</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={Object.entries(stats.averageTimeToFirstContactByOwner).map(([owner, time]) => ({
+                        asesor: owner,
+                        tiempo: time
+                      }))}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="asesor" angle={-45} textAnchor="end" height={100} />
+                        <YAxis label={{ value: 'Minutos', angle: -90, position: 'insideLeft' }} />
+                        <Tooltip formatter={(value: number) => [`${value} min`, 'Tiempo promedio']} />
+                        <Legend />
+                        <Bar dataKey="tiempo" fill="#82ca9d" name="Tiempo (min)">
+                          {Object.entries(stats.averageTimeToFirstContactByOwner).map((entry, index) => {
+                            const time = entry[1];
+                            const color = time <= 30 ? '#82ca9d' : time <= 60 ? '#ffc658' : '#ff7300';
+                            return <Cell key={`cell-${index}`} fill={color} />;
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 flex items-center gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-green-500 rounded"></div>
+                        <span>≤ 30 min (Meta)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                        <span>31-60 min</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-red-500 rounded"></div>
+                        <span>&gt; 60 min</span>
+                      </div>
+                    </div>
+                    {stats.averageTimeToFirstContact && (
+                      <div className="mt-4 p-3 bg-muted rounded-lg">
+                        <p className="text-sm">
+                          <span className="font-medium">Tiempo promedio general:</span>{' '}
+                          {stats.averageTimeToFirstContact.toFixed(0)} minutos
+                          {stats.averageTimeToFirstContact <= 30 ? (
+                            <Badge variant="default" className="ml-2">✓ Meta alcanzada</Badge>
+                          ) : (
+                            <Badge variant="destructive" className="ml-2">Meta: 30 min</Badge>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Gráficas del mes anterior */}
               {showLastMonth && lastMonthStats && (
@@ -816,8 +2238,8 @@ export default function ZohoCRMPage() {
                               {lead.Lead_Source && (
                                 <p>Fuente: {lead.Lead_Source}</p>
                               )}
-                              {lead.Desarrollo && (
-                                <p>Desarrollo: <Badge variant="secondary">{lead.Desarrollo}</Badge></p>
+                              {(lead.Desarrollo || (lead as any).Desarollo) && (
+                                <p>Desarrollo: <Badge variant="secondary">{lead.Desarrollo || (lead as any).Desarollo}</Badge></p>
                               )}
                               {lead.Motivo_Descarte && (
                                 <p className="text-orange-600">Motivo descarte: {lead.Motivo_Descarte}</p>
@@ -1034,8 +2456,8 @@ export default function ZohoCRMPage() {
                               {deal.Account_Name?.name && (
                                 <p>Cuenta: {deal.Account_Name.name}</p>
                               )}
-                              {deal.Desarrollo && (
-                                <p>Desarrollo: <Badge variant="secondary">{deal.Desarrollo}</Badge></p>
+                              {(deal.Desarrollo || (deal as any).Desarollo) && (
+                                <p>Desarrollo: <Badge variant="secondary">{deal.Desarrollo || (deal as any).Desarollo}</Badge></p>
                               )}
                               {deal.Motivo_Descarte && (
                                 <p className="text-orange-600">Motivo descarte: {deal.Motivo_Descarte}</p>
@@ -1091,48 +2513,6 @@ export default function ZohoCRMPage() {
           </div>
         </TabsContent>
 
-        {/* Pipelines */}
-        <TabsContent value="pipelines" className="flex-1 overflow-auto">
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Pipelines</CardTitle>
-              <CardDescription>
-                Pipelines y etapas configuradas en ZOHO CRM
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {pipelines.length > 0 ? (
-                <div className="space-y-6">
-                  {pipelines.map((pipeline) => (
-                    <div key={pipeline.id} className="border rounded-lg p-4">
-                      <h3 className="font-semibold text-lg mb-4">{pipeline.name}</h3>
-                      <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                        {pipeline.stages.map((stage) => (
-                          <div
-                            key={stage.id}
-                            className="border rounded p-3 bg-muted/50"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-sm">{stage.name}</span>
-                              <Badge variant="secondary">{stage.probability}%</Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              Orden: {stage.display_order}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-muted-foreground py-8">
-                  No hay pipelines disponibles
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );

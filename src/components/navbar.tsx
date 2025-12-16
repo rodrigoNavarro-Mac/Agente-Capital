@@ -60,7 +60,7 @@ export function Navbar() {
   return (
     <header 
       className={cn(
-        'fixed top-0 right-0 z-10 h-16 border-b bg-white transition-all duration-300 ease-in-out',
+        'fixed top-0 right-0 z-10 h-16 border-b border-[#1e3d5c] bg-[#153356] transition-all duration-300 ease-in-out',
         // En móviles siempre ocupa todo el ancho, en desktop se ajusta según sidebar
         'left-0 md:left-0',
         sidebarOpen && 'md:left-64'
@@ -74,17 +74,15 @@ export function Navbar() {
             variant="ghost"
             size="icon"
             onClick={toggleSidebar}
-            className="md:hidden"
+            className="md:hidden text-white hover:text-white"
             aria-label="Toggle sidebar"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5 text-white" />
           </Button>
           
           {/* Título - responsive */}
         <div>
-            <h2 className="text-base md:text-lg font-semibold navy-text truncate max-w-[200px] md:max-w-none">
-            Capital Plus - Agente de IA
-          </h2>
+
           </div>
         </div>
 
@@ -92,7 +90,7 @@ export function Navbar() {
         <div className="flex items-center gap-2 md:gap-4">
           {/* Nombre del usuario - oculto en móviles pequeños */}
           {user && (
-            <div className="hidden sm:block text-sm text-muted-foreground opacity-60 hover:opacity-100 transition-opacity duration-200 truncate max-w-[120px] md:max-w-none">
+            <div className="hidden sm:block text-sm text-white opacity-60 hover:opacity-100 transition-opacity duration-200 truncate max-w-[120px] md:max-w-none">
               {user.name}
             </div>
           )}
@@ -100,18 +98,18 @@ export function Navbar() {
             variant="ghost" 
             size="icon" 
             title="Notificaciones"
-            className="opacity-60 hover:opacity-100 transition-opacity duration-200"
+            className="opacity-60 hover:opacity-100 transition-opacity duration-200 text-white hover:text-white"
           >
-            <Bell className="h-5 w-5" />
+            <Bell className="h-5 w-5 text-white" />
           </Button>
           <Button 
             variant="ghost" 
             size="icon" 
             onClick={handleLogout}
             title="Cerrar sesión"
-            className="opacity-60 hover:opacity-100 transition-opacity duration-200"
+            className="opacity-60 hover:opacity-100 transition-opacity duration-200 text-white hover:text-white"
           >
-            <LogOut className="h-5 w-5" />
+            <LogOut className="h-5 w-5 text-white" />
           </Button>
         </div>
       </div>

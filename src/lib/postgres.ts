@@ -2286,9 +2286,9 @@ export async function getFrequentQueries(days: number = 7, minCount: number = 10
 /**
  * Sincroniza un lead de Zoho a la base de datos local
  * Extrae campos conocidos y guarda el resto en JSONB
- * @returns true si fue creado, false si fue actualizado
+ * @returns true si fue creado, false si fue actualizado, null si no necesita actualización
  */
-export async function syncZohoLead(lead: ZohoLead): Promise<boolean> {
+export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
   try {
     // Extraer campos conocidos
     const fullName = lead.Full_Name || null;
@@ -2303,15 +2303,32 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean> {
     const tiempoEnFase = lead.Tiempo_En_Fase || null;
     const ownerId = lead.Owner?.id || null;
     const ownerName = lead.Owner?.name || null;
-    const createdTime = lead.Created_Time ? new Date(lead.Created_Time) : null;
+    // Usar Creacion_de_Lead si existe, sino Created_Time
+    const createdTime = (lead as any).Creacion_de_Lead 
+      ? new Date((lead as any).Creacion_de_Lead) 
+      : (lead.Created_Time ? new Date(lead.Created_Time) : null);
     const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
 
-    // Verificar si existe antes de insertar
-    const existingResult = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM zoho_leads WHERE zoho_id = $1`,
+    // Verificar si existe y si necesita actualización
+    const existingResult = await query<{ 
+      count: string;
+      modified_time: Date | null;
+    }>(
+      `SELECT COUNT(*) as count, MAX(modified_time) as modified_time 
+       FROM zoho_leads WHERE zoho_id = $1`,
       [lead.id]
     );
     const exists = parseInt(existingResult.rows[0].count) > 0;
+    const existingModifiedTime = existingResult.rows[0].modified_time 
+      ? new Date(existingResult.rows[0].modified_time) 
+      : null;
+    
+    // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
+    if (exists && existingModifiedTime && modifiedTime) {
+      if (modifiedTime <= existingModifiedTime) {
+        return null; // No necesita actualización
+      }
+    }
 
     // Guardar TODOS los campos en JSONB (incluyendo personalizados)
     await query(
@@ -2372,9 +2389,9 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean> {
 /**
  * Sincroniza un deal de Zoho a la base de datos local
  * Extrae campos conocidos y guarda el resto en JSONB
- * @returns true si fue creado, false si fue actualizado
+ * @returns true si fue creado, false si fue actualizado, null si no necesita actualización
  */
-export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean> {
+export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
   try {
     // Extraer campos conocidos
     const dealName = deal.Deal_Name || null;
@@ -2384,7 +2401,9 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean> {
     const probability = deal.Probability || null;
     const leadSource = deal.Lead_Source || null;
     const type = deal.Type || null;
-    const desarrollo = deal.Desarrollo || null;
+    // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
+    // Buscar ambos campos para asegurar compatibilidad
+    const desarrollo = deal.Desarrollo || (deal as any).Desarollo || null;
     const motivoDescarte = deal.Motivo_Descarte || null;
     const tiempoEnFase = deal.Tiempo_En_Fase || null;
     const ownerId = deal.Owner?.id || null;
@@ -2394,12 +2413,26 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean> {
     const createdTime = deal.Created_Time ? new Date(deal.Created_Time) : null;
     const modifiedTime = deal.Modified_Time ? new Date(deal.Modified_Time) : null;
 
-    // Verificar si existe antes de insertar
-    const existingResult = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM zoho_deals WHERE zoho_id = $1`,
+    // Verificar si existe y si necesita actualización
+    const existingResult = await query<{ 
+      count: string;
+      modified_time: Date | null;
+    }>(
+      `SELECT COUNT(*) as count, MAX(modified_time) as modified_time 
+       FROM zoho_deals WHERE zoho_id = $1`,
       [deal.id]
     );
     const exists = parseInt(existingResult.rows[0].count) > 0;
+    const existingModifiedTime = existingResult.rows[0].modified_time 
+      ? new Date(existingResult.rows[0].modified_time) 
+      : null;
+    
+    // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
+    if (exists && existingModifiedTime && modifiedTime) {
+      if (modifiedTime <= existingModifiedTime) {
+        return null; // No necesita actualización
+      }
+    }
 
     // Guardar TODOS los campos en JSONB (incluyendo personalizados)
     await query(
@@ -2549,12 +2582,174 @@ export async function getZohoNotesFromDB(
       [parentType, parentId]
     );
 
-    return result.rows.map(row => JSON.parse(row.data));
+    // PostgreSQL puede devolver JSONB como objeto o como cadena
+    return result.rows.map(row => typeof row.data === 'string' ? JSON.parse(row.data) : row.data);
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       return [];
     }
+    throw error;
+  }
+}
+
+/**
+ * Elimina leads que ya no existen en Zoho CRM
+ * @param zohoIds Array de IDs de leads que existen en Zoho
+ * @returns Número de leads eliminados
+ */
+export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<number> {
+  try {
+    if (zohoIds.length === 0) {
+      // Si no hay IDs en Zoho, eliminar todos los leads locales
+      // (esto puede ser peligroso, pero es necesario para mantener sincronización)
+      const result = await query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM zoho_leads`
+      );
+      const totalLeads = parseInt(result.rows[0].count);
+      
+      if (totalLeads > 0) {
+        // Primero eliminar las notas relacionadas
+        await query(
+          `DELETE FROM zoho_notes 
+           WHERE parent_type = 'Leads' 
+           AND parent_id IN (SELECT zoho_id FROM zoho_leads)`
+        );
+        
+        // Luego eliminar los leads
+        await query(`DELETE FROM zoho_leads`);
+        console.log(`🗑️ Eliminados ${totalLeads} leads que ya no existen en Zoho`);
+        return totalLeads;
+      }
+      return 0;
+    }
+
+    // Obtener todos los IDs de leads en la BD local
+    const allLocalLeads = await query<{ zoho_id: string }>(
+      `SELECT zoho_id FROM zoho_leads`
+    );
+    
+    // Crear un Set de IDs de Zoho para búsqueda rápida
+    const zohoIdsSet = new Set(zohoIds);
+    
+    // Encontrar los IDs que están en BD local pero no en Zoho
+    const leadsToDelete = allLocalLeads.rows
+      .map(row => row.zoho_id)
+      .filter(id => !zohoIdsSet.has(id));
+
+    if (leadsToDelete.length === 0) {
+      return 0;
+    }
+
+    // Eliminar en lotes para evitar problemas con muchos parámetros
+    const BATCH_SIZE = 1000;
+    let totalDeleted = 0;
+    for (let i = 0; i < leadsToDelete.length; i += BATCH_SIZE) {
+      const batch = leadsToDelete.slice(i, i + BATCH_SIZE);
+      const deletePlaceholders = batch.map((_, idx) => `$${idx + 1}`).join(',');
+
+      // Primero eliminar las notas relacionadas
+      await query(
+        `DELETE FROM zoho_notes 
+         WHERE parent_type = 'Leads' 
+         AND parent_id IN (${deletePlaceholders})`,
+        batch
+      );
+
+      // Luego eliminar los leads
+      await query(
+        `DELETE FROM zoho_leads 
+         WHERE zoho_id IN (${deletePlaceholders})`,
+        batch
+      );
+      
+      totalDeleted += batch.length;
+    }
+
+    console.log(`🗑️ Eliminados ${totalDeleted} leads que ya no existen en Zoho`);
+    return totalDeleted;
+  } catch (error) {
+    console.error('Error eliminando leads eliminados en Zoho:', error);
+    throw error;
+  }
+}
+
+/**
+ * Elimina deals que ya no existen en Zoho CRM
+ * @param zohoIds Array de IDs de deals que existen en Zoho
+ * @returns Número de deals eliminados
+ */
+export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<number> {
+  try {
+    if (zohoIds.length === 0) {
+      // Si no hay IDs en Zoho, eliminar todos los deals locales
+      const result = await query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM zoho_deals`
+      );
+      const totalDeals = parseInt(result.rows[0].count);
+      
+      if (totalDeals > 0) {
+        // Primero eliminar las notas relacionadas
+        await query(
+          `DELETE FROM zoho_notes 
+           WHERE parent_type = 'Deals' 
+           AND parent_id IN (SELECT zoho_id FROM zoho_deals)`
+        );
+        
+        // Luego eliminar los deals
+        await query(`DELETE FROM zoho_deals`);
+        console.log(`🗑️ Eliminados ${totalDeals} deals que ya no existen en Zoho`);
+        return totalDeals;
+      }
+      return 0;
+    }
+
+    // Obtener todos los IDs de deals en la BD local
+    const allLocalDeals = await query<{ zoho_id: string }>(
+      `SELECT zoho_id FROM zoho_deals`
+    );
+    
+    // Crear un Set de IDs de Zoho para búsqueda rápida
+    const zohoIdsSet = new Set(zohoIds);
+    
+    // Encontrar los IDs que están en BD local pero no en Zoho
+    const dealsToDelete = allLocalDeals.rows
+      .map(row => row.zoho_id)
+      .filter(id => !zohoIdsSet.has(id));
+
+    if (dealsToDelete.length === 0) {
+      return 0;
+    }
+
+    // Eliminar en lotes para evitar problemas con muchos parámetros
+    const BATCH_SIZE = 1000;
+    let totalDeleted = 0;
+    for (let i = 0; i < dealsToDelete.length; i += BATCH_SIZE) {
+      const batch = dealsToDelete.slice(i, i + BATCH_SIZE);
+      const deletePlaceholders = batch.map((_, idx) => `$${idx + 1}`).join(',');
+
+      // Primero eliminar las notas relacionadas
+      await query(
+        `DELETE FROM zoho_notes 
+         WHERE parent_type = 'Deals' 
+         AND parent_id IN (${deletePlaceholders})`,
+        batch
+      );
+
+      // Luego eliminar los deals
+      await query(
+        `DELETE FROM zoho_deals 
+         WHERE zoho_id IN (${deletePlaceholders})`,
+        batch
+      );
+      
+      totalDeleted += batch.length;
+    }
+
+    console.log(`🗑️ Eliminados ${totalDeleted} deals que ya no existen en Zoho`);
+    return totalDeleted;
+  } catch (error) {
+    console.error('Error eliminando deals eliminados en Zoho:', error);
     throw error;
   }
 }
@@ -2570,6 +2765,7 @@ export async function logZohoSync(
     recordsUpdated: number;
     recordsCreated: number;
     recordsFailed: number;
+    recordsDeleted?: number;
     errorMessage?: string;
     durationMs: number;
   }
@@ -2621,16 +2817,53 @@ export async function getZohoLeadsFromDB(
       paramIndex++;
     }
 
-    if (filters?.startDate) {
-      whereConditions.push(`created_time >= $${paramIndex}`);
-      params.push(filters.startDate);
-      paramIndex++;
-    }
-
-    if (filters?.endDate) {
-      whereConditions.push(`created_time <= $${paramIndex}`);
-      params.push(filters.endDate);
-      paramIndex++;
+    // Filtrar por fecha: usar created_time si existe, sino buscar en JSONB
+    if (filters?.startDate || filters?.endDate) {
+      const startDate = filters.startDate;
+      const endDate = filters.endDate;
+      
+      // Construir condición que busque en created_time O en JSONB (Creacion_de_Lead)
+      const dateConditions: string[] = [];
+      
+      if (startDate) {
+        // Usar COALESCE para buscar en created_time primero, luego en JSONB
+        dateConditions.push(`(
+          COALESCE(
+            created_time,
+            CASE 
+              WHEN data->>'Creacion_de_Lead' IS NOT NULL 
+              THEN (data->>'Creacion_de_Lead')::timestamptz
+              WHEN data->>'Created_Time' IS NOT NULL 
+              THEN (data->>'Created_Time')::timestamptz
+              ELSE NULL
+            END
+          ) >= $${paramIndex}
+        )`);
+        params.push(startDate);
+        paramIndex++;
+      }
+      
+      if (endDate) {
+        // Usar COALESCE para buscar en created_time primero, luego en JSONB
+        dateConditions.push(`(
+          COALESCE(
+            created_time,
+            CASE 
+              WHEN data->>'Creacion_de_Lead' IS NOT NULL 
+              THEN (data->>'Creacion_de_Lead')::timestamptz
+              WHEN data->>'Created_Time' IS NOT NULL 
+              THEN (data->>'Created_Time')::timestamptz
+              ELSE NULL
+            END
+          ) <= $${paramIndex}
+        )`);
+        params.push(endDate);
+        paramIndex++;
+      }
+      
+      if (dateConditions.length > 0) {
+        whereConditions.push(`(${dateConditions.join(' AND ')})`);
+      }
     }
 
     const whereClause = whereConditions.length > 0 
@@ -2646,28 +2879,58 @@ export async function getZohoLeadsFromDB(
 
     // Obtener leads paginados
     const offset = (page - 1) * perPage;
+    // paramIndex ya apunta al siguiente índice disponible, así que usamos paramIndex y paramIndex + 1
+    const limitParamIndex = paramIndex;
+    const offsetParamIndex = paramIndex + 1;
     params.push(perPage, offset);
     
     const result = await query<{
       data: string;
       id: string;
     }>(
-      `SELECT id, data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      `SELECT id, data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
       params
     );
 
-    const leads: ZohoLead[] = await Promise.all(result.rows.map(async (row) => {
-      const lead = JSON.parse(row.data);
-      // Obtener notas del lead
+    // Obtener todas las notas en una sola consulta batch (más eficiente)
+    const leadIds = result.rows.map(row => row.id);
+    const notesMap = new Map<string, any[]>();
+    
+    if (leadIds.length > 0) {
       try {
-        const notes = await getZohoNotesFromDB('Leads', row.id);
-        lead.Notes = notes;
-      } catch {
+        // Obtener todas las notas de los leads en una sola consulta
+        const placeholders = leadIds.map((_, i) => `$${i + 1}`).join(',');
+        const notesResult = await query<{
+          parent_id: string;
+          data: string;
+        }>(
+          `SELECT parent_id, data FROM zoho_notes 
+           WHERE parent_type = 'Leads' AND parent_id IN (${placeholders})
+           ORDER BY created_time DESC`,
+          leadIds
+        );
+        
+        // Agrupar notas por parent_id
+        notesResult.rows.forEach(row => {
+          if (!notesMap.has(row.parent_id)) {
+            notesMap.set(row.parent_id, []);
+          }
+          const note = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+          notesMap.get(row.parent_id)!.push(note);
+        });
+      } catch (error) {
         // Si falla, simplemente no incluir notas
-        lead.Notes = [];
+        console.warn('⚠️ Error obteniendo notas de leads:', error);
       }
+    }
+
+    const leads: ZohoLead[] = result.rows.map((row) => {
+      // PostgreSQL puede devolver JSONB como objeto o como cadena
+      const lead = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      // Asignar notas desde el mapa
+      lead.Notes = notesMap.get(row.id) || [];
       return lead;
-    }));
+    });
 
     return { leads, total };
   } catch (error) {
@@ -2697,21 +2960,63 @@ export async function getZohoDealsFromDB(
     let paramIndex = 1;
 
     if (filters?.desarrollo) {
-      whereConditions.push(`desarrollo = $${paramIndex}`);
+      // Buscar en la columna desarrollo O en el JSONB (tanto "Desarrollo" como "Desarollo")
+      // Nota: Zoho tiene un error de tipeo y usa "Desarollo" en lugar de "Desarrollo"
+      // Esto asegura que encontremos deals incluso si la columna está NULL o el campo tiene el nombre incorrecto
+      whereConditions.push(`(
+        COALESCE(
+          desarrollo,
+          data->>'Desarrollo',
+          data->>'Desarollo'
+        ) = $${paramIndex}
+      )`);
       params.push(filters.desarrollo);
       paramIndex++;
     }
 
-    if (filters?.startDate) {
-      whereConditions.push(`created_time >= $${paramIndex}`);
-      params.push(filters.startDate);
-      paramIndex++;
-    }
-
-    if (filters?.endDate) {
-      whereConditions.push(`created_time <= $${paramIndex}`);
-      params.push(filters.endDate);
-      paramIndex++;
+    // Filtrar por fecha: usar created_time si existe, sino buscar en JSONB
+    if (filters?.startDate || filters?.endDate) {
+      const startDate = filters.startDate;
+      const endDate = filters.endDate;
+      
+      // Construir condición que busque en created_time O en JSONB
+      const dateConditions: string[] = [];
+      
+      if (startDate) {
+        // Usar COALESCE para buscar en created_time primero, luego en JSONB
+        dateConditions.push(`(
+          COALESCE(
+            created_time,
+            CASE 
+              WHEN data->>'Created_Time' IS NOT NULL 
+              THEN (data->>'Created_Time')::timestamptz
+              ELSE NULL
+            END
+          ) >= $${paramIndex}
+        )`);
+        params.push(startDate);
+        paramIndex++;
+      }
+      
+      if (endDate) {
+        // Usar COALESCE para buscar en created_time primero, luego en JSONB
+        dateConditions.push(`(
+          COALESCE(
+            created_time,
+            CASE 
+              WHEN data->>'Created_Time' IS NOT NULL 
+              THEN (data->>'Created_Time')::timestamptz
+              ELSE NULL
+            END
+          ) <= $${paramIndex}
+        )`);
+        params.push(endDate);
+        paramIndex++;
+      }
+      
+      if (dateConditions.length > 0) {
+        whereConditions.push(`(${dateConditions.join(' AND ')})`);
+      }
     }
 
     const whereClause = whereConditions.length > 0 
@@ -2727,28 +3032,58 @@ export async function getZohoDealsFromDB(
 
     // Obtener deals paginados
     const offset = (page - 1) * perPage;
+    // paramIndex ya apunta al siguiente índice disponible, así que usamos paramIndex y paramIndex + 1
+    const limitParamIndex = paramIndex;
+    const offsetParamIndex = paramIndex + 1;
     params.push(perPage, offset);
     
     const result = await query<{
       data: string;
       id: string;
     }>(
-      `SELECT id, data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      `SELECT id, data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
       params
     );
 
-    const deals: ZohoDeal[] = await Promise.all(result.rows.map(async (row) => {
-      const deal = JSON.parse(row.data);
-      // Obtener notas del deal
+    // Obtener todas las notas en una sola consulta batch (más eficiente)
+    const dealIds = result.rows.map(row => row.id);
+    const notesMap = new Map<string, any[]>();
+    
+    if (dealIds.length > 0) {
       try {
-        const notes = await getZohoNotesFromDB('Deals', row.id);
-        deal.Notes = notes;
-      } catch {
+        // Obtener todas las notas de los deals en una sola consulta
+        const placeholders = dealIds.map((_, i) => `$${i + 1}`).join(',');
+        const notesResult = await query<{
+          parent_id: string;
+          data: string;
+        }>(
+          `SELECT parent_id, data FROM zoho_notes 
+           WHERE parent_type = 'Deals' AND parent_id IN (${placeholders})
+           ORDER BY created_time DESC`,
+          dealIds
+        );
+        
+        // Agrupar notas por parent_id
+        notesResult.rows.forEach(row => {
+          if (!notesMap.has(row.parent_id)) {
+            notesMap.set(row.parent_id, []);
+          }
+          const note = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+          notesMap.get(row.parent_id)!.push(note);
+        });
+      } catch (error) {
         // Si falla, simplemente no incluir notas
-        deal.Notes = [];
+        console.warn('⚠️ Error obteniendo notas de deals:', error);
       }
+    }
+
+    const deals: ZohoDeal[] = result.rows.map((row) => {
+      // PostgreSQL puede devolver JSONB como objeto o como cadena
+      const deal = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      // Asignar notas desde el mapa
+      deal.Notes = notesMap.get(row.id) || [];
       return deal;
-    }));
+    });
 
     return { deals, total };
   } catch (error) {

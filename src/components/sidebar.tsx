@@ -58,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
     // Disponible para todos los usuarios
   },
   { 
-    title: 'ZOHO CRM (En Desarrollo)', 
+    title: 'ZOHO CRM', 
     href: '/dashboard/zoho', 
     icon: Building2,
     allowedRoles: ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
@@ -152,7 +152,7 @@ export function Sidebar() {
 
       <aside 
         className={cn(
-          'fixed left-0 top-0 h-screen capital-gradient text-white transition-all duration-300 ease-in-out z-40',
+          'fixed left-0 top-0 h-screen bg-[#153356] text-white transition-all duration-300 ease-in-out z-40',
           // En móviles: overlay que se desliza desde la izquierda
           // En desktop: sidebar fijo
           'md:fixed md:z-20',
@@ -163,11 +163,11 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div className={cn(
-          'flex h-16 items-center border-b border-white/10 px-6 min-w-[256px] transition-opacity duration-300',
+          'flex h-16 items-center border-b border-[#1e3d5c] px-6 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
-          <h1 className="text-xl font-bold">
-            Capital Plus <span className="gold-accent">AI</span>
+          <h1 className="text-xl font-bold font-heading">
+            Capital <span className="text-[#fdc23e] text-xl">Plus</span>
           </h1>
           {/* Botón para plegar sidebar */}
           <button
@@ -199,14 +199,14 @@ export function Sidebar() {
                   }
                 }}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
+                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors text-white',
                   isActive
-                    ? 'bg-capital-gold text-capital-navy'
-                    : 'hover:bg-white/10'
+                    ? 'bg-[#fdc23e] text-[#153356]'
+                    : 'hover:bg-[#1e3d5c] text-white'
                 )}
               >
-                <Icon className="h-5 w-5 flex-shrink-0" />
-                <span className="truncate">{item.title}</span>
+                <Icon className="h-5 w-5 flex-shrink-0 text-white" />
+                <span className="truncate text-white">{item.title}</span>
               </Link>
             );
           })}
@@ -214,7 +214,7 @@ export function Sidebar() {
 
         {/* Footer */}
         <div className={cn(
-          'border-t border-white/10 p-4 min-w-[256px] transition-opacity duration-300',
+          'border-t border-[#1e3d5c] p-4 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
           <p className="text-xs text-white/60">© 2026 Capital Plus</p>
@@ -225,7 +225,7 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="hidden md:flex fixed left-0 top-20 z-20 h-10 w-10 rounded-r-md bg-capital-navy text-white shadow-lg hover:bg-capital-navy/90 transition-all duration-300 items-center justify-center"
+          className="hidden md:flex fixed left-0 top-20 z-20 h-10 w-10 rounded-r-md bg-[#153356] text-[#fdc23e] shadow-lg hover:bg-[#1e3d5c] transition-all duration-300 items-center justify-center border border-[#1e3d5c]"
           aria-label="Mostrar sidebar"
         >
           <ChevronRight className="h-5 w-5" />

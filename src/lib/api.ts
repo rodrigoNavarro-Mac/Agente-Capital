@@ -615,19 +615,6 @@ export interface ZohoDeal {
   [key: string]: any;
 }
 
-export interface ZohoPipelineStage {
-  id: string;
-  name: string;
-  display_order: number;
-  probability: number;
-}
-
-export interface ZohoPipeline {
-  id: string;
-  name: string;
-  stages: ZohoPipelineStage[];
-}
-
 export interface ZohoLeadsResponse {
   data: ZohoLead[];
   info?: {
@@ -646,10 +633,6 @@ export interface ZohoDealsResponse {
     per_page?: number;
     more_records?: boolean;
   };
-}
-
-export interface ZohoPipelinesResponse {
-  data: ZohoPipeline[];
 }
 
 export interface ZohoStats {
@@ -676,6 +659,37 @@ export interface ZohoStats {
   // Motivos de descarte
   leadsDiscardReasons?: Record<string, number>; // Motivos de descarte de leads
   dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
+  // Nuevos KPIs
+  conversionRate?: number; // % Conversión (Deals / Leads)
+  averageTimeToFirstContact?: number; // Tiempo promedio a primer contacto (minutos)
+  leadsOutsideBusinessHours?: number; // Cantidad de leads fuera de horario laboral
+  leadsOutsideBusinessHoursPercentage?: number; // % Leads fuera de horario laboral
+  discardedLeads?: number; // Cantidad de leads descartados
+  discardedLeadsPercentage?: number; // % Leads descartados
+  // Estadísticas por fuente
+  leadsBySource?: Record<string, number>;
+  dealsBySource?: Record<string, number>;
+  conversionBySource?: Record<string, number>; // % conversión por fuente
+  // Estadísticas por asesor
+  leadsByOwner?: Record<string, number>;
+  dealsByOwner?: Record<string, number>;
+  averageTimeToFirstContactByOwner?: Record<string, number>; // Tiempo promedio a primer contacto por asesor (minutos)
+  // Calidad de leads
+  qualityLeads?: number; // Leads de calidad (contactados exitosamente con solicitud de cotización o visita)
+  qualityLeadsPercentage?: number; // % Leads de calidad
+  // Dependencia de canal
+  channelConcentration?: Record<string, number>; // % concentración por canal
+  // Evolución temporal (agrupada por semana/mes)
+  leadsByWeek?: Record<string, number>;
+  dealsByWeek?: Record<string, number>;
+  leadsByMonth?: Record<string, number>;
+  dealsByMonth?: Record<string, number>;
+  conversionByDate?: Record<string, number>; // Conversión en el tiempo
+  // Tiempos de contacto
+  firstContactTimes?: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }>; // Tiempos de primer contacto
+  // Actividades
+  activitiesByType?: Record<string, number>; // Actividades por tipo (Call, Task)
+  activitiesByOwner?: Record<string, number>; // Actividades por asesor
 }
 
 export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {
@@ -698,21 +712,6 @@ export async function getZohoDeals(page: number = 1, perPage: number = 200): Pro
   
   const response = await fetcher<{ success: boolean; data: ZohoDealsResponse }>(
     `/api/zoho/deals?page=${page}&per_page=${perPage}`,
-    {
-      headers: token ? {
-        'Authorization': `Bearer ${token}`,
-      } : undefined,
-    }
-  );
-  
-  return response.data;
-}
-
-export async function getZohoPipelines(): Promise<ZohoPipelinesResponse> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
-  const response = await fetcher<{ success: boolean; data: ZohoPipelinesResponse }>(
-    '/api/zoho/pipelines',
     {
       headers: token ? {
         'Authorization': `Bearer ${token}`,

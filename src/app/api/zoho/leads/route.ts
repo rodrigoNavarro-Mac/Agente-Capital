@@ -106,26 +106,24 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     
     if (forceSync || !useLocal) {
       // Forzar sincronización desde Zoho
+      console.log(`🔄 Forzando sincronización desde Zoho (forceSync: ${forceSync}, useLocal: ${useLocal})`);
       leadsResponse = await getZohoLeads(page, perPage);
     } else {
-      // Intentar obtener desde BD local primero
+      // SIEMPRE usar BD local cuando useLocal es true
       try {
+        console.log(`📊 Intentando obtener leads desde BD local (page: ${page}, perPage: ${perPage})`);
         const localData = await getZohoLeadsFromDB(page, perPage);
-        if (localData.leads.length > 0) {
-          // Convertir a formato de respuesta de Zoho
-          leadsResponse = {
-            data: localData.leads,
-            info: {
-              count: localData.total,
-              page,
-              per_page: perPage,
-              more_records: (page * perPage) < localData.total,
-            },
-          };
-        } else {
-          // Si no hay datos locales, obtener desde Zoho
-          leadsResponse = await getZohoLeads(page, perPage);
-        }
+        // Usar datos de BD local incluso si está vacío (retornar array vacío)
+        leadsResponse = {
+          data: localData.leads,
+          info: {
+            count: localData.total,
+            page,
+            per_page: perPage,
+            more_records: (page * perPage) < localData.total,
+          },
+        };
+        console.log(`✅ Leads obtenidos de BD local: ${localData.leads.length} leads, total: ${localData.total}`);
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho como fallback
         console.warn('⚠️ Error obteniendo leads desde BD local, usando Zoho:', error);

@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllZohoLeads, getAllZohoDeals } from '@/lib/zoho-crm';
-import { syncZohoLead, syncZohoDeal, logZohoSync } from '@/lib/postgres';
+import { syncZohoLead, syncZohoDeal, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let recordsUpdated = 0;
   let recordsCreated = 0;
   let recordsFailed = 0;
+  let recordsDeleted = 0;
   let errorMessage: string | undefined;
 
   try {
@@ -57,10 +58,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.log(`🔄 [ZohoSyncCron] Iniciando sincronización automática: ${syncType}`);
 
     // 3. Sincronizar datos
+    let zohoLeadIds: string[] = [];
+    let zohoDealIds: string[] = [];
+    
     if (syncType === 'leads' || syncType === 'full') {
       try {
         console.log('🔄 [ZohoSyncCron] Sincronizando leads...');
         const leads = await getAllZohoLeads();
+        zohoLeadIds = leads.map(lead => lead.id);
         
         for (const lead of leads) {
           try {
@@ -77,6 +82,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
         console.log(`✅ [ZohoSyncCron] Sincronizados ${recordsSynced} leads`);
+        
+        // Eliminar leads que ya no existen en Zoho
+        try {
+          console.log('🗑️ [ZohoSyncCron] Verificando leads eliminados en Zoho...');
+          const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
+          recordsDeleted += deletedCount;
+          if (deletedCount > 0) {
+            console.log(`✅ [ZohoSyncCron] Eliminados ${deletedCount} leads que ya no existen en Zoho`);
+          }
+        } catch (deleteError) {
+          console.warn('⚠️ [ZohoSyncCron] Error eliminando leads eliminados en Zoho:', deleteError);
+        }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
         console.error('❌ [ZohoSyncCron]', errorMessage);
@@ -87,6 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       try {
         console.log('🔄 [ZohoSyncCron] Sincronizando deals...');
         const deals = await getAllZohoDeals();
+        zohoDealIds = deals.map(deal => deal.id);
         
         for (const deal of deals) {
           try {
@@ -103,6 +121,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
         console.log(`✅ [ZohoSyncCron] Sincronizados ${recordsSynced} deals`);
+        
+        // Eliminar deals que ya no existen en Zoho
+        try {
+          console.log('🗑️ [ZohoSyncCron] Verificando deals eliminados en Zoho...');
+          const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
+          recordsDeleted += deletedCount;
+          if (deletedCount > 0) {
+            console.log(`✅ [ZohoSyncCron] Eliminados ${deletedCount} deals que ya no existen en Zoho`);
+          }
+        } catch (deleteError) {
+          console.warn('⚠️ [ZohoSyncCron] Error eliminando deals eliminados en Zoho:', deleteError);
+        }
       } catch (error) {
         errorMessage = errorMessage 
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
@@ -120,11 +150,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       recordsUpdated,
       recordsCreated,
       recordsFailed,
+      recordsDeleted,
       errorMessage,
       durationMs,
     });
 
-    console.log(`✅ [ZohoSyncCron] Sincronización completada: ${status} (${recordsSynced} registros en ${durationMs}ms)`);
+    console.log(`✅ [ZohoSyncCron] Sincronización completada: ${status} (${recordsSynced} registros sincronizados, ${recordsDeleted} eliminados en ${durationMs}ms)`);
 
     return NextResponse.json({
       success: true,
@@ -134,6 +165,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       recordsUpdated,
       recordsCreated,
       recordsFailed,
+      recordsDeleted,
       durationMs,
       errorMessage,
     });
@@ -147,6 +179,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       recordsUpdated,
       recordsCreated,
       recordsFailed,
+      recordsDeleted,
       errorMessage: errorMsg,
       durationMs,
     });
