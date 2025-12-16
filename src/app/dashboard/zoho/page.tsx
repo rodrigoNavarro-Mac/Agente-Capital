@@ -19,6 +19,7 @@ import {
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { getDevelopmentColors, getChartColor } from '@/lib/development-colors';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -122,6 +123,11 @@ export default function ZohoCRMPage() {
     });
     return Array.from(statuses).sort();
   }, [leads, deals]);
+
+  // Obtener colores personalizados según el desarrollo seleccionado
+  const colors = useMemo(() => {
+    return getDevelopmentColors(selectedDesarrollo);
+  }, [selectedDesarrollo]);
 
   // Calcular fechas según el periodo seleccionado
   const getPeriodDates = useCallback((period: 'month' | 'quarter' | 'year', isLastPeriod: boolean = false) => {
@@ -1521,12 +1527,11 @@ export default function ZohoCRMPage() {
                           labelFormatter={(label, payload) => payload?.[0]?.payload?.estadoCompleto || label}
                         />
                         <Legend />
-                        <Bar dataKey="cantidad" fill="#8884d8" name="Leads">
+                        <Bar dataKey="cantidad" fill={colors.primary} name="Leads">
                           {Object.entries(stats.leadsFunnel)
                             .sort(([, a], [, b]) => b - a)
                             .map((entry, index) => {
-                              const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-                              return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                              return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                         </Bar>
                       </BarChart>
@@ -1562,7 +1567,7 @@ export default function ZohoCRMPage() {
                           <Line 
                             type="monotone" 
                             dataKey="leads" 
-                            stroke="#8884d8" 
+                            stroke={colors.primary} 
                             name="Leads"
                             strokeWidth={2}
                           />
@@ -1592,7 +1597,7 @@ export default function ZohoCRMPage() {
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          <Line type="monotone" dataKey="deals" stroke="#82ca9d" name="Deals" strokeWidth={2} />
+                          <Line type="monotone" dataKey="deals" stroke={colors.secondary} name="Deals" strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -1616,7 +1621,7 @@ export default function ZohoCRMPage() {
                           <YAxis />
                           <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
                           <Legend />
-                          <Line type="monotone" dataKey="conversion" stroke="#ffc658" name="% Conversión" strokeWidth={2} />
+                          <Line type="monotone" dataKey="conversion" stroke={colors.accent} name="% Conversión" strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -1647,14 +1652,13 @@ export default function ZohoCRMPage() {
                             labelLine={false}
                             label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
                             outerRadius={80}
-                            fill="#8884d8"
+                            fill={colors.primary}
                             dataKey="value"
                           >
                             {Object.entries(stats.leadsBySource)
                               .filter(([_source, count]) => count > 0) // Filtrar fuentes con valor 0 para los colores
                               .map((entry, index) => {
-                                const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-                                return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                                return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                               })}
                           </Pie>
                           <Tooltip />
@@ -1717,7 +1721,7 @@ export default function ZohoCRMPage() {
                           <YAxis />
                           <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
                           <Legend />
-                          <Bar dataKey="conversion" fill="#82ca9d" name="% Conversión" />
+                          <Bar dataKey="conversion" fill={colors.secondary} name="% Conversión" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -1742,10 +1746,11 @@ export default function ZohoCRMPage() {
                               </div>
                               <div className="w-full bg-muted rounded-full h-2">
                                 <div
-                                  className={`h-2 rounded-full ${
-                                    percentage > 50 ? 'bg-red-500' : percentage > 30 ? 'bg-yellow-500' : 'bg-green-500'
-                                  }`}
-                                  style={{ width: `${percentage}%` }}
+                                  className="h-2 rounded-full"
+                                  style={{ 
+                                    width: `${percentage}%`,
+                                    backgroundColor: percentage > 50 ? colors.danger : percentage > 30 ? colors.warning : colors.success
+                                  }}
                                 />
                               </div>
                             </div>
@@ -1832,10 +1837,10 @@ export default function ZohoCRMPage() {
                         <YAxis label={{ value: 'Minutos', angle: -90, position: 'insideLeft' }} />
                         <Tooltip formatter={(value: number) => [`${value} min`, 'Tiempo promedio']} />
                         <Legend />
-                        <Bar dataKey="tiempo" fill="#82ca9d" name="Tiempo (min)">
+                        <Bar dataKey="tiempo" fill={colors.secondary} name="Tiempo (min)">
                           {Object.entries(stats.averageTimeToFirstContactByOwner).map((entry, index) => {
                             const time = entry[1];
-                            const color = time <= 30 ? '#82ca9d' : time <= 60 ? '#ffc658' : '#ff7300';
+                            const color = time <= 30 ? colors.success : time <= 60 ? colors.warning : colors.danger;
                             return <Cell key={`cell-${index}`} fill={color} />;
                           })}
                         </Bar>
@@ -1843,15 +1848,15 @@ export default function ZohoCRMPage() {
                     </ResponsiveContainer>
                     <div className="mt-4 flex items-center gap-4 text-sm">
                       <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-green-500 rounded"></div>
+                        <div className="w-4 h-4 rounded" style={{ backgroundColor: colors.success }}></div>
                         <span>≤ 30 min (Meta)</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                        <div className="w-4 h-4 rounded" style={{ backgroundColor: colors.warning }}></div>
                         <span>31-60 min</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-red-500 rounded"></div>
+                        <div className="w-4 h-4 rounded" style={{ backgroundColor: colors.danger }}></div>
                         <span>&gt; 60 min</span>
                       </div>
                     </div>
@@ -1893,7 +1898,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Line type="monotone" dataKey="leads" stroke="#8884d8" name="Leads" />
+                            <Line type="monotone" dataKey="leads" stroke={colors.primary} name="Leads" />
                           </LineChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1918,7 +1923,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Line type="monotone" dataKey="deals" stroke="#82ca9d" name="Deals" />
+                            <Line type="monotone" dataKey="deals" stroke={colors.secondary} name="Deals" />
                           </LineChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1943,7 +1948,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip formatter={(value: number) => formatCurrency(value)} />
                             <Legend />
-                            <Bar dataKey="valor" fill="#8884d8" name="Valor (MXN)" />
+                            <Bar dataKey="valor" fill={colors.primary} name="Valor (MXN)" />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1968,7 +1973,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Bar dataKey="leads" fill="#8884d8" name="Leads" />
+                            <Bar dataKey="leads" fill={colors.primary} name="Leads" />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1993,7 +1998,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Bar dataKey="deals" fill="#82ca9d" name="Deals" />
+                            <Bar dataKey="deals" fill={colors.secondary} name="Deals" />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -2018,7 +2023,7 @@ export default function ZohoCRMPage() {
                             <YAxis />
                             <Tooltip formatter={(value: number) => formatCurrency(value)} />
                             <Legend />
-                            <Bar dataKey="valor" fill="#ffc658" name="Valor (MXN)" />
+                            <Bar dataKey="valor" fill={colors.accent} name="Valor (MXN)" />
                           </BarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -2139,10 +2144,9 @@ export default function ZohoCRMPage() {
                             }}
                           />
                           <Legend />
-                          <Bar dataKey="cantidad" fill="#8884d8" name="Leads">
+                          <Bar dataKey="cantidad" fill={colors.primary} name="Leads">
                             {Object.entries(stats.leadsFunnel).map((entry, index) => {
-                              const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-                              return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                              return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
                         </BarChart>
@@ -2169,7 +2173,7 @@ export default function ZohoCRMPage() {
                           <YAxis label={{ value: 'Días', angle: -90, position: 'insideLeft' }} />
                           <Tooltip formatter={(value: number) => [`${value} días`, 'Tiempo promedio']} />
                           <Legend />
-                          <Bar dataKey="dias" fill="#82ca9d" name="Días promedio" />
+                          <Bar dataKey="dias" fill={colors.secondary} name="Días promedio" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -2196,7 +2200,7 @@ export default function ZohoCRMPage() {
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          <Bar dataKey="cantidad" fill="#ff7300" name="Cantidad" />
+                          <Bar dataKey="cantidad" fill={colors.danger} name="Cantidad" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -2293,7 +2297,7 @@ export default function ZohoCRMPage() {
                               <YAxis />
                               <Tooltip />
                               <Legend />
-                              <Bar dataKey="cantidad" fill="#8884d8" name="Deals" />
+                              <Bar dataKey="cantidad" fill={colors.primary} name="Deals" />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -2310,7 +2314,7 @@ export default function ZohoCRMPage() {
                                 <YAxis />
                                 <Tooltip formatter={(value: number) => formatCurrency(value)} />
                                 <Legend />
-                                <Bar dataKey="valor" fill="#82ca9d" name="Valor (MXN)" />
+                                <Bar dataKey="valor" fill={colors.secondary} name="Valor (MXN)" />
                               </BarChart>
                             </ResponsiveContainer>
                           </div>
@@ -2349,10 +2353,9 @@ export default function ZohoCRMPage() {
                             }}
                           />
                           <Legend />
-                          <Bar dataKey="cantidad" fill="#82ca9d" name="Deals">
+                          <Bar dataKey="cantidad" fill={colors.secondary} name="Deals">
                             {Object.entries(stats.dealsFunnel).map((entry, index) => {
-                              const colors = ['#82ca9d', '#8884d8', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
-                              return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                              return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
                         </BarChart>
@@ -2379,7 +2382,7 @@ export default function ZohoCRMPage() {
                           <YAxis label={{ value: 'Días', angle: -90, position: 'insideLeft' }} />
                           <Tooltip formatter={(value: number) => [`${value} días`, 'Tiempo promedio']} />
                           <Legend />
-                          <Bar dataKey="dias" fill="#ffc658" name="Días promedio" />
+                          <Bar dataKey="dias" fill={colors.accent} name="Días promedio" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -2406,7 +2409,7 @@ export default function ZohoCRMPage() {
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          <Bar dataKey="cantidad" fill="#ff7300" name="Cantidad" />
+                          <Bar dataKey="cantidad" fill={colors.danger} name="Cantidad" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
