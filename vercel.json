@@ -1,12 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/process-feedback-learning",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/sync-zoho",
-      "schedule": "0 */6 * * *"
+      "path": "/api/cron",
+      "schedule": "0 6 * * *"
     }
   ]
 }
