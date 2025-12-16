@@ -653,9 +653,11 @@ export interface ZohoStats {
   // Análisis de embudos
   leadsFunnel?: Record<string, number>; // Embudo de leads por estado
   dealsFunnel?: Record<string, number>; // Embudo de deals por etapa
-  // Tiempos en fases
-  averageTimeInPhaseLeads?: Record<string, number>; // Tiempo promedio en días por estado
-  averageTimeInPhaseDeals?: Record<string, number>; // Tiempo promedio en días por etapa
+  lifecycleFunnel?: { // Embudo del ciclo de vida
+    leads: number; // Total de leads
+    dealsWithAppointment: number; // Deals que agendaron cita (deals activos)
+    closedWon: number; // Deals cerrados ganados
+  };
   // Motivos de descarte
   leadsDiscardReasons?: Record<string, number>; // Motivos de descarte de leads
   dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
@@ -690,6 +692,75 @@ export interface ZohoStats {
   // Actividades
   activitiesByType?: Record<string, number>; // Actividades por tipo (Call, Task)
   activitiesByOwner?: Record<string, number>; // Actividades por asesor
+}
+
+// =====================================================
+// ZOHO NOTES AI INSIGHTS
+// =====================================================
+
+export type ZohoNoteSource = 'lead' | 'deal';
+
+export interface ZohoNoteForAI {
+  source: ZohoNoteSource;
+  createdTime?: string;
+  desarrollo?: string;
+  owner?: string;
+  statusOrStage?: string;
+  text: string;
+}
+
+export interface ZohoNotesInsightsRequest {
+  notes: ZohoNoteForAI[];
+  context?: {
+    period?: 'month' | 'quarter' | 'year';
+    startDate?: string;
+    endDate?: string;
+    desarrollo?: string;
+    source?: string;
+    owner?: string;
+    status?: string;
+  };
+}
+
+export interface ZohoNotesInsightsResponse {
+  summary: string;
+  topThemes: Array<{ label: string; count: number; examples: string[] }>;
+  topObjections: Array<{ label: string; count: number; examples: string[] }>;
+  nextActions: Array<{ label: string; count: number; examples: string[] }>;
+  frictionSignals: Array<{ label: string; count: number; examples: string[] }>;
+  sentiment: { positive: number; neutral: number; negative: number };
+  metrics: {
+    noAnswerOrNoContact: number;
+    priceOrBudget: number;
+    financingOrCredit: number;
+    locationOrArea: number;
+    timingOrUrgency: number;
+  };
+}
+
+export async function getZohoNotesInsightsAI(
+  body: ZohoNotesInsightsRequest
+): Promise<ZohoNotesInsightsResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  const response = await fetcher<{ success: boolean; data: ZohoNotesInsightsResponse; error?: string }>(
+    '/api/zoho/notes-insights',
+    {
+      method: 'POST',
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : undefined,
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.success) {
+    throw new Error(response.error || 'Error generando insights con IA');
+  }
+
+  return response.data;
 }
 
 export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {

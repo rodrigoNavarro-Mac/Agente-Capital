@@ -118,9 +118,11 @@ export interface ZohoStats {
   // Análisis de embudos
   leadsFunnel?: Record<string, number>; // Embudo de leads por estado
   dealsFunnel?: Record<string, number>; // Embudo de deals por etapa
-  // Tiempos en fases
-  averageTimeInPhaseLeads?: Record<string, number>; // Tiempo promedio en días por estado
-  averageTimeInPhaseDeals?: Record<string, number>; // Tiempo promedio en días por etapa
+  lifecycleFunnel?: { // Embudo del ciclo de vida
+    leads: number; // Total de leads
+    dealsWithAppointment: number; // Deals que agendaron cita (deals activos)
+    closedWon: number; // Deals cerrados ganados
+  };
   // Motivos de descarte
   leadsDiscardReasons?: Record<string, number>; // Motivos de descarte de leads
   dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
@@ -989,70 +991,6 @@ export async function getZohoStats(filters?: {
         dealsFunnel[stage] = count;
       });
 
-    // Calcular tiempos promedio en fases
-    const averageTimeInPhaseLeads: Record<string, { total: number; count: number }> = {};
-    filteredLeads.forEach(lead => {
-      const status = lead.Lead_Status || 'Sin Estado';
-      let timeInPhase = 0;
-
-      // Si tiene Tiempo_En_Fase, usarlo directamente
-      if (lead.Tiempo_En_Fase) {
-        timeInPhase = lead.Tiempo_En_Fase;
-      } else {
-        // Usar Creacion_de_Lead si existe, sino Created_Time
-        const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
-        if (createdTime && lead.Modified_Time) {
-          // Calcular tiempo entre creación y modificación
-          const created = new Date(createdTime);
-          const modified = new Date(lead.Modified_Time);
-          timeInPhase = Math.floor((modified.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)); // días
-        }
-      }
-
-      if (!averageTimeInPhaseLeads[status]) {
-        averageTimeInPhaseLeads[status] = { total: 0, count: 0 };
-      }
-      if (timeInPhase > 0) {
-        averageTimeInPhaseLeads[status].total += timeInPhase;
-        averageTimeInPhaseLeads[status].count += 1;
-      }
-    });
-
-    const averageTimeInPhaseDeals: Record<string, { total: number; count: number }> = {};
-    filteredDeals.forEach(deal => {
-      const stage = deal.Stage || 'Sin Etapa';
-      let timeInPhase = 0;
-
-      // Si tiene Tiempo_En_Fase, usarlo directamente
-      if (deal.Tiempo_En_Fase) {
-        timeInPhase = deal.Tiempo_En_Fase;
-      } else if (deal.Created_Time && deal.Modified_Time) {
-        // Calcular tiempo entre creación y modificación
-        const created = new Date(deal.Created_Time);
-        const modified = new Date(deal.Modified_Time);
-        timeInPhase = Math.floor((modified.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)); // días
-      }
-
-      if (!averageTimeInPhaseDeals[stage]) {
-        averageTimeInPhaseDeals[stage] = { total: 0, count: 0 };
-      }
-      if (timeInPhase > 0) {
-        averageTimeInPhaseDeals[stage].total += timeInPhase;
-        averageTimeInPhaseDeals[stage].count += 1;
-      }
-    });
-
-    // Convertir a promedios
-    const avgTimeLeads: Record<string, number> = {};
-    Object.entries(averageTimeInPhaseLeads).forEach(([status, data]) => {
-      avgTimeLeads[status] = data.count > 0 ? Math.round((data.total / data.count) * 10) / 10 : 0;
-    });
-
-    const avgTimeDeals: Record<string, number> = {};
-    Object.entries(averageTimeInPhaseDeals).forEach(([stage, data]) => {
-      avgTimeDeals[stage] = data.count > 0 ? Math.round((data.total / data.count) * 10) / 10 : 0;
-    });
-
     // Motivos de descarte
     // Usar Raz_n_de_descarte si existe, sino Motivo_Descarte
     const leadsDiscardReasons: Record<string, number> = {};
@@ -1398,6 +1336,35 @@ export async function getZohoStats(filters?: {
         : 0;
     });
 
+    // Embudo del ciclo de vida
+    // 1. Leads: total de leads filtrados
+    const totalLeadsCount = filteredLeads.length;
+    
+    // 2. Deals (Agendó cita): deals activos (que no están en "Ganado" o "Perdido")
+    const closedStages = ['Ganado', 'Won', 'Cerrado Ganado', 'Perdido', 'Lost', 'Cerrado Perdido'];
+    const dealsWithAppointment = filteredDeals.filter(deal => {
+      const stage = deal.Stage || '';
+      // Deals que no están cerrados (ni ganados ni perdidos)
+      return !closedStages.some(closedStage => 
+        stage.toLowerCase().includes(closedStage.toLowerCase())
+      );
+    }).length;
+    
+    // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
+    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
+    const closedWon = filteredDeals.filter(deal => {
+      const stage = deal.Stage || '';
+      return wonStages.some(wonStage => 
+        stage.toLowerCase().includes(wonStage.toLowerCase())
+      );
+    }).length;
+
+    const lifecycleFunnel = {
+      leads: totalLeadsCount,
+      dealsWithAppointment: dealsWithAppointment,
+      closedWon: closedWon,
+    };
+
     // 9. Actividades
     const activitiesByType: Record<string, number> = {};
     const activitiesByOwner: Record<string, number> = {};
@@ -1430,8 +1397,6 @@ export async function getZohoStats(filters?: {
       dealValueByDate,
       leadsFunnel,
       dealsFunnel,
-      averageTimeInPhaseLeads: avgTimeLeads,
-      averageTimeInPhaseDeals: avgTimeDeals,
       leadsDiscardReasons,
       dealsDiscardReasons,
       // Nuevos KPIs
@@ -1455,6 +1420,7 @@ export async function getZohoStats(filters?: {
       leadsByMonth,
       dealsByMonth,
       conversionByDate,
+      lifecycleFunnel,
       firstContactTimes,
       activitiesByType,
       activitiesByOwner,

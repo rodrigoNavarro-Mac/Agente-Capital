@@ -11,10 +11,14 @@ import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database,
 import { 
   getZohoLeads, 
   getZohoDeals, 
+  getZohoStats,
+  getZohoNotesInsightsAI,
   triggerZohoSync,
   type ZohoLead,
   type ZohoDeal,
-  type ZohoStats
+  type ZohoStats,
+  type ZohoNoteForAI,
+  type ZohoNotesInsightsResponse
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
@@ -30,6 +34,12 @@ export default function ZohoCRMPage() {
   // Datos
   const [stats, setStats] = useState<ZohoStats | null>(null);
   const [lastMonthStats, setLastMonthStats] = useState<ZohoStats | null>(null);
+  // Stats desde backend (incluye Activities/Calls). Lo usamos para KPIs que no podemos calcular solo con leads/deals.
+  const [activityStats, setActivityStats] = useState<ZohoStats | null>(null);
+  const [activityStatsLoading, setActivityStatsLoading] = useState(false);
+  // Insights con IA (on-demand)
+  const [aiNotesInsights, setAiNotesInsights] = useState<ZohoNotesInsightsResponse | null>(null);
+  const [aiNotesInsightsLoading, setAiNotesInsightsLoading] = useState(false);
   const [leads, setLeads] = useState<ZohoLead[]>([]);
   const [deals, setDeals] = useState<ZohoDeal[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +177,323 @@ export default function ZohoCRMPage() {
 
     return { startDate, endDate };
   }, []);
+
+  // Si cambian filtros, invalidamos el resultado de IA (evita mostrar insights de otro periodo)
+  useEffect(() => {
+    setAiNotesInsights(null);
+  }, [selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, selectedPeriod, showLastMonth]);
+
+  // =====================================================
+  // BACKEND STATS (ACTIVITIES/CALLS)
+  // =====================================================
+  // Nota: el endpoint `/api/zoho/stats` incluye Activities (Call/Task).
+  // Lo pedimos con filtros de periodo + desarrollo para poder mostrar "cantidad de llamadas".
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActivityStats = async () => {
+      try {
+        // Solo pedir cuando estamos en la pestaña de stats para no cargar de más.
+        if (activeTab !== 'stats') return;
+
+        const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+
+        setActivityStatsLoading(true);
+        const data = await getZohoStats({
+          desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+          startDate,
+          endDate,
+        });
+        if (!cancelled) setActivityStats(data);
+      } catch (e) {
+        // No mostramos toast para evitar "spam" cuando se cambian filtros.
+        console.warn('⚠️ No se pudo cargar activityStats:', e);
+        if (!cancelled) setActivityStats(null);
+      } finally {
+        if (!cancelled) setActivityStatsLoading(false);
+      }
+    };
+
+    loadActivityStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, getPeriodDates, selectedDesarrollo, selectedPeriod, showLastMonth]);
+
+  // =====================================================
+  // INSIGHTS DE NOTAS (TOP PALABRAS + TENDENCIA)
+  // =====================================================
+  const notesInsights = useMemo(() => {
+    // Small helpers (kept inside useMemo to avoid extra re-renders)
+    const normalizeText = (input: string) => {
+      // English code + comments:
+      // - Lowercase
+      // - Remove accents
+      // - Replace non-letters/numbers with space
+      return input
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const stripNoise = (input: string) => {
+      // English code + comments:
+      // Remove common "noise" patterns that shouldn't influence insights:
+      // - URLs (including Aircall recording links)
+      // - Typical Aircall recording template text
+      // - Extra whitespace
+      return input
+        .replace(/find\s+recording\s+here\s*:?\s*https?:\/\/\S+/gi, ' ')
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/aircall/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Minimal Spanish stopwords list (extend as needed)
+    const STOPWORDS = new Set([
+      'de','la','que','el','en','y','a','los','del','se','las','por','un','para','con','no','una','su','al','lo',
+      'como','mas','pero','sus','le','ya','o','este','si','porque','esta','son','entre','cuando','muy','sin','sobre',
+      'tambien','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra',
+      'otros','ese','eso','ante','ellos','e','esto','mi','mis','tu','tus','te','usted','ustedes','hoy','ayer','manana',
+      'cliente','clientes','lead','leads','deal','deals','cita','visita','whatsapp','mensaje','llamada','llamadas',
+      'contacto','contactar','info','informacion','datos','telefono','correo','email','nombre','precio','mxn','peso','pesos',
+      // English/common templates
+      'find','recording','here','call','calls','assets',
+    ]);
+
+    const tokenize = (input: string) => {
+      const normalized = normalizeText(input);
+      if (!normalized) return [];
+      return normalized
+        .split(' ')
+        .filter(w => w.length >= 3) // ignore very short tokens
+        .filter(w => !STOPWORDS.has(w))
+        .filter(w => !/^\d+$/.test(w)); // ignore numbers only
+    };
+
+    const getNoteText = (note: any) => {
+      const title = typeof note?.Note_Title === 'string' ? note.Note_Title : '';
+      const content = typeof note?.Note_Content === 'string' ? note.Note_Content : '';
+      return stripNoise(`${title} ${content}`.trim());
+    };
+
+    const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+
+    const filteredLeads = leads.filter((lead) => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (!createdTime) return false;
+      const leadDate = new Date(createdTime);
+      if (leadDate < startDate || leadDate > endDate) return false;
+
+      if (selectedDesarrollo !== 'all') {
+        const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
+        if (leadDesarrollo !== selectedDesarrollo) return false;
+      }
+      if (selectedSource !== 'all' && lead.Lead_Source !== selectedSource) return false;
+      if (selectedOwner !== 'all' && lead.Owner?.name !== selectedOwner) return false;
+      if (selectedStatus !== 'all' && lead.Lead_Status !== selectedStatus) return false;
+      return true;
+    });
+
+    const filteredDeals = deals.filter((deal) => {
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (!dealCreatedTime) return false;
+      const dealDate = new Date(dealCreatedTime);
+      if (dealDate < startDate || dealDate > endDate) return false;
+
+      if (selectedDesarrollo !== 'all') {
+        const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+        if (dealDesarrollo !== selectedDesarrollo) return false;
+      }
+      if (selectedSource !== 'all' && deal.Lead_Source !== selectedSource) return false;
+      if (selectedOwner !== 'all' && deal.Owner?.name !== selectedOwner) return false;
+      if (selectedStatus !== 'all' && deal.Stage !== selectedStatus) return false;
+      return true;
+    });
+
+    // Collect notes with metadata (for AI + for better slicing later)
+    const leadNoteItems = filteredLeads.flatMap((lead: any) => {
+      const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
+      const leadOwner = lead.Owner?.name;
+      const leadStatus = lead.Lead_Status;
+      const notes = Array.isArray(lead.Notes) ? lead.Notes : [];
+      return notes.map((note: any) => ({
+        source: 'lead' as const,
+        createdTime: note?.Created_Time || (lead as any).Creacion_de_Lead || lead.Created_Time,
+        desarrollo: leadDesarrollo,
+        owner: leadOwner,
+        statusOrStage: leadStatus,
+        note,
+      }));
+    });
+
+    const dealNoteItems = filteredDeals.flatMap((deal: any) => {
+      const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+      const dealOwner = deal.Owner?.name;
+      const dealStage = deal.Stage;
+      const notes = Array.isArray(deal.Notes) ? deal.Notes : [];
+      return notes.map((note: any) => ({
+        source: 'deal' as const,
+        createdTime: note?.Created_Time || deal.Created_Time || (deal as any).Creacion_de_Deal,
+        desarrollo: dealDesarrollo,
+        owner: dealOwner,
+        statusOrStage: dealStage,
+        note,
+      }));
+    });
+
+    const allNoteItems = [...leadNoteItems, ...dealNoteItems];
+    const leadNotesCount = leadNoteItems.length;
+    const dealNotesCount = dealNoteItems.length;
+
+    // Build term frequency
+    const termCounts = new Map<string, number>();
+    allNoteItems.forEach((item: any) => {
+      const text = getNoteText(item.note);
+      const words = tokenize(text);
+      words.forEach((w) => {
+        termCounts.set(w, (termCounts.get(w) || 0) + 1);
+      });
+    });
+
+    const topTerms = Array.from(termCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([term, count]) => ({ term, count }));
+
+    // Trend buckets: week for month/quarter, month for year
+    const getWeekNumberLocal = (date: Date): number => {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    };
+
+    const bucketKey = (isoDate: string) => {
+      const d = new Date(isoDate);
+      if (selectedPeriod === 'year') {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${yyyy}-${mm}`;
+      }
+      const yyyy = d.getFullYear();
+      const ww = String(getWeekNumberLocal(d)).padStart(2, '0');
+      return `${yyyy}-W${ww}`;
+    };
+
+    const trendTerms = topTerms.slice(0, 3).map(t => t.term);
+    // We store "bucket" plus dynamic term keys. Recharts accepts this shape well.
+    const trendMap = new Map<string, Record<string, number | string>>();
+
+    allNoteItems.forEach((item: any) => {
+      const created = (typeof item?.createdTime === 'string' && item.createdTime) ? item.createdTime : null;
+      if (!created) return;
+      const bucket = bucketKey(created);
+
+      const row = (trendMap.get(bucket) || { bucket }) as Record<string, number | string>;
+      const text = getNoteText(item.note);
+      const words = tokenize(text);
+      trendTerms.forEach((term) => {
+        const occurrences = words.reduce((acc, w) => acc + (w === term ? 1 : 0), 0);
+        if (occurrences > 0) {
+          const prev = typeof row[term] === 'number' ? row[term] : 0;
+          row[term] = prev + occurrences;
+        } else if (row[term] === undefined) {
+          row[term] = 0;
+        }
+      });
+      trendMap.set(bucket, row);
+    });
+
+    const trend = Array.from(trendMap.values())
+      .sort((a: any, b: any) => String(a.bucket).localeCompare(String(b.bucket)));
+
+    // Notes payload for AI (cleaned + compact)
+    const notesForAI: ZohoNoteForAI[] = allNoteItems
+      .map((item: any) => {
+        const text = getNoteText(item.note);
+        return {
+          source: item.source,
+          createdTime: item.createdTime,
+          desarrollo: item.desarrollo,
+          owner: item.owner,
+          statusOrStage: item.statusOrStage,
+          text,
+        };
+      })
+      .filter((n) => n.text && n.text.length >= 8); // avoid very short notes
+
+    return {
+      totalNotes: allNoteItems.length,
+      totalLeadNotes: leadNotesCount,
+      totalDealNotes: dealNotesCount,
+      topTerms,
+      trendTerms,
+      trend,
+      notesForAI,
+    };
+  }, [
+    deals,
+    getPeriodDates,
+    leads,
+    selectedDesarrollo,
+    selectedOwner,
+    selectedPeriod,
+    selectedSource,
+    selectedStatus,
+    showLastMonth,
+  ]);
+
+  const handleGenerateAINotesInsights = async () => {
+    try {
+      if (notesInsights.notesForAI.length === 0) {
+        toast({
+          title: 'Sin notas suficientes',
+          description: 'No hay notas suficientes en el periodo seleccionado para generar insights con IA.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setAiNotesInsightsLoading(true);
+      setAiNotesInsights(null);
+
+      const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+
+      const result = await getZohoNotesInsightsAI({
+        notes: notesInsights.notesForAI,
+        context: {
+          period: selectedPeriod,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+          source: selectedSource === 'all' ? undefined : selectedSource,
+          owner: selectedOwner === 'all' ? undefined : selectedOwner,
+          status: selectedStatus === 'all' ? undefined : selectedStatus,
+        },
+      });
+
+      setAiNotesInsights(result);
+      toast({
+        title: 'Insights generados',
+        description: 'La IA generó insights a partir de las notas.',
+      });
+    } catch (e) {
+      console.error('Error generando insights con IA:', e);
+      toast({
+        title: 'Error',
+        description: e instanceof Error ? e.message : 'No se pudieron generar insights con IA.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAiNotesInsightsLoading(false);
+    }
+  };
 
   // Función helper para calcular estadísticas en memoria (sin llamadas a API)
   const calculateStatsFromData = useCallback((
@@ -506,6 +833,35 @@ export default function ZohoCRMPage() {
         : 0;
     });
 
+    // Embudo del ciclo de vida
+    // 1. Leads: total de leads filtrados
+    const totalLeadsCount = filteredLeads.length;
+    
+    // 2. Deals (Agendó cita): deals activos (que no están en "Ganado" o "Perdido")
+    const closedStages = ['Ganado', 'Won', 'Cerrado Ganado', 'Perdido', 'Lost', 'Cerrado Perdido'];
+    const dealsWithAppointment = filteredDeals.filter(deal => {
+      const stage = deal.Stage || '';
+      // Deals que no están cerrados (ni ganados ni perdidos)
+      return !closedStages.some(closedStage => 
+        stage.toLowerCase().includes(closedStage.toLowerCase())
+      );
+    }).length;
+    
+    // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
+    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
+    const closedWon = filteredDeals.filter(deal => {
+      const stage = deal.Stage || '';
+      return wonStages.some(wonStage => 
+        stage.toLowerCase().includes(wonStage.toLowerCase())
+      );
+    }).length;
+
+    const lifecycleFunnel = {
+      leads: totalLeadsCount,
+      dealsWithAppointment: dealsWithAppointment,
+      closedWon: closedWon,
+    };
+
     return {
       totalLeads: filteredLeads.length,
       totalDeals: filteredDeals.length,
@@ -542,9 +898,8 @@ export default function ZohoCRMPage() {
       leadsByMonth,
       dealsByMonth,
       conversionByDate,
+      lifecycleFunnel,
       // Campos que requieren datos adicionales (se pueden cargar después si es necesario)
-      averageTimeInPhaseLeads: {},
-      averageTimeInPhaseDeals: {},
       averageTimeToFirstContactByOwner: {},
       activitiesByType: {},
       activitiesByOwner: {},
@@ -821,6 +1176,9 @@ export default function ZohoCRMPage() {
       </div>
     );
   }
+
+  // Stats que se están mostrando en la UI (periodo actual o mes anterior)
+  const displayedStats = showLastMonth ? lastMonthStats : stats;
 
   return (
     <div className="w-full h-full flex flex-col gap-6">
@@ -1480,62 +1838,434 @@ export default function ZohoCRMPage() {
               </Card>
               </div>
 
-              {/* SECCIÓN: EMBUDO DE VENTAS (PIPELINE) */}
-              {stats && stats.leadsFunnel && Object.keys(stats.leadsFunnel).length > 0 && (
+              {/* SECCIÓN: EMBUDO DE VENTAS INMOBILIARIO - DISEÑO EJECUTIVO */}
+              {stats && stats.lifecycleFunnel && (
+                <Card className="border border-gray-200 bg-white shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-xl font-semibold text-gray-900">Embudo de Ventas</CardTitle>
+                    <CardDescription className="text-sm text-gray-600">Análisis del ciclo completo de conversión</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-4">
+                    {/* Función helper para determinar estado de salud */}
+                    {(() => {
+                      const leadsToDealsRate = stats.lifecycleFunnel.leads > 0 
+                        ? (stats.lifecycleFunnel.dealsWithAppointment / stats.lifecycleFunnel.leads) * 100 
+                        : 0;
+                      const dealsToWonRate = stats.lifecycleFunnel.dealsWithAppointment > 0 
+                        ? (stats.lifecycleFunnel.closedWon / stats.lifecycleFunnel.dealsWithAppointment) * 100 
+                        : 0;
+
+                      const getHealthStatus = (rate: number, thresholds: { optimal: number; attention: number }) => {
+                        if (rate >= thresholds.optimal) return { color: 'green', label: 'Óptimo' };
+                        if (rate >= thresholds.attention) return { color: 'yellow', label: 'Atención' };
+                        return { color: 'red', label: 'Crítico' };
+                      };
+
+                      const leadsToDealsHealth = getHealthStatus(leadsToDealsRate, { optimal: 15, attention: 10 });
+                      const dealsToWonHealth = getHealthStatus(dealsToWonRate, { optimal: 20, attention: 10 });
+
+                      // Usar colores del desarrollo seleccionado
+                      // - Si hay un desarrollo específico, usamos su paleta.
+                      // - Si es "all", usamos colores semánticos (azul/verde/morado) para máxima claridad ejecutiva.
+                      const palette = selectedDesarrollo === 'all'
+                        ? { leadsColor: '#2563EB', dealsColor: '#16A34A', wonColor: '#7C3AED' }
+                        : { leadsColor: colors.primary, dealsColor: colors.success, wonColor: colors.secondary };
+
+                      const leadsColor = palette.leadsColor;
+                      const dealsColor = palette.dealsColor;
+                      const wonColor = palette.wonColor;
+
+                      return (
+                        <div className="space-y-4">
+                          {/* EMBUDO VERTICAL */}
+                          <div className="flex flex-col items-center space-y-3">
+                            {/* Etapa 1: Leads */}
+                            <div className="w-full max-w-3xl">
+                              <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: leadsColor }}>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-xs font-medium opacity-90 mb-1">Leads</p>
+                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.leads}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
+                                      100%
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Conector 1: Leads → Deals */}
+                            <div className="relative w-full max-w-3xl flex justify-center">
+                              <div className="w-px h-8 bg-gray-300"></div>
+                              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-gray-700">
+                                    {leadsToDealsRate.toFixed(1)}%
+                                  </span>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${
+                                    leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
+                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                    'bg-red-500'
+                                  }`}></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Etapa 2: Deals (Agendó cita) */}
+                            <div 
+                              className="w-full max-w-3xl"
+                              style={{
+                                width: `${Math.max(35, Math.min(90, (stats.lifecycleFunnel.dealsWithAppointment / stats.lifecycleFunnel.leads) * 100))}%`
+                              }}
+                            >
+                              <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: dealsColor }}>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-xs font-medium opacity-90 mb-1">Deals (Agendó cita)</p>
+                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.dealsWithAppointment}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
+                                      {leadsToDealsRate.toFixed(1)}%
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Conector 2: Deals → Cerrado Ganado */}
+                            <div className="relative w-full max-w-3xl flex justify-center">
+                              <div className="w-px h-8 bg-gray-300"></div>
+                              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-gray-700">
+                                    {dealsToWonRate.toFixed(1)}%
+                                  </span>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${
+                                    dealsToWonHealth.color === 'green' ? 'bg-green-500' :
+                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                    'bg-red-500'
+                                  }`}></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Etapa 3: Cerrado Ganado */}
+                            <div 
+                              className="w-full max-w-3xl"
+                              style={{
+                                width: `${Math.max(25, Math.min(70, (stats.lifecycleFunnel.closedWon / stats.lifecycleFunnel.leads) * 100))}%`
+                              }}
+                            >
+                              <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: wonColor }}>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-xs font-medium opacity-90 mb-1">Cerrado Ganado</p>
+                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.closedWon}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
+                                      {dealsToWonRate.toFixed(1)}%
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* SECCIÓN: RESUMEN ANALÍTICO */}
+                          <div className="mt-6 pt-6 border-t border-gray-200">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-4 text-center uppercase tracking-wide">
+                              Tasas de Conversión
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Card 1: Leads → Deals */}
+                              <div className="rounded-lg border p-4" style={{ backgroundColor: `${leadsColor}15`, borderColor: `${leadsColor}40` }}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Leads → Deals</p>
+                                  <div className={`w-2 h-2 rounded-full ${
+                                    leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
+                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                    'bg-red-500'
+                                  }`}></div>
+                                </div>
+                                <p className="text-3xl font-bold text-gray-900 mb-1">
+                                  {leadsToDealsRate.toFixed(1)}%
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {stats.lifecycleFunnel.dealsWithAppointment} de {stats.lifecycleFunnel.leads} leads
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1 italic">
+                                  {leadsToDealsHealth.label}
+                                </p>
+                              </div>
+
+                              {/* Card 2: Deals → Cerrado Ganado */}
+                              <div className="rounded-lg border p-4" style={{ backgroundColor: `${dealsColor}15`, borderColor: `${dealsColor}40` }}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Deals → Cerrado Ganado</p>
+                                  <div className={`w-2 h-2 rounded-full ${
+                                    dealsToWonHealth.color === 'green' ? 'bg-green-500' :
+                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                    'bg-red-500'
+                                  }`}></div>
+                                </div>
+                                <p className="text-3xl font-bold text-gray-900 mb-1">
+                                  {dealsToWonRate.toFixed(1)}%
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {stats.lifecycleFunnel.closedWon} de {stats.lifecycleFunnel.dealsWithAppointment} deals
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1 italic">
+                                  {dealsToWonHealth.label}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* SECCIÓN: INSIGHTS (NOTAS + LLAMADAS) */}
+              {displayedStats && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Embudo de Ventas (Pipeline)</CardTitle>
-                    <CardDescription>Distribución de leads por estado en el embudo de conversión</CardDescription>
+                    <CardTitle>Insights (Notas y Llamadas)</CardTitle>
+                    <CardDescription>
+                      Tendencias a partir de notas en Leads/Deals y conteo de llamadas registradas en Zoho
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="mb-4 grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                      {Object.entries(stats.leadsFunnel)
-                        .sort(([, a], [, b]) => b - a)
-                        .map(([status, count]) => {
-                          const porcentaje = stats.totalLeads > 0 ? Math.round((count / stats.totalLeads) * 100) : 0;
-                          return (
-                            <div key={status} className="p-2 border rounded bg-muted/50">
-                              <p className="font-medium text-xs truncate" title={status}>{status}</p>
-                              <p className="text-lg font-bold">{count}</p>
-                              <p className="text-xs text-muted-foreground">{porcentaje}%</p>
+                    {/* Insights con IA (más significado, medible) */}
+                    <div className="p-4 border rounded-lg bg-muted/30">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">Insights con IA</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Usa las notas (limpias) para detectar temas, objeciones, siguientes pasos y señales de fricción.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Notas disponibles: <span className="font-medium">{notesInsights.notesForAI.length}</span>
+                          </p>
+                        </div>
+                        <Button
+                          variant="default"
+                          onClick={handleGenerateAINotesInsights}
+                          disabled={aiNotesInsightsLoading || notesInsights.notesForAI.length === 0}
+                        >
+                          {aiNotesInsightsLoading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Generando...
+                            </>
+                          ) : (
+                            'Generar insights con IA'
+                          )}
+                        </Button>
+                      </div>
+
+                      {aiNotesInsights && (
+                        <div className="mt-4 space-y-4">
+                          <div className="p-4 bg-white rounded-lg border">
+                            <p className="text-xs text-muted-foreground mb-1">Resumen ejecutivo</p>
+                            <p className="text-sm">{aiNotesInsights.summary}</p>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="p-4 bg-white rounded-lg border">
+                              <p className="text-sm font-medium mb-2">Temas principales</p>
+                              <div className="space-y-2">
+                                {aiNotesInsights.topThemes?.slice(0, 3).map((t) => (
+                                  <div key={t.label} className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm truncate">{t.label}</p>
+                                      {t.examples?.[0] && (
+                                        <p className="text-xs text-muted-foreground truncate">Ej: {t.examples[0]}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline">{t.count}</Badge>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          );
-                        })}
+
+                            <div className="p-4 bg-white rounded-lg border">
+                              <p className="text-sm font-medium mb-2">Objeciones / Bloqueos</p>
+                              <div className="space-y-2">
+                                {aiNotesInsights.topObjections?.slice(0, 3).map((t) => (
+                                  <div key={t.label} className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm truncate">{t.label}</p>
+                                      {t.examples?.[0] && (
+                                        <p className="text-xs text-muted-foreground truncate">Ej: {t.examples[0]}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline">{t.count}</Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-white rounded-lg border">
+                              <p className="text-sm font-medium mb-2">Siguientes pasos sugeridos</p>
+                              <div className="space-y-2">
+                                {aiNotesInsights.nextActions?.slice(0, 3).map((t) => (
+                                  <div key={t.label} className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm truncate">{t.label}</p>
+                                      {t.examples?.[0] && (
+                                        <p className="text-xs text-muted-foreground truncate">Ej: {t.examples[0]}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline">{t.count}</Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-white rounded-lg border">
+                              <p className="text-sm font-medium mb-2">Señales de fricción</p>
+                              <div className="space-y-2">
+                                {aiNotesInsights.frictionSignals?.slice(0, 3).map((t) => (
+                                  <div key={t.label} className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm truncate">{t.label}</p>
+                                      {t.examples?.[0] && (
+                                        <p className="text-xs text-muted-foreground truncate">Ej: {t.examples[0]}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline">{t.count}</Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-5">
+                            <div className="p-3 bg-white rounded-lg border">
+                              <p className="text-[11px] text-muted-foreground">No contesta / sin contacto</p>
+                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.noAnswerOrNoContact ?? 0}</p>
+                            </div>
+                            <div className="p-3 bg-white rounded-lg border">
+                              <p className="text-[11px] text-muted-foreground">Precio / presupuesto</p>
+                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.priceOrBudget ?? 0}</p>
+                            </div>
+                            <div className="p-3 bg-white rounded-lg border">
+                              <p className="text-[11px] text-muted-foreground">Financiamiento / crédito</p>
+                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.financingOrCredit ?? 0}</p>
+                            </div>
+                            <div className="p-3 bg-white rounded-lg border">
+                              <p className="text-[11px] text-muted-foreground">Ubicación / zona</p>
+                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.locationOrArea ?? 0}</p>
+                            </div>
+                            <div className="p-3 bg-white rounded-lg border">
+                              <p className="text-[11px] text-muted-foreground">Timing / urgencia</p>
+                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.timingOrUrgency ?? 0}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <ResponsiveContainer width="100%" height={400}>
-                      <BarChart
-                        data={Object.entries(stats.leadsFunnel)
-                          .sort(([, a], [, b]) => b - a)
-                          .map(([status, count]) => ({
-                            estado: status.length > 20 ? status.substring(0, 20) + '...' : status,
-                            estadoCompleto: status,
-                            cantidad: count,
-                            porcentaje: stats.totalLeads > 0 ? Math.round((count / stats.totalLeads) * 100) : 0
-                          }))}
-                        layout="vertical"
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" />
-                        <YAxis dataKey="estado" type="category" width={150} />
-                        <Tooltip 
-                          formatter={(value: number, name: string, props: any) => {
-                            if (name === 'cantidad') {
-                              return [`${value} leads (${props.payload.porcentaje}%)`, 'Cantidad'];
-                            }
-                            return value;
-                          }}
-                          labelFormatter={(label, payload) => payload?.[0]?.payload?.estadoCompleto || label}
-                        />
-                        <Legend />
-                        <Bar dataKey="cantidad" fill={colors.primary} name="Leads">
-                          {Object.entries(stats.leadsFunnel)
-                            .sort(([, a], [, b]) => b - a)
-                            .map((entry, index) => {
-                              return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
-                            })}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-xs text-muted-foreground mb-1">Llamadas registradas</p>
+                        <p className="text-2xl font-bold">
+                          {activityStatsLoading ? '...' : (
+                            (activityStats?.activitiesByType?.Call ??
+                              activityStats?.activitiesByType?.Calls ??
+                              activityStats?.activitiesByType?.Llamada ??
+                              0)
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Filtrado por periodo y desarrollo (Zoho Activities)
+                        </p>
+                      </div>
+
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-xs text-muted-foreground mb-1">Notas (Leads)</p>
+                        <p className="text-2xl font-bold">{notesInsights.totalLeadNotes}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Notas encontradas en el periodo</p>
+                      </div>
+
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-xs text-muted-foreground mb-1">Notas (Deals)</p>
+                        <p className="text-2xl font-bold">{notesInsights.totalDealNotes}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Notas encontradas en el periodo</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {/* Top términos */}
+                      <Card className="border">
+                        <CardHeader>
+                          <CardTitle className="text-sm">Top palabras en notas</CardTitle>
+                          <CardDescription className="text-xs">
+                            Palabras más repetidas (se excluyen conectores y palabras comunes)
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {notesInsights.topTerms.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No hay suficientes notas en este periodo para generar tendencias.
+                            </p>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={260}>
+                              <BarChart data={notesInsights.topTerms}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="term" interval={0} angle={-35} textAnchor="end" height={70} />
+                                <YAxis />
+                                <Tooltip />
+                                <Bar dataKey="count" fill={colors.primary} name="Menciones" />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Tendencia */}
+                      <Card className="border">
+                        <CardHeader>
+                          <CardTitle className="text-sm">Tendencia en el tiempo</CardTitle>
+                          <CardDescription className="text-xs">
+                            Menciones por semana/mes de los 3 términos principales
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {notesInsights.trend.length === 0 || notesInsights.trendTerms.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No hay suficientes datos para mostrar tendencia temporal.
+                            </p>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={260}>
+                              <LineChart data={notesInsights.trend as any}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="bucket" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                {notesInsights.trendTerms.map((term, idx) => (
+                                  <Line
+                                    key={term}
+                                    type="monotone"
+                                    dataKey={term}
+                                    stroke={getChartColor(selectedDesarrollo, idx)}
+                                    strokeWidth={2}
+                                    dot={false}
+                                  />
+                                ))}
+                              </LineChart>
+                            </ResponsiveContainer>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -2136,9 +2866,9 @@ export default function ZohoCRMPage() {
                           <XAxis type="number" />
                           <YAxis dataKey="estado" type="category" width={150} />
                           <Tooltip 
-                            formatter={(value: number, name: string, props: any) => {
+                            formatter={(value: number, name: string, _props: any) => {
                               if (name === 'cantidad') {
-                                return [`${value} leads (${props.payload.porcentaje}%)`, 'Cantidad'];
+                                return [`${value} leads (${_props.payload.porcentaje}%)`, 'Cantidad'];
                               }
                               return value;
                             }}
@@ -2149,31 +2879,6 @@ export default function ZohoCRMPage() {
                               return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Tiempos en Fases - Leads */}
-                {stats.averageTimeInPhaseLeads && Object.keys(stats.averageTimeInPhaseLeads).length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Tiempos Promedio en Fases</CardTitle>
-                      <CardDescription>Tiempo promedio (en días) que los leads permanecen en cada estado</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={Object.entries(stats.averageTimeInPhaseLeads).map(([status, days]) => ({
-                          estado: status,
-                          dias: days
-                        }))}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="estado" />
-                          <YAxis label={{ value: 'Días', angle: -90, position: 'insideLeft' }} />
-                          <Tooltip formatter={(value: number) => [`${value} días`, 'Tiempo promedio']} />
-                          <Legend />
-                          <Bar dataKey="dias" fill={colors.secondary} name="Días promedio" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -2345,9 +3050,9 @@ export default function ZohoCRMPage() {
                           <XAxis type="number" />
                           <YAxis dataKey="etapa" type="category" width={150} />
                           <Tooltip 
-                            formatter={(value: number, name: string, props: any) => {
+                            formatter={(value: number, name: string, _props: any) => {
                               if (name === 'cantidad') {
-                                return [`${value} deals (${props.payload.porcentaje}%)`, 'Cantidad'];
+                                return [`${value} deals (${_props.payload.porcentaje}%)`, 'Cantidad'];
                               }
                               return value;
                             }}
@@ -2358,31 +3063,6 @@ export default function ZohoCRMPage() {
                               return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Tiempos en Fases - Deals */}
-                {stats.averageTimeInPhaseDeals && Object.keys(stats.averageTimeInPhaseDeals).length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Tiempos Promedio en Fases</CardTitle>
-                      <CardDescription>Tiempo promedio (en días) que los deals permanecen en cada etapa</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={Object.entries(stats.averageTimeInPhaseDeals).map(([stage, days]) => ({
-                          etapa: stage,
-                          dias: days
-                        }))}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="etapa" angle={-45} textAnchor="end" height={100} />
-                          <YAxis label={{ value: 'Días', angle: -90, position: 'insideLeft' }} />
-                          <Tooltip formatter={(value: number) => [`${value} días`, 'Tiempo promedio']} />
-                          <Legend />
-                          <Bar dataKey="dias" fill={colors.accent} name="Días promedio" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
