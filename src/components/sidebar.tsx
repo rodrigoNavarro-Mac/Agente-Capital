@@ -17,6 +17,7 @@ import {
   Building2,
   User,
   BookOpen,
+  DollarSign,
 } from 'lucide-react';
 import type { UserRole } from '@/types/documents';
 import { useSidebar } from '@/contexts/sidebar-context';
@@ -64,6 +65,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/zoho', 
     icon: Building2,
     allowedRoles: ['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
+  },
+  { 
+    title: 'Comisiones', 
+    href: '/dashboard/commissions', 
+    icon: DollarSign,
+    allowedRoles: ['admin', 'ceo'] as UserRole[]
   },
   { 
     title: 'Mi Perfil', 
