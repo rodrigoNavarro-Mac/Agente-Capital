@@ -25,7 +25,7 @@ import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/development-colors';
-import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, type TimePeriod } from '@/lib/time-buckets';
+import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, type TimePeriod } from '@/lib/time-buckets';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -179,9 +179,16 @@ export default function ZohoCRMPage() {
           typeof window !== 'undefined' &&
           new URLSearchParams(window.location.search).get('debugZohoStats') === '1';
 
+        // Importante UX:
+        // - Al cambiar de periodo/filtros, NO queremos mostrar el embudo del periodo anterior mientras carga.
+        // - Limpiamos activityStats para forzar fallback a los cálculos locales (o a 0 si no hay datos).
+        if (!cancelled) setActivityStats(null);
         setActivityStatsLoading(true);
         const data = await getZohoStats({
           desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+          source: selectedSource === 'all' ? undefined : selectedSource,
+          owner: selectedOwner === 'all' ? undefined : selectedOwner,
+          status: selectedStatus === 'all' ? undefined : selectedStatus,
           startDate,
           endDate,
           debug: debugZohoStats,
@@ -200,7 +207,16 @@ export default function ZohoCRMPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, getPeriodDates, selectedDesarrollo, selectedPeriod, showLastMonth]);
+  }, [
+    activeTab,
+    getPeriodDates,
+    selectedDesarrollo,
+    selectedOwner,
+    selectedPeriod,
+    selectedSource,
+    selectedStatus,
+    showLastMonth,
+  ]);
 
   // =====================================================
   // INSIGHTS DE NOTAS (TOP PALABRAS + TENDENCIA)
@@ -545,6 +561,41 @@ export default function ZohoCRMPage() {
   ): ZohoStats => {
     const { startDate, endDate } = getPeriodDates(period, isLastPeriod);
 
+    // Helper: identificar "Cerrado Ganado" por etapa (compatible con variantes)
+    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
+    const isWonStage = (stage?: string): boolean => {
+      const s = String(stage || '').toLowerCase();
+      return wonStages.some((k) => s.includes(k.toLowerCase()));
+    };
+
+    // Helper: extraer YYYY-MM-DD (preferimos Closing_Date; fallback a Modified_Time si no existe)
+    const extractISODateKey = (value: unknown): string | null => {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+        if (m) return m[1];
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return toISODateLocal(d);
+        return null;
+      }
+      if (value instanceof Date) return toISODateLocal(value);
+      return null;
+    };
+
+    const getDealClosedWonDateKey = (deal: ZohoDeal): string | null => {
+      return (
+        extractISODateKey(deal.Closing_Date) ||
+        extractISODateKey((deal as any).Closed_Time) ||
+        extractISODateKey((deal as any).Closed_Date) ||
+        extractISODateKey(deal.Modified_Time)
+      );
+    };
+
+    const isDateKeyInRange = (key: string | null, startKey: string, endKey: string): boolean => {
+      if (!key) return false;
+      return key >= startKey && key <= endKey;
+    };
+
     // Aplicar filtros en memoria
     const filteredLeads = allLeads.filter(lead => {
       // Filtro de fecha
@@ -597,6 +648,26 @@ export default function ZohoCRMPage() {
 
       return true;
     });
+
+    // Cerrado Ganado por fecha de cierre:
+    // - NO usamos filteredDeals (porque está filtrado por Created_Time)
+    // - Un deal puede crearse en un mes y cerrarse ganado en otro
+    const startKey = toISODateLocal(startDate);
+    const endKey = toISODateLocal(endDate);
+    const closedWonByCloseDate = allDeals.filter((deal) => {
+      // Reaplicar los mismos filtros NO temporales (desarrollo, fuente, asesor, status)
+      if (desarrollo && desarrollo !== 'all') {
+        const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+        if (dealDesarrollo !== desarrollo) return false;
+      }
+      if (source && source !== 'all' && deal.Lead_Source !== source) return false;
+      if (owner && owner !== 'all' && deal.Owner?.name !== owner) return false;
+      if (status && status !== 'all' && deal.Stage !== status) return false;
+
+      if (!isWonStage(deal.Stage)) return false;
+      const closeKey = getDealClosedWonDateKey(deal);
+      return isDateKeyInRange(closeKey, startKey, endKey);
+    }).length;
 
     // Debug: Log para verificar filtrado
     console.log(`🔍 Filtros aplicados - Leads: ${filteredLeads.length}/${allLeads.length}, Deals: ${filteredDeals.length}/${allDeals.length}`, {
@@ -935,13 +1006,8 @@ export default function ZohoCRMPage() {
     }).length;
     
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
-    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
-    const closedWon = filteredDeals.filter(deal => {
-      const stage = deal.Stage || '';
-      return wonStages.some(wonStage => 
-        stage.toLowerCase().includes(wonStage.toLowerCase())
-      );
-    }).length;
+    // Importante: este KPI usa la fecha de cierre (Closing_Date) y NO la fecha de creación.
+    const closedWon = closedWonByCloseDate;
 
     const lifecycleFunnel = {
       leads: totalLeadsCount,
@@ -1075,6 +1141,11 @@ export default function ZohoCRMPage() {
             }
           } catch (err) {
             console.error(`Error obteniendo leads página ${currentPage}:`, err);
+            // Si falla en la primera página, es un error crítico (no hay nada que mostrar).
+            if (currentPage === 1) {
+              throw err;
+            }
+            // Si falla después, mostramos lo que ya se pudo cargar.
             break;
           }
         }
@@ -1108,6 +1179,11 @@ export default function ZohoCRMPage() {
             }
           } catch (err) {
             console.error(`Error obteniendo deals página ${currentPage}:`, err);
+            // Si falla en la primera página, es un error crítico (no hay nada que mostrar).
+            if (currentPage === 1) {
+              throw err;
+            }
+            // Si falla después, mostramos lo que ya se pudo cargar.
             break;
           }
         }
@@ -1141,9 +1217,18 @@ export default function ZohoCRMPage() {
   // Verificar permisos
   useEffect(() => {
     if (userRole !== null) {
-      const allowedRoles: UserRole[] = ['admin', 'ceo', 'sales_manager'];
+      const allowedRoles: UserRole[] = [
+        'admin',
+        'ceo',
+        'sales_manager',
+        'post_sales',
+        'legal_manager',
+        'marketing_manager',
+      ];
       if (!allowedRoles.includes(userRole)) {
-        setError('No tienes permisos para acceder a ZOHO CRM. Solo gerentes, CEO y administradores pueden acceder.');
+        setError(
+          'No tienes permisos para acceder a ZOHO CRM. Solo CEO, administradores, gerentes (ventas/legal/marketing) y post-venta pueden acceder.'
+        );
         setLoading(false);
       } else {
         loadData();
@@ -1243,6 +1328,12 @@ export default function ZohoCRMPage() {
   const displayedAvgTimeToFirstContact =
     displayedStats?.averageTimeToFirstContact ?? activityStats?.averageTimeToFirstContact ?? 0;
 
+  // El embudo del ciclo de vida (lifecycle) es crítico para negocio.
+  // Usamos el valor del backend cuando está disponible para evitar inconsistencias por paginación/límites en el cliente.
+  const emptyLifecycleFunnel = { leads: 0, dealsWithAppointment: 0, closedWon: 0 };
+  const displayedLifecycleFunnel =
+    activityStats?.lifecycleFunnel ?? displayedStats?.lifecycleFunnel ?? emptyLifecycleFunnel;
+
   // Lists for Leads/Deals tabs (must follow the selected period + toggle)
   const displayedFilteredLeads = useMemo(() => {
     const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
@@ -1285,7 +1376,10 @@ export default function ZohoCRMPage() {
   }, [deals, getPeriodDates, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
 
   // Si no tiene permisos
-  if (userRole !== null && !['admin', 'ceo', 'sales_manager'].includes(userRole)) {
+  if (
+    userRole !== null &&
+    !['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'].includes(userRole)
+  ) {
     return (
       <div className="w-full h-full flex items-center justify-center">
         <Card className="max-w-md">
@@ -1300,7 +1394,7 @@ export default function ZohoCRMPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Solo gerentes, CEO y administradores pueden acceder a esta sección.
+              Solo CEO, administradores, gerentes (ventas/legal/marketing) y post-venta pueden acceder a esta sección.
             </p>
           </CardContent>
         </Card>
@@ -1984,7 +2078,7 @@ export default function ZohoCRMPage() {
               </div>
 
               {/* SECCIÓN: EMBUDO DE VENTAS INMOBILIARIO - DISEÑO EJECUTIVO */}
-              {displayedStats && displayedStats.lifecycleFunnel && (
+              {displayedStats && displayedLifecycleFunnel && (
                 <Card className="border border-gray-200 bg-white shadow-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-xl font-semibold text-gray-900">Embudo de Ventas</CardTitle>
@@ -1993,11 +2087,11 @@ export default function ZohoCRMPage() {
                   <CardContent className="pt-4">
                     {/* Función helper para determinar estado de salud */}
                     {(() => {
-                      const leadsToDealsRate = displayedStats.lifecycleFunnel.leads > 0 
-                        ? (displayedStats.lifecycleFunnel.dealsWithAppointment / displayedStats.lifecycleFunnel.leads) * 100 
+                      const leadsToDealsRate = displayedLifecycleFunnel.leads > 0 
+                        ? (displayedLifecycleFunnel.dealsWithAppointment / displayedLifecycleFunnel.leads) * 100 
                         : 0;
-                      const dealsToWonRate = displayedStats.lifecycleFunnel.dealsWithAppointment > 0 
-                        ? (displayedStats.lifecycleFunnel.closedWon / displayedStats.lifecycleFunnel.dealsWithAppointment) * 100 
+                      const dealsToWonRate = displayedLifecycleFunnel.dealsWithAppointment > 0 
+                        ? (displayedLifecycleFunnel.closedWon / displayedLifecycleFunnel.dealsWithAppointment) * 100 
                         : 0;
 
                       const getHealthStatus = (rate: number, thresholds: { optimal: number; attention: number }) => {
@@ -2030,7 +2124,7 @@ export default function ZohoCRMPage() {
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Leads</p>
-                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.leads}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedLifecycleFunnel.leads}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -2062,14 +2156,14 @@ export default function ZohoCRMPage() {
                             <div 
                               className="w-full max-w-3xl"
                               style={{
-                                width: `${Math.max(35, Math.min(90, (displayedStats.lifecycleFunnel.dealsWithAppointment / displayedStats.lifecycleFunnel.leads) * 100))}%`
+                                width: `${Math.max(35, Math.min(90, (displayedLifecycleFunnel.dealsWithAppointment / displayedLifecycleFunnel.leads) * 100))}%`
                               }}
                             >
                               <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: dealsColor }}>
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Deals (Agendó cita)</p>
-                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.dealsWithAppointment}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedLifecycleFunnel.dealsWithAppointment}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -2101,14 +2195,14 @@ export default function ZohoCRMPage() {
                             <div 
                               className="w-full max-w-3xl"
                               style={{
-                                width: `${Math.max(25, Math.min(70, (displayedStats.lifecycleFunnel.closedWon / displayedStats.lifecycleFunnel.leads) * 100))}%`
+                                width: `${Math.max(25, Math.min(70, (displayedLifecycleFunnel.closedWon / displayedLifecycleFunnel.leads) * 100))}%`
                               }}
                             >
                               <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: wonColor }}>
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Cerrado Ganado</p>
-                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.closedWon}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedLifecycleFunnel.closedWon}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -2140,7 +2234,7 @@ export default function ZohoCRMPage() {
                                   {leadsToDealsRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
-                                  {displayedStats.lifecycleFunnel.dealsWithAppointment} de {displayedStats.lifecycleFunnel.leads} leads
+                                  {displayedLifecycleFunnel.dealsWithAppointment} de {displayedLifecycleFunnel.leads} leads
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1 italic">
                                   {leadsToDealsHealth.label}
@@ -2161,7 +2255,7 @@ export default function ZohoCRMPage() {
                                   {dealsToWonRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
-                                  {displayedStats.lifecycleFunnel.closedWon} de {displayedStats.lifecycleFunnel.dealsWithAppointment} deals
+                                  {displayedLifecycleFunnel.closedWon} de {displayedLifecycleFunnel.dealsWithAppointment} deals
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1 italic">
                                   {dealsToWonHealth.label}

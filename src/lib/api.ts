@@ -854,6 +854,9 @@ export async function getZohoStats(filters?: {
   lastMonth?: boolean;
   startDate?: Date;
   endDate?: Date;
+  source?: string;
+  owner?: string;
+  status?: string;
   debug?: boolean;
 }): Promise<ZohoStats> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -862,6 +865,15 @@ export async function getZohoStats(filters?: {
   const params = new URLSearchParams();
   if (filters?.desarrollo) {
     params.append('desarrollo', filters.desarrollo);
+  }
+  if (filters?.source) {
+    params.append('source', filters.source);
+  }
+  if (filters?.owner) {
+    params.append('owner', filters.owner);
+  }
+  if (filters?.status) {
+    params.append('status', filters.status);
   }
   if (filters?.lastMonth) {
     params.append('lastMonth', 'true');

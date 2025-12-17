@@ -9,14 +9,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getZohoDeals } from '@/lib/zoho-crm';
-import { getZohoDealsFromDB } from '@/lib/postgres';
+import { getUserDevelopments, getZohoDealsFromDB } from '@/lib/postgres';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
 export const dynamic = 'force-dynamic';
 
 // Roles permitidos para acceder a ZOHO CRM (Módulo en Desarrollo)
-const ALLOWED_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'];
+// Note: sales_manager is allowed, but must be restricted to assigned developments.
+const FULL_ACCESS_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'];
+const SALES_MANAGER_ROLE = 'sales_manager';
+const ALLOWED_ROLES = [...FULL_ACCESS_ROLES, SALES_MANAGER_ROLE];
 
 /**
  * Verifica si el usuario tiene permisos para acceder a ZOHO CRM
@@ -27,6 +30,10 @@ function checkZohoAccessFromToken(role?: string): boolean {
     return false;
   }
   return ALLOWED_ROLES.includes(role);
+}
+
+function normalizeDevelopment(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 /**
@@ -67,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       return NextResponse.json(
         {
           success: false,
-          error: 'No tienes permisos para acceder a ZOHO CRM (Módulo en Desarrollo). Solo CEO, ADMIN, POST-VENTA, LEGAL y MARKETING pueden acceder.',
+          error: 'No tienes permisos para acceder a ZOHO CRM (Módulo en Desarrollo). Solo CEO, ADMIN, GERENTE DE VENTAS, POST-VENTA, LEGAL y MARKETING pueden acceder.',
         },
         { status: 403 }
       );
@@ -79,6 +86,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const perPage = parseInt(searchParams.get('per_page') || '200');
     const forceSync = searchParams.get('force_sync') === 'true'; // Forzar sincronización desde Zoho
     const useLocal = searchParams.get('use_local') !== 'false'; // Por defecto usar BD local
+    const requestedDevelopment = searchParams.get('desarrollo') || undefined;
 
     // Validar parámetros
     if (page < 1) {
@@ -101,18 +109,70 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    // 4. Obtener deals (desde BD local o Zoho)
+    // 4. Authorization scope: sales_manager can only see assigned developments (can_query=true)
+    const isSalesManager = payload.role === SALES_MANAGER_ROLE;
+    let effectiveUseLocal = useLocal;
+    let effectiveForceSync = forceSync;
+    let dbFilters: { desarrollo?: string; desarrollos?: string[] } | undefined = undefined;
+
+    if (isSalesManager) {
+      // Always use local DB for scoped access (avoids fetching global Zoho data).
+      effectiveUseLocal = true;
+      effectiveForceSync = false;
+
+      const devs = await getUserDevelopments(payload.userId);
+      const allowed = Array.from(
+        new Set(
+          devs
+            .filter((d) => d.can_query)
+            .map((d) => d.development)
+            .filter((d) => typeof d === 'string' && d.trim().length > 0)
+            .map((d) => normalizeDevelopment(d))
+        )
+      );
+
+      if (allowed.length === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No tienes desarrollos asignados para consultar Zoho CRM. Pide a un administrador que te asigne al menos un desarrollo.',
+          },
+          { status: 403 }
+        );
+      }
+
+      if (requestedDevelopment) {
+        const normalizedRequested = normalizeDevelopment(requestedDevelopment);
+        if (!allowed.includes(normalizedRequested)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'No tienes permiso para ver ese desarrollo en Zoho CRM.',
+            },
+            { status: 403 }
+          );
+        }
+        dbFilters = { desarrollo: normalizedRequested };
+      } else {
+        dbFilters = { desarrollos: allowed.sort() };
+      }
+    } else if (requestedDevelopment) {
+      // Optional filter for full-access roles.
+      dbFilters = { desarrollo: requestedDevelopment };
+    }
+
+    // 5. Obtener deals (desde BD local o Zoho)
     let dealsResponse;
     
-    if (forceSync || !useLocal) {
+    if (effectiveForceSync || !effectiveUseLocal) {
       // Forzar sincronización desde Zoho
-      console.log(`🔄 Forzando sincronización desde Zoho (forceSync: ${forceSync}, useLocal: ${useLocal})`);
+      console.log(`🔄 Forzando sincronización desde Zoho (forceSync: ${effectiveForceSync}, useLocal: ${effectiveUseLocal})`);
       dealsResponse = await getZohoDeals(page, perPage);
     } else {
       // SIEMPRE usar BD local cuando useLocal es true
       try {
         console.log(`📊 Intentando obtener deals desde BD local (page: ${page}, perPage: ${perPage})`);
-        const localData = await getZohoDealsFromDB(page, perPage);
+        const localData = await getZohoDealsFromDB(page, perPage, dbFilters);
         // Usar datos de BD local incluso si está vacío (retornar array vacío)
         dealsResponse = {
           data: localData.deals,

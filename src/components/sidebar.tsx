@@ -61,7 +61,7 @@ const NAV_ITEMS: NavItem[] = [
     title: 'ZOHO CRM', 
     href: '/dashboard/zoho', 
     icon: Building2,
-    allowedRoles: ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
+    allowedRoles: ['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
   },
   { 
     title: 'Mi Perfil', 

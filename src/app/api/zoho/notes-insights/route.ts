@@ -11,16 +11,22 @@ import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { runLLM } from '@/lib/llm';
 import { computeNotesCharts, computeNotesMetricsTrend } from '@/lib/zoho-notes-analytics';
 import { createHash } from 'crypto';
-import { getZohoNotesAIInsightsByContextHash, upsertZohoNotesAIInsights } from '@/lib/postgres';
+import { getUserDevelopments, getZohoNotesAIInsightsByContextHash, upsertZohoNotesAIInsights } from '@/lib/postgres';
 import type { APIResponse, LMStudioMessage } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'];
+const FULL_ACCESS_ROLES = ['admin', 'ceo', 'post_sales', 'legal_manager', 'marketing_manager'];
+const SALES_MANAGER_ROLE = 'sales_manager';
+const ALLOWED_ROLES = [...FULL_ACCESS_ROLES, SALES_MANAGER_ROLE];
 
 function checkZohoAccessFromToken(role?: string): boolean {
   if (!role) return false;
   return ALLOWED_ROLES.includes(role);
+}
+
+function normalizeDevelopment(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 // -----------------------------
@@ -44,6 +50,9 @@ interface NotesInsightsRequest {
     startDate?: string;
     endDate?: string;
     desarrollo?: string;
+    // Optional: used internally to cache "all assigned developments" for scoped roles.
+    // We store it as a string to keep backward compatibility with the existing schema.
+    desarrollos?: string[] | string;
     source?: string;
     owner?: string;
     status?: string;
@@ -53,11 +62,18 @@ interface NotesInsightsRequest {
 
 function normalizeContext(input?: NotesInsightsRequest['context']): Record<string, string | null> {
   const ctx = input || {};
+  const desarrollosValue =
+    Array.isArray((ctx as any).desarrollos)
+      ? ((ctx as any).desarrollos as string[]).map((v) => String(v)).join('|')
+      : typeof (ctx as any).desarrollos === 'string'
+        ? String((ctx as any).desarrollos)
+        : null;
   return {
     period: (ctx.period || null) as string | null,
     startDate: typeof ctx.startDate === 'string' ? ctx.startDate : null,
     endDate: typeof ctx.endDate === 'string' ? ctx.endDate : null,
     desarrollo: typeof ctx.desarrollo === 'string' ? ctx.desarrollo : null,
+    desarrollos: desarrollosValue,
     source: typeof ctx.source === 'string' ? ctx.source : null,
     owner: typeof ctx.owner === 'string' ? ctx.owner : null,
     status: typeof ctx.status === 'string' ? ctx.status : null,
@@ -107,7 +123,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
         {
           success: false,
           error:
-            'No tienes permisos para acceder a ZOHO CRM. Solo CEO, ADMIN, POST-VENTA, LEGAL y MARKETING pueden acceder.',
+            'No tienes permisos para acceder a ZOHO CRM. Solo CEO, ADMIN, GERENTE DE VENTAS, POST-VENTA, LEGAL y MARKETING pueden acceder.',
         },
         { status: 403 }
       );
@@ -115,11 +131,59 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
 
     // 2) Context from query params (same fields we store)
     const { searchParams } = new URL(request.url);
+    const requestedDevelopment = searchParams.get('desarrollo') || undefined;
+
+    // Sales manager scope: enforce assigned developments.
+    const isSalesManager = payload.role === SALES_MANAGER_ROLE;
+    let allowedDevs: string[] = [];
+    let effectiveDesarrollo: string | undefined = requestedDevelopment;
+    let effectiveDesarrollos: string[] | undefined = undefined;
+
+    if (isSalesManager) {
+      const devs = await getUserDevelopments(payload.userId);
+      allowedDevs = Array.from(
+        new Set(
+          devs
+            .filter((d) => d.can_query)
+            .map((d) => d.development)
+            .filter((d) => typeof d === 'string' && d.trim().length > 0)
+            .map((d) => normalizeDevelopment(d))
+        )
+      ).sort();
+
+      if (allowedDevs.length === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No tienes desarrollos asignados para consultar Zoho CRM. Pide a un administrador que te asigne al menos un desarrollo.',
+          },
+          { status: 403 }
+        );
+      }
+
+      if (requestedDevelopment) {
+        const normalizedRequested = normalizeDevelopment(requestedDevelopment);
+        if (!allowedDevs.includes(normalizedRequested)) {
+          return NextResponse.json(
+            { success: false, error: 'No tienes permiso para ver ese desarrollo en Zoho CRM.' },
+            { status: 403 }
+          );
+        }
+        effectiveDesarrollo = normalizedRequested;
+      } else {
+        // No explicit development: scope to "all assigned developments".
+        effectiveDesarrollo = undefined;
+        effectiveDesarrollos = allowedDevs;
+      }
+    }
+
     const normalizedContext = normalizeContext({
       period: (searchParams.get('period') as any) || undefined,
       startDate: searchParams.get('startDate') || undefined,
       endDate: searchParams.get('endDate') || undefined,
-      desarrollo: searchParams.get('desarrollo') || undefined,
+      desarrollo: effectiveDesarrollo,
+      // Important: include scoped development list in the context hash to prevent mixing caches across different scopes.
+      desarrollos: effectiveDesarrollos ? effectiveDesarrollos.join('|') : undefined,
       source: searchParams.get('source') || undefined,
       owner: searchParams.get('owner') || undefined,
       status: searchParams.get('status') || undefined,
@@ -161,7 +225,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         {
           success: false,
           error:
-            'No tienes permisos para acceder a ZOHO CRM. Solo CEO, ADMIN, POST-VENTA, LEGAL y MARKETING pueden acceder.',
+            'No tienes permisos para acceder a ZOHO CRM. Solo CEO, ADMIN, GERENTE DE VENTAS, POST-VENTA, LEGAL y MARKETING pueden acceder.',
         },
         { status: 403 }
       );
@@ -170,11 +234,76 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // 2) Body
     const body = (await request.json()) as NotesInsightsRequest;
     const notes = Array.isArray(body?.notes) ? body.notes : [];
-    const normalizedContext = normalizeContext(body.context);
+
+    // 2.1) Sales manager scope: enforce assigned developments (can_query=true)
+    const isSalesManager = payload.role === SALES_MANAGER_ROLE;
+    let allowedDevs: string[] = [];
+    let normalizedRequested: string | null = null;
+
+    if (isSalesManager) {
+      const devs = await getUserDevelopments(payload.userId);
+      allowedDevs = Array.from(
+        new Set(
+          devs
+            .filter((d) => d.can_query)
+            .map((d) => d.development)
+            .filter((d) => typeof d === 'string' && d.trim().length > 0)
+            .map((d) => normalizeDevelopment(d))
+        )
+      ).sort();
+
+      if (allowedDevs.length === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No tienes desarrollos asignados para consultar Zoho CRM. Pide a un administrador que te asigne al menos un desarrollo.',
+          },
+          { status: 403 }
+        );
+      }
+
+      const requested = body?.context?.desarrollo;
+      if (typeof requested === 'string' && requested.trim().length > 0) {
+        normalizedRequested = normalizeDevelopment(requested);
+        if (!allowedDevs.includes(normalizedRequested)) {
+          return NextResponse.json(
+            { success: false, error: 'No tienes permiso para ver ese desarrollo en Zoho CRM.' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    const normalizedContext = normalizeContext({
+      ...(body.context || {}),
+      // If sales_manager didn't request a single development, scope the cache to all allowed developments.
+      desarrollos:
+        isSalesManager && !normalizedRequested
+          ? allowedDevs.join('|')
+          : (body.context as any)?.desarrollos,
+      // If a single development is requested, store the normalized value for stable hashing.
+      desarrollo: normalizedRequested ? normalizedRequested : body?.context?.desarrollo,
+    });
     const contextHash = computeContextHash(normalizedContext);
     const regenerate = body.regenerate === true;
 
-    if (notes.length === 0) {
+    // 2.2) Apply server-side note filtering for sales_manager (defense-in-depth).
+    const scopedNotes = (() => {
+      if (!isSalesManager) return notes;
+      const allowedSet = new Set(allowedDevs);
+      if (normalizedRequested) {
+        return notes.filter((n) => {
+          if (!n?.desarrollo) return false;
+          return normalizeDevelopment(String(n.desarrollo)) === normalizedRequested;
+        });
+      }
+      return notes.filter((n) => {
+        if (!n?.desarrollo) return false;
+        return allowedSet.has(normalizeDevelopment(String(n.desarrollo)));
+      });
+    })();
+
+    if (scopedNotes.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No se recibieron notas para analizar' },
         { status: 400 }
@@ -194,7 +323,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // - limit text length
     const MAX_NOTES = 250;
     const MAX_CHARS_PER_NOTE = 600;
-    const compactNotes = notes.slice(0, MAX_NOTES).map((n) => ({
+    const compactNotes = scopedNotes.slice(0, MAX_NOTES).map((n) => ({
       ...n,
       text: String(n.text || '').slice(0, MAX_CHARS_PER_NOTE),
     }));

@@ -2895,6 +2895,7 @@ export async function getZohoLeadsFromDB(
   perPage: number = 200,
   filters?: {
     desarrollo?: string;
+    desarrollos?: string[];
     startDate?: Date;
     endDate?: Date;
   }
@@ -2904,7 +2905,25 @@ export async function getZohoLeadsFromDB(
     const params: any[] = [];
     let paramIndex = 1;
 
-    if (filters?.desarrollo) {
+    // Development filter (one or many). We normalize to lowercase+trim to match the SQL expression.
+    const normalizeDev = (value: string) => value.trim().toLowerCase();
+    const devListRaw = Array.isArray(filters?.desarrollos) ? filters!.desarrollos : [];
+    const devList =
+      devListRaw.length > 0
+        ? devListRaw
+        : typeof filters?.desarrollo === 'string'
+          ? [filters.desarrollo]
+          : [];
+    const normalizedDevs = Array.from(
+      new Set(
+        devList
+          .filter((v) => typeof v === 'string')
+          .map((v) => normalizeDev(v))
+          .filter((v) => v.length > 0)
+      )
+    );
+
+    if (normalizedDevs.length > 0) {
       // Buscar en la columna desarrollo O en el JSONB (tanto "Desarrollo" como "Desarollo")
       // Nota: Zoho tiene un error de tipeo y usa "Desarollo" en lugar de "Desarrollo"
       whereConditions.push(`(
@@ -2912,9 +2931,9 @@ export async function getZohoLeadsFromDB(
           desarrollo,
           data->>'Desarrollo',
           data->>'Desarollo'
-        ))) = LOWER(TRIM($${paramIndex}))
+        ))) = ANY($${paramIndex}::text[])
       )`);
-      params.push(filters.desarrollo);
+      params.push(normalizedDevs);
       paramIndex++;
     }
 
@@ -3051,6 +3070,7 @@ export async function getZohoDealsFromDB(
   perPage: number = 200,
   filters?: {
     desarrollo?: string;
+    desarrollos?: string[];
     startDate?: Date;
     endDate?: Date;
   }
@@ -3060,7 +3080,25 @@ export async function getZohoDealsFromDB(
     const params: any[] = [];
     let paramIndex = 1;
 
-    if (filters?.desarrollo) {
+    // Development filter (one or many). We normalize to lowercase+trim to match the SQL expression.
+    const normalizeDev = (value: string) => value.trim().toLowerCase();
+    const devListRaw = Array.isArray(filters?.desarrollos) ? filters!.desarrollos : [];
+    const devList =
+      devListRaw.length > 0
+        ? devListRaw
+        : typeof filters?.desarrollo === 'string'
+          ? [filters.desarrollo]
+          : [];
+    const normalizedDevs = Array.from(
+      new Set(
+        devList
+          .filter((v) => typeof v === 'string')
+          .map((v) => normalizeDev(v))
+          .filter((v) => v.length > 0)
+      )
+    );
+
+    if (normalizedDevs.length > 0) {
       // Buscar en la columna desarrollo O en el JSONB (tanto "Desarrollo" como "Desarollo")
       // Nota: Zoho tiene un error de tipeo y usa "Desarollo" en lugar de "Desarrollo"
       // Esto asegura que encontremos deals incluso si la columna está NULL o el campo tiene el nombre incorrecto
@@ -3069,9 +3107,9 @@ export async function getZohoDealsFromDB(
           desarrollo,
           data->>'Desarrollo',
           data->>'Desarollo'
-        ))) = LOWER(TRIM($${paramIndex}))
+        ))) = ANY($${paramIndex}::text[])
       )`);
-      params.push(filters.desarrollo);
+      params.push(normalizedDevs);
       paramIndex++;
     }
 
@@ -3191,6 +3229,144 @@ export async function getZohoDealsFromDB(
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       return { deals: [], total: 0 };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Cuenta deals "Cerrado Ganado" dentro de un rango, usando la FECHA DE CIERRE (closing_date).
+ *
+ * Importante:
+ * - Esto es distinto a getZohoDealsFromDB(), que filtra por created_time.
+ * - Lo usamos para que el KPI "Cerrado Ganado" refleje el mes/día en que se cerró el trato.
+ */
+export async function countZohoClosedWonDealsFromDB(filters?: {
+  desarrollo?: string;
+  desarrollos?: string[];
+  // Prefer passing date-only keys (YYYY-MM-DD) to avoid timezone surprises.
+  // If not provided, startDate/endDate will be used as a fallback.
+  startDateKey?: string;
+  endDateKey?: string;
+  startDate?: Date;
+  endDate?: Date;
+  source?: string;
+  owner?: string;
+  status?: string;
+}): Promise<number> {
+  try {
+    const whereConditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // 1) Filtro de desarrollo (misma lógica que getZohoDealsFromDB)
+    const normalizeDev = (value: string) => value.trim().toLowerCase();
+    const devListRaw = Array.isArray(filters?.desarrollos) ? filters!.desarrollos : [];
+    const devList =
+      devListRaw.length > 0
+        ? devListRaw
+        : typeof filters?.desarrollo === 'string'
+          ? [filters.desarrollo]
+          : [];
+    const normalizedDevs = Array.from(
+      new Set(
+        devList
+          .filter((v) => typeof v === 'string')
+          .map((v) => normalizeDev(v))
+          .filter((v) => v.length > 0)
+      )
+    );
+
+    if (normalizedDevs.length > 0) {
+      whereConditions.push(`(
+        LOWER(TRIM(COALESCE(
+          desarrollo,
+          data->>'Desarrollo',
+          data->>'Desarollo'
+        ))) = ANY($${paramIndex}::text[])
+      )`);
+      params.push(normalizedDevs);
+      paramIndex++;
+    }
+
+    // Filtro de fuente (Lead_Source) para deals
+    if (filters?.source) {
+      whereConditions.push(`(
+        LOWER(TRIM(COALESCE(
+          lead_source,
+          data->>'Lead_Source'
+        ))) = LOWER(TRIM($${paramIndex}))
+      )`);
+      params.push(filters.source);
+      paramIndex++;
+    }
+
+    // Filtro de asesor (Owner.name) - usamos la columna owner_name
+    if (filters?.owner) {
+      whereConditions.push(`(
+        LOWER(TRIM(COALESCE(owner_name, ''))) = LOWER(TRIM($${paramIndex}))
+      )`);
+      params.push(filters.owner);
+      paramIndex++;
+    }
+
+    // Filtro de status/etapa exacta (Stage)
+    if (filters?.status) {
+      whereConditions.push(`(
+        LOWER(TRIM(COALESCE(stage, data->>'Stage', ''))) = LOWER(TRIM($${paramIndex}))
+      )`);
+      params.push(filters.status);
+      paramIndex++;
+    }
+
+    // 2) Filtro de "Won" por stage (compatibilidad: Ganado/Won/Cerrado Ganado)
+    // Nota: usamos "contiene" para soportar variantes.
+    whereConditions.push(`(
+      LOWER(COALESCE(stage, data->>'Stage', '')) LIKE '%ganado%'
+      OR LOWER(COALESCE(stage, data->>'Stage', '')) LIKE '%won%'
+    )`);
+
+    // 3) Filtro por fecha de cierre: closing_date (DATE) o fallback a data->>'Closing_Date'
+    // Usamos regex para evitar cast errors si el JSON trae algo inesperado.
+    const closingDateExpr = `COALESCE(
+      closing_date,
+      CASE
+        WHEN (data->>'Closing_Date') ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN (data->>'Closing_Date')::date
+        ELSE NULL
+      END
+    )`;
+
+    const startKey = filters?.startDateKey || null;
+    const endKey = filters?.endDateKey || null;
+    const startFallback = filters?.startDate ? new Date(filters.startDate) : null;
+    const endFallback = filters?.endDate ? new Date(filters.endDate) : null;
+
+    if (startKey || startFallback) {
+      whereConditions.push(`(${closingDateExpr} >= $${paramIndex}::date)`);
+      params.push(startKey || startFallback);
+      paramIndex++;
+    }
+
+    if (endKey || endFallback) {
+      whereConditions.push(`(${closingDateExpr} <= $${paramIndex}::date)`);
+      params.push(endKey || endFallback);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    const result = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM zoho_deals ${whereClause}`,
+      params
+    );
+
+    return parseInt(result.rows[0]?.count ?? '0', 10) || 0;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('no existe la relación') || error.message.includes('does not exist'))
+    ) {
+      return 0;
     }
     throw error;
   }

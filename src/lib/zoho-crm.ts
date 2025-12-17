@@ -695,8 +695,12 @@ export async function getAllZohoDeals(): Promise<ZohoDeal[]> {
  */
 export async function getZohoStats(filters?: {
   desarrollo?: string;
+  desarrollos?: string[];
   startDate?: Date;
   endDate?: Date;
+  source?: string;
+  owner?: string;
+  status?: string;
 }, useLocal: boolean = true, debug: boolean = false): Promise<ZohoStats> {
   try {
     const debugLog = (message: string, context?: Record<string, unknown>) => {
@@ -706,6 +710,7 @@ export async function getZohoStats(filters?: {
 
     debugLog('getZohoStats called', {
       desarrollo: filters?.desarrollo,
+      desarrollosCount: Array.isArray(filters?.desarrollos) ? filters!.desarrollos.length : 0,
       startDate: filters?.startDate?.toISOString?.(),
       endDate: filters?.endDate?.toISOString?.(),
       useLocal,
@@ -941,31 +946,57 @@ export async function getZohoStats(filters?: {
     // Los datos de BD local ya vienen filtrados por la consulta SQL
     let filteredLeads = allLeads;
     let filteredDeals = allDeals;
+    // Para el KPI "Cerrado Ganado" necesitamos un conjunto de deals que NO esté filtrado por Created_Time.
+    // (Un deal puede crearse en un mes y cerrarse ganado en otro.)
+    let dealsForClosedWonCalc = allDeals;
 
     if (!dataFromLocalDB) {
       // Solo aplicar filtros en memoria si los datos vienen de Zoho
-      // Filtrar por desarrollo si se especifica
-      if (filters?.desarrollo) {
+      // Filtrar por desarrollo(s) si se especifica
+      const devListRaw = Array.isArray(filters?.desarrollos) ? filters!.desarrollos : [];
+      const devList =
+        devListRaw.length > 0
+          ? devListRaw
+          : typeof filters?.desarrollo === 'string'
+            ? [filters.desarrollo]
+            : [];
+
+      const normalizeDev = (value: string) => value.trim().toLowerCase();
+      const allowedDevSet = new Set(
+        devList
+          .filter((v) => typeof v === 'string')
+          .map((v) => normalizeDev(v))
+          .filter((v) => v.length > 0)
+      );
+
+      if (allowedDevSet.size > 0) {
         const leadsBefore = filteredLeads.length;
         const dealsBefore = filteredDeals.length;
         
-        filteredLeads = filteredLeads.filter(lead => 
-          lead.Desarrollo === filters.desarrollo
-        );
-        filteredDeals = filteredDeals.filter(deal => {
+        filteredLeads = filteredLeads.filter((lead) => {
+          // Zoho puede traer "Desarollo" por un typo en algunas cuentas/campos
+          const leadDev = (lead as any).Desarrollo || (lead as any).Desarollo;
+          if (!leadDev) return false;
+          return allowedDevSet.has(normalizeDev(String(leadDev)));
+        });
+        filteredDeals = filteredDeals.filter((deal) => {
           // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
-          const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
-          return dealDesarrollo === filters.desarrollo;
+          const dealDev = (deal as any).Desarrollo || (deal as any).Desarollo;
+          if (!dealDev) return false;
+          return allowedDevSet.has(normalizeDev(String(dealDev)));
         });
         
         logger.debug('Applied development filter', {
-          development: filters.desarrollo,
+          developmentCount: allowedDevSet.size,
           leadsBefore,
           leadsAfter: filteredLeads.length,
           dealsBefore,
           dealsAfter: filteredDeals.length,
         }, 'zoho-stats');
       }
+
+      // Después del filtro por desarrollo (si aplica), guardamos la base para calcular "Cerrado Ganado" por fecha de cierre.
+      dealsForClosedWonCalc = filteredDeals;
 
       // Filtrar por rango de fechas si se especifica
       if (filters?.startDate || filters?.endDate) {
@@ -1001,6 +1032,124 @@ export async function getZohoStats(filters?: {
           dealsAfter: filteredDeals.length,
         }, 'zoho-stats');
       }
+    }
+
+    // =====================================================
+    // FILTROS ADICIONALES (source / owner / status)
+    // =====================================================
+    // Nota: estos filtros se aplican SIEMPRE (vengan de Zoho o de BD local).
+    if (filters?.source) {
+      const src = filters.source;
+      filteredLeads = filteredLeads.filter((lead) => (lead.Lead_Source || '') === src);
+      filteredDeals = filteredDeals.filter((deal) => (deal.Lead_Source || '') === src);
+      dealsForClosedWonCalc = dealsForClosedWonCalc.filter((deal) => (deal.Lead_Source || '') === src);
+    }
+
+    if (filters?.owner) {
+      const ownerName = filters.owner;
+      filteredLeads = filteredLeads.filter((lead) => (lead.Owner?.name || '') === ownerName);
+      filteredDeals = filteredDeals.filter((deal) => (deal.Owner?.name || '') === ownerName);
+      dealsForClosedWonCalc = dealsForClosedWonCalc.filter((deal) => (deal.Owner?.name || '') === ownerName);
+    }
+
+    if (filters?.status) {
+      const status = filters.status;
+      filteredLeads = filteredLeads.filter((lead) => (lead.Lead_Status || '') === status);
+      filteredDeals = filteredDeals.filter((deal) => (deal.Stage || '') === status);
+      dealsForClosedWonCalc = dealsForClosedWonCalc.filter((deal) => (deal.Stage || '') === status);
+    }
+
+    // =====================================================
+    // "CERRADO GANADO" POR FECHA DE CIERRE (NO POR CREACIÓN)
+    // =====================================================
+    // Definimos helper(s) en inglés (código) con comentarios en español (como guía).
+    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
+    const isWonStage = (stage?: string): boolean => {
+      const s = String(stage || '').toLowerCase();
+      return wonStages.some((k) => s.includes(k.toLowerCase()));
+    };
+
+    // Convert Date -> YYYY-MM-DD en una zona fija (business), para que sea estable aun si el servidor está en UTC.
+    const toBusinessISODate = (date: Date): string => {
+      const local = new Date(date.getTime() + offsetMs);
+      const yyyy = local.getUTCFullYear();
+      const mm = String(local.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(local.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const extractISODateKey = (value: unknown): string | null => {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+        if (m) return m[1];
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return toBusinessISODate(d);
+        return null;
+      }
+      if (value instanceof Date) return toBusinessISODate(value);
+      return null;
+    };
+
+    // Prioridad de campos:
+    // - Closing_Date (date-only en Zoho, suele representar el cierre)
+    // - Closed_Time / Closed_Date (si existe como campo custom)
+    // - Modified_Time (fallback: aproximación si no tenemos fecha real de cierre)
+    const getDealClosedWonDateKey = (deal: ZohoDeal): string | null => {
+      return (
+        extractISODateKey(deal.Closing_Date) ||
+        extractISODateKey((deal as any).Closed_Time) ||
+        extractISODateKey((deal as any).Closed_Date) ||
+        extractISODateKey(deal.Modified_Time)
+      );
+    };
+
+    const isDateKeyInRange = (key: string | null, startKey: string | null, endKey: string | null): boolean => {
+      if (!key) return false;
+      if (startKey && key < startKey) return false;
+      if (endKey && key > endKey) return false;
+      return true;
+    };
+
+    let closedWonCount = 0;
+    if (filters?.startDate || filters?.endDate) {
+      const startKey = filters?.startDate ? toBusinessISODate(filters.startDate) : null;
+      const endKey = filters?.endDate ? toBusinessISODate(filters.endDate) : null;
+
+      if (dataFromLocalDB && useLocal) {
+        // Cuando los datos vienen de BD local, filteredDeals ya viene filtrado por Created_Time,
+        // así que contamos por closing_date con una query dedicada.
+        try {
+          const { countZohoClosedWonDealsFromDB } = await import('@/lib/postgres');
+          closedWonCount = await countZohoClosedWonDealsFromDB({
+            desarrollo: filters?.desarrollo,
+            desarrollos: filters?.desarrollos,
+            source: filters?.source,
+            owner: filters?.owner,
+            status: filters?.status,
+            startDateKey: startKey || undefined,
+            endDateKey: endKey || undefined,
+            startDate: filters?.startDate,
+            endDate: filters?.endDate,
+          });
+        } catch (e) {
+          // Fallback (menos correcto): si falla la query, al menos regresamos algo con lo que tenemos.
+          closedWonCount = filteredDeals.filter(d => isWonStage(d.Stage)).length;
+          debugLog('countZohoClosedWonDealsFromDB failed; falling back to filteredDeals', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      } else {
+        // Datos en memoria (Zoho): usar dealsForClosedWonCalc (no filtrado por Created_Time) y filtrar por fecha de cierre.
+        closedWonCount = dealsForClosedWonCalc.filter((deal) => {
+          if (!isWonStage(deal.Stage)) return false;
+          const closeKey = getDealClosedWonDateKey(deal);
+          return isDateKeyInRange(closeKey, startKey, endKey);
+        }).length;
+      }
+    } else {
+      // Sin filtro de fecha: basta con contar ganados en el universo ya filtrado por desarrollo (si aplica).
+      closedWonCount = dealsForClosedWonCalc.filter(d => isWonStage(d.Stage)).length;
     }
 
     // Calcular estadísticas
@@ -1521,13 +1670,8 @@ export async function getZohoStats(filters?: {
     }).length;
     
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
-    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
-    const closedWon = filteredDeals.filter(deal => {
-      const stage = deal.Stage || '';
-      return wonStages.some(wonStage => 
-        stage.toLowerCase().includes(wonStage.toLowerCase())
-      );
-    }).length;
+    // Importante: este KPI ahora usa la fecha de cierre (Closing_Date) y NO la fecha de creación.
+    const closedWon = closedWonCount;
 
     const lifecycleFunnel = {
       leads: totalLeadsCount,
@@ -1606,17 +1750,25 @@ export async function getZohoStats(filters?: {
  * @param desarrollo Desarrollo específico para filtrar (opcional)
  * @param useLocal Si es true, usa la BD local primero (por defecto true)
  */
-export async function getZohoStatsLastMonth(desarrollo?: string, useLocal: boolean = true, debug: boolean = false): Promise<ZohoStats> {
+export async function getZohoStatsLastMonth(
+  filters?: { desarrollo?: string; desarrollos?: string[] },
+  useLocal: boolean = true,
+  debug: boolean = false
+): Promise<ZohoStats> {
   // Calcular fechas del mes anterior
   const now = new Date();
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
-  return getZohoStats({
-    desarrollo,
-    startDate: lastMonth,
-    endDate: lastMonthEnd,
-  }, useLocal, debug);
+  return getZohoStats(
+    {
+      ...(filters || {}),
+      startDate: lastMonth,
+      endDate: lastMonthEnd,
+    },
+    useLocal,
+    debug
+  );
 }
 
 /**
