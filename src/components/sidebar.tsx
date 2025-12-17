@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { UserRole } from '@/types/documents';
 import { useSidebar } from '@/contexts/sidebar-context';
+import { checkPermission } from '@/lib/api';
 
 interface NavItem {
   title: string;
@@ -27,6 +28,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   allowedRoles?: UserRole[];
+  requiresPermission?: string; // Nombre del permiso requerido (ej: 'upload_documents')
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -38,8 +40,8 @@ const NAV_ITEMS: NavItem[] = [
   { 
     title: 'Subir Documentos', 
     href: '/dashboard/upload', 
-    icon: Upload 
-    // Disponible para todos pero requiere permiso can_upload desde panel de usuarios
+    icon: Upload,
+    requiresPermission: 'upload_documents' // Requiere permiso upload_documents
   },
   { 
     title: 'Consultar Agente', 
@@ -92,6 +94,7 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [userPermissions, setUserPermissions] = useState<Record<string, boolean>>({});
   const { sidebarOpen, toggleSidebar } = useSidebar();
 
   useEffect(() => {
@@ -117,12 +120,48 @@ export function Sidebar() {
         }
       }
     }
+
+    // Verificar permisos necesarios para los items del menú
+    const checkPermissions = async () => {
+      const permissionsToCheck: string[] = [];
+      
+      // Recopilar todos los permisos requeridos por los items
+      NAV_ITEMS.forEach(item => {
+        if (item.requiresPermission) {
+          permissionsToCheck.push(item.requiresPermission);
+        }
+      });
+
+      // Verificar cada permiso
+      const permissionResults: Record<string, boolean> = {};
+      for (const permission of permissionsToCheck) {
+        try {
+          const hasPermission = await checkPermission(permission as any);
+          permissionResults[permission] = hasPermission;
+        } catch (error) {
+          console.error(`Error verificando permiso ${permission}:`, error);
+          permissionResults[permission] = false;
+        }
+      }
+
+      setUserPermissions(permissionResults);
+    };
+
+    checkPermissions();
   }, []);
 
-  // Filtrar items según el rol del usuario
+  // Filtrar items según el rol del usuario y permisos
   const filteredItems = NAV_ITEMS.filter((item) => {
+    // Si requiere un permiso específico, verificar que el usuario lo tenga
+    if (item.requiresPermission) {
+      const hasPermission = userPermissions[item.requiresPermission];
+      if (!hasPermission) {
+        return false; // Ocultar el item si no tiene el permiso
+      }
+    }
+
     // Si no hay restricciones, todos pueden verlo
-    if (!item.adminOnly && !item.allowedRoles) {
+    if (!item.adminOnly && !item.allowedRoles && !item.requiresPermission) {
       return true;
     }
 

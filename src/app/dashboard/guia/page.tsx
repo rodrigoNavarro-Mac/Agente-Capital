@@ -14,7 +14,8 @@ import {
   Search,
   Shield,
   Lightbulb,
-  AlertCircle
+  AlertCircle,
+  Building2
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -129,6 +130,88 @@ export default function GuiaPage() {
           </div>
         </div>
       )
+    },
+    {
+      id: 'zoho-crm',
+      title: 'ZOHO CRM',
+      icon: Building2,
+      description: 'Leads, deals y estadísticas (según tu rol)',
+      roles: ['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'],
+      content: (
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <h4 className="font-semibold text-capital-navy">¿Qué es ZOHO CRM en este sistema?</h4>
+            <p className="text-gray-700">
+              Es un módulo para <strong>visualizar información comercial</strong> (leads, deals y métricas) y ayudarte a dar seguimiento.
+              La información se muestra con filtros para analizar periodos, asesores y desarrollos.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <h4 className="font-semibold text-capital-navy">Qué puedes hacer (funciones principales):</h4>
+            <ul className="space-y-2">
+              <li className="flex items-start">
+                <span className="text-capital-gold mr-2">1.</span>
+                <span className="text-gray-700">
+                  <strong>Estadísticas:</strong> ver indicadores y gráficos del periodo seleccionado.
+                </span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-capital-gold mr-2">2.</span>
+                <span className="text-gray-700">
+                  <strong>Leads:</strong> revisar y filtrar leads por desarrollo, fuente, asesor y estado.
+                </span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-capital-gold mr-2">3.</span>
+                <span className="text-gray-700">
+                  <strong>Deals:</strong> revisar y filtrar deals por desarrollo, fuente, asesor y etapa.
+                </span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-capital-gold mr-2">4.</span>
+                <span className="text-gray-700">
+                  <strong>Filtros globales:</strong> cambiar periodo (semana/mes/trimestre/año) y comparar con el periodo anterior.
+                </span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-capital-gold mr-2">5.</span>
+                <span className="text-gray-700">
+                  <strong>Actualizar:</strong> recargar información para ver los datos más recientes.
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+            <div className="flex items-start">
+              <Shield className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
+              <div className="space-y-2">
+                <h4 className="font-semibold text-blue-900">Acceso por rol (muy importante)</h4>
+                <ul className="space-y-1 text-sm text-blue-800">
+                  <li>
+                    <strong>Admin / CEO / Post-Ventas / Gerente Legal / Gerente Marketing:</strong> acceso a ZOHO CRM con <strong>todos los desarrollos</strong>.
+                  </li>
+                  <li>
+                    <strong>Gerente de Ventas:</strong> acceso a ZOHO CRM, pero <strong>solo a los desarrollos asignados</strong> por un administrador.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <h5 className="font-semibold text-yellow-900 mb-2 flex items-center">
+              <AlertCircle className="h-4 w-4 mr-2" />
+              Nota sobre sincronización
+            </h5>
+            <p className="text-sm text-yellow-800">
+              La sincronización completa de ZOHO (traer/actualizar datos) está pensada para administradores.
+              Si no ves datos o notas un comportamiento extraño, contacta a un administrador para validar la sincronización.
+            </p>
+          </div>
+        </div>
+      ),
     },
     {
       id: 'consultar-agente',
@@ -594,8 +677,15 @@ export default function GuiaPage() {
     }
   );
 
-  // Filtrar secciones según búsqueda
-  const filteredSections = guideSections.filter(section =>
+  // Filtrar secciones según rol y búsqueda
+  // Nota: si aún no conocemos el rol (userRole === null), mostramos todo para evitar "parpadeos" al cargar.
+  const roleVisibleSections = guideSections.filter((section) => {
+    if (!section.roles) return true;
+    if (!userRole) return true;
+    return section.roles.includes(userRole);
+  });
+
+  const filteredSections = roleVisibleSections.filter((section) =>
     section.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     section.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -639,7 +729,7 @@ export default function GuiaPage() {
               {userName.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg sm:text-xl font-semibold truncate">{userName}</h3>
+              <h3 className="text-lg sm:text-xl font-semibold truncate text-capital-gold">{userName}</h3>
               <p className="text-xs sm:text-sm text-white/80 break-words">
                 Rol: {getRoleName(userRole)} • 
                 {canUpload ? ' Puede subir documentos' : ' Solo consultas'}

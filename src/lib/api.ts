@@ -17,6 +17,7 @@ import type {
   UserDevelopment,
   Zone,
   Role,
+  Permission,
 } from '@/types/documents';
 
 // =====================================================
@@ -1085,5 +1086,37 @@ export async function getLastZohoSync(): Promise<ZohoSyncLog | null> {
   );
   
   return response.data;
+}
+
+// =====================================================
+// PERMISSIONS API
+// =====================================================
+
+/**
+ * Verifica si el usuario actual tiene un permiso específico
+ */
+export async function checkPermission(permission: Permission): Promise<boolean> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  if (!token) {
+    return false;
+  }
+
+  try {
+    const response = await fetcher<{ success: boolean; hasPermission: boolean }>(
+      `/api/permissions/check?permission=${permission}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      }
+    );
+    
+    return response.hasPermission;
+  } catch (error) {
+    console.error('Error verificando permiso:', error);
+    return false;
+  }
 }
 
