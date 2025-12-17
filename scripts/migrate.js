@@ -111,6 +111,7 @@ delete poolConfig.connectionTimeoutMillis;
 
 // Crear un cliente directo para migraciones
 let client = null;
+let isShuttingDown = false;
 
 // =====================================================
 // SQL PARA LIMPIAR TABLAS (RESET)
@@ -484,6 +485,26 @@ async function runMigrations() {
   
   while (retryCount < maxRetries && !connected) {
     client = new Client(poolConfig);
+
+    // IMPORTANTE:
+    // El driver `pg` (Client) es un EventEmitter. Si la conexión se termina
+    // (ej. Supabase pooler cierra la sesión) el cliente puede emitir un evento
+    // 'error'. Si no hay listener, Node lanza: "Unhandled 'error' event" y
+    // el proceso crashea aunque las migraciones ya hayan terminado.
+    //
+    // Este handler evita ese crash. Durante el cierre (finally), solo logueamos
+    // como advertencia; durante ejecución normal, lo logueamos como error.
+    client.on('error', (err) => {
+      const code = err && err.code ? err.code : undefined;
+      const msg = err && err.message ? err.message : String(err);
+
+      if (isShuttingDown) {
+        console.warn(`⚠️  Conexión PostgreSQL cerrada durante shutdown (${code || 'no-code'}): ${msg}`);
+        return;
+      }
+
+      console.error(`❌ Error inesperado del cliente PostgreSQL (${code || 'no-code'}): ${msg}`);
+    });
     
     try {
       await client.connect();
@@ -648,11 +669,20 @@ async function runMigrations() {
       console.error('Error al hacer rollback:', rollbackError.message);
     }
     console.error('\n❌ Error en migración, cambios revertidos:', error.message);
-    process.exit(1);
+    // No usar process.exit(1) aquí, porque impediría que el `finally` cierre la conexión.
+    process.exitCode = 1;
+    return;
   } finally {
     // Cerrar la conexión directa
     if (client) {
-      await client.end();
+      try {
+        isShuttingDown = true;
+        await client.end();
+      } catch (e) {
+        // Si el pooler/servidor ya cerró la conexión, esto puede fallar.
+        // No es crítico a estas alturas.
+        console.warn('⚠️  Advertencia cerrando conexión PostgreSQL:', e && e.message ? e.message : String(e));
+      }
     }
   }
 }

@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getAllZohoLeads, getAllZohoDeals, getZohoNotesForRecords } from '@/lib/zoho-crm';
 import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
   let recordsFailed = 0;
   let recordsDeleted = 0;
   let errorMessage: string | undefined;
+  const logScope = 'zoho-sync';
 
   try {
     // 1. Verificar autenticación
@@ -96,10 +98,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     
     if (syncType === 'leads' || syncType === 'full') {
       try {
-        console.log('🔄 Sincronizando leads de Zoho...');
+        logger.info('Starting Zoho leads sync', { syncType }, logScope);
         const leads = await getAllZohoLeads();
         zohoLeadIds = leads.map(lead => lead.id);
-        console.log(`📊 Total de leads a sincronizar: ${leads.length}`);
+        logger.debug('Leads fetched from Zoho', { count: leads.length }, logScope);
         
         let leadsProcessed = 0;
         for (const lead of leads) {
@@ -124,45 +126,55 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
               // Solo loggear si no es un error de respuesta vacía
               const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
               if (!errorMsg.includes('Unexpected end of JSON')) {
-                console.warn(`⚠️ Advertencia: No se pudieron sincronizar notas del lead ${lead.id}`);
+                logger.warn('Could not sync notes for lead', { leadId: lead.id }, logScope);
               }
             }
             
             leadsProcessed++;
             // Log de progreso cada 50 leads
             if (leadsProcessed % 50 === 0) {
-              console.log(`📈 Progreso leads: ${leadsProcessed}/${leads.length} (${Math.round(leadsProcessed / leads.length * 100)}%)`);
+              logger.debug('Leads sync progress', {
+                processed: leadsProcessed,
+                total: leads.length,
+                percent: Math.round((leadsProcessed / leads.length) * 100),
+              }, logScope);
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`❌ Error sincronizando lead ${lead.id}:`, error);
+            logger.error('Error syncing lead', error, { leadId: lead.id }, logScope);
           }
         }
-        console.log(`✅ Sincronizados ${recordsSynced} leads (${recordsCreated} nuevos, ${recordsUpdated} actualizados, ${recordsFailed} fallidos)`);
+        logger.info('Leads sync completed', {
+          recordsSynced,
+          recordsCreated,
+          recordsUpdated,
+          recordsFailed,
+        }, logScope);
         
         // Eliminar leads que ya no existen en Zoho
         try {
-          console.log('🗑️ Verificando leads eliminados en Zoho...');
+          logger.debug('Checking for deleted leads in Zoho', { count: zohoLeadIds.length }, logScope);
           const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
           recordsDeleted += deletedCount;
           if (deletedCount > 0) {
-            console.log(`✅ Eliminados ${deletedCount} leads que ya no existen en Zoho`);
+            logger.info('Deleted leads not present in Zoho', { deletedCount }, logScope);
           }
         } catch (deleteError) {
-          console.warn('⚠️ Error eliminando leads eliminados en Zoho:', deleteError);
+          logger.warn('Failed deleting leads not present in Zoho', undefined, logScope);
+          logger.error('Delete leads error', deleteError, undefined, logScope);
         }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
-        console.error('❌', errorMessage);
+        logger.error('Leads sync failed', error, { errorMessage }, logScope);
       }
     }
 
     if (syncType === 'deals' || syncType === 'full') {
       try {
-        console.log('🔄 Sincronizando deals de Zoho...');
+        logger.info('Starting Zoho deals sync', { syncType }, logScope);
         const deals = await getAllZohoDeals();
         zohoDealIds = deals.map(deal => deal.id);
-        console.log(`📊 Total de deals a sincronizar: ${deals.length}`);
+        logger.debug('Deals fetched from Zoho', { count: deals.length }, logScope);
         
         let dealsProcessed = 0;
         for (const deal of deals) {
@@ -186,38 +198,48 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
               // No crítico si falla la sincronización de notas
               const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
               if (!errorMsg.includes('Unexpected end of JSON')) {
-                console.warn(`⚠️ Advertencia: No se pudieron sincronizar notas del deal ${deal.id}`);
+                logger.warn('Could not sync notes for deal', { dealId: deal.id }, logScope);
               }
             }
             
             dealsProcessed++;
             // Log de progreso cada 25 deals
             if (dealsProcessed % 25 === 0) {
-              console.log(`📈 Progreso deals: ${dealsProcessed}/${deals.length} (${Math.round(dealsProcessed / deals.length * 100)}%)`);
+              logger.debug('Deals sync progress', {
+                processed: dealsProcessed,
+                total: deals.length,
+                percent: Math.round((dealsProcessed / deals.length) * 100),
+              }, logScope);
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`❌ Error sincronizando deal ${deal.id}:`, error);
+            logger.error('Error syncing deal', error, { dealId: deal.id }, logScope);
           }
         }
-        console.log(`✅ Sincronizados ${recordsSynced} deals (${recordsCreated} nuevos, ${recordsUpdated} actualizados, ${recordsFailed} fallidos)`);
+        logger.info('Deals sync completed', {
+          recordsSynced,
+          recordsCreated,
+          recordsUpdated,
+          recordsFailed,
+        }, logScope);
         
         // Eliminar deals que ya no existen en Zoho
         try {
-          console.log('🗑️ Verificando deals eliminados en Zoho...');
+          logger.debug('Checking for deleted deals in Zoho', { count: zohoDealIds.length }, logScope);
           const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
           recordsDeleted += deletedCount;
           if (deletedCount > 0) {
-            console.log(`✅ Eliminados ${deletedCount} deals que ya no existen en Zoho`);
+            logger.info('Deleted deals not present in Zoho', { deletedCount }, logScope);
           }
         } catch (deleteError) {
-          console.warn('⚠️ Error eliminando deals eliminados en Zoho:', deleteError);
+          logger.warn('Failed deleting deals not present in Zoho', undefined, logScope);
+          logger.error('Delete deals error', deleteError, undefined, logScope);
         }
       } catch (error) {
         errorMessage = errorMessage 
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
           : `Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`;
-        console.error('❌', errorMessage);
+        logger.error('Deals sync failed', error, { errorMessage }, logScope);
       }
     }
 
@@ -225,15 +247,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     const durationSeconds = Math.round(durationMs / 1000);
     const status = recordsFailed === 0 ? 'success' : (recordsSynced > 0 ? 'partial' : 'error');
 
-    console.log(`\n📊 RESUMEN DE SINCRONIZACIÓN:`);
-    console.log(`   Tipo: ${syncType}`);
-    console.log(`   Estado: ${status}`);
-    console.log(`   Registros sincronizados: ${recordsSynced}`);
-    console.log(`   - Nuevos: ${recordsCreated}`);
-    console.log(`   - Actualizados: ${recordsUpdated}`);
-    console.log(`   - Fallidos: ${recordsFailed}`);
-    console.log(`   - Eliminados: ${recordsDeleted}`);
-    console.log(`   Duración: ${durationSeconds}s (${durationMs}ms)\n`);
+    logger.info('Zoho sync summary', {
+      syncType,
+      status,
+      recordsSynced,
+      recordsCreated,
+      recordsUpdated,
+      recordsFailed,
+      recordsDeleted,
+      durationSeconds,
+      durationMs,
+    }, logScope);
 
     // 5. Registrar log de sincronización
     await logZohoSync(syncType, status, {
@@ -276,6 +300,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       durationMs,
     });
 
+    logger.error('Unhandled error during Zoho sync', error, { syncType, durationMs }, logScope);
     return NextResponse.json(
       {
         success: false,

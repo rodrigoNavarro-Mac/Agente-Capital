@@ -22,6 +22,7 @@ import type {
   ResourceType
 } from '@/types/documents';
 import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -241,7 +242,11 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
       // Si es un error de conexión y aún tenemos intentos, reintentar
       if (isConnectionError && attempt < retries) {
         const delay = Math.min(100 * Math.pow(2, attempt), 1000); // Backoff exponencial (max 1s)
-        console.log(`⚠️ Error de conexión detectado, reintentando en ${delay}ms (intento ${attempt + 1}/${retries + 1})...`);
+        logger.warn(
+          'Database connection error detected; retrying',
+          { delayMs: delay, attempt: attempt + 1, totalAttempts: retries + 1 },
+          'postgres'
+        );
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -1138,7 +1143,7 @@ export async function cleanupExpiredCache(): Promise<number> {
     // Si la tabla no existe aún, retornar 0
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tabla query_cache no existe aún. Ejecuta la migración 003_query_cache.sql');
+      logger.warn('Table query_cache does not exist. Run migration 003_query_cache.sql', undefined, 'postgres');
       return 0;
     }
     throw error;
@@ -1178,7 +1183,7 @@ export async function saveActionLog(log: Omit<ActionLog, 'id' | 'created_at'>): 
     // Esto permite que la aplicación funcione aunque la migración no se haya ejecutado
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tabla action_logs no existe. La acción no se registró. Ejecuta la migración 002_action_logs.sql');
+      logger.warn('Table action_logs does not exist. Action was not recorded. Run migration 002_action_logs.sql', undefined, 'postgres');
       return null;
     }
     // Si es otro error, lanzarlo
@@ -1257,7 +1262,7 @@ export async function getActionLogs(options: {
     // Esto puede pasar si la migración no se ha ejecutado aún
     if (error instanceof Error && error.message.includes('no existe la relación') || 
         error instanceof Error && error.message.includes('does not exist')) {
-      console.log('Tabla action_logs no existe aún, retornando array vacío. Ejecuta la migración 002_action_logs.sql');
+      logger.warn('Table action_logs does not exist yet; returning empty array. Run migration 002_action_logs.sql', undefined, 'postgres');
       return [];
     }
     // Si es otro error, lanzarlo
@@ -1331,7 +1336,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         : 0;
     } else {
       // La columna no existe, usar valor por defecto
-      console.log('Columna feedback_rating no disponible en query_logs, usando valor por defecto');
+      logger.warn('Column feedback_rating not available in query_logs; using default value', undefined, 'postgres');
       averageRating = 0;
     }
   } catch (error) {
@@ -1339,7 +1344,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     // Esto puede pasar si la base de datos no tiene la columna aún o hay problemas de permisos
     const errorMsg = error instanceof Error ? error.message : String(error);
     if (errorMsg.includes('feedback_rating') || errorMsg.includes('no existe la columna')) {
-      console.log('Columna feedback_rating no disponible, usando valor por defecto');
+      logger.warn('Column feedback_rating not available; using default value', undefined, 'postgres');
     } else {
       // Otro tipo de error, registrar como advertencia pero no fallar
       console.warn('Error obteniendo calificación promedio:', errorMsg);
@@ -1364,7 +1369,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
  */
 export async function closePool(): Promise<void> {
   await pool.end();
-  console.log('Pool de PostgreSQL cerrado');
+  logger.debug('PostgreSQL pool closed', undefined, 'postgres');
 }
 
 // =====================================================
@@ -1617,7 +1622,7 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
       );
       
       if (logResult.rows.length === 0) {
-        console.log(`Query log ${queryLogId} no encontrado para actualizar chunk stats`);
+        logger.warn('Query log not found for chunk stats update', { queryLogId }, 'postgres');
         return;
       }
       
@@ -1658,7 +1663,7 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
     // Si las tablas no existen aún, solo loguear
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tablas de aprendizaje no existen aún. Ejecuta la migración 004_learning_system.sql');
+      logger.warn('Learning tables do not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
     throw error;
@@ -1687,7 +1692,7 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
     // Si la tabla no existe, solo loguear
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tabla query_logs_chunks no existe aún. Ejecuta la migración 004_learning_system.sql');
+      logger.warn('Table query_logs_chunks does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
     throw error;
@@ -1740,7 +1745,7 @@ export async function getLearnedResponse(queryText: string): Promise<{
       const semanticResult = await findLearnedResponse(queryText, 0.7);
       
       if (semanticResult) {
-        console.log(`📚 Respuesta aprendida encontrada usando embeddings semánticos`);
+        logger.debug('Learned response found using semantic embeddings', undefined, 'postgres');
         return {
           query: semanticResult.entry.query,
           answer: semanticResult.entry.answer,
@@ -1751,7 +1756,7 @@ export async function getLearnedResponse(queryText: string): Promise<{
     } catch (semanticError) {
       // Si falla la búsqueda semántica, continuar con el método antiguo
       const errorMessage = semanticError instanceof Error ? semanticError.message : 'Error desconocido';
-      console.log(`⚠️ Búsqueda semántica no disponible (${errorMessage}), usando método de texto como fallback`);
+      logger.debug('Semantic search unavailable; falling back to text search', { errorMessage }, 'postgres');
       
       // Solo loggear el error completo en modo debug o si es un error crítico
       if (semanticError instanceof Error && !errorMessage.includes('no existe la relación') && 
@@ -1897,7 +1902,7 @@ export async function incrementLearnedResponseUsage(queryText: string): Promise<
       return;
     }
     // No lanzar error, solo loguear
-    console.log('⚠️ Error incrementando uso de respuesta aprendida:', error);
+    logger.error('Failed to increment learned response usage', error, undefined, 'postgres');
   }
 }
 
@@ -2022,7 +2027,7 @@ export async function upsertLearnedResponse(
         }
       } catch (embeddingError) {
         // No fallar si no se puede guardar el embedding, es opcional
-        console.log('⚠️ No se pudo guardar embedding de respuesta aprendida:', embeddingError);
+        logger.error('Failed to save learned response embedding (optional)', embeddingError, undefined, 'postgres');
       }
     }
     
@@ -2030,7 +2035,7 @@ export async function upsertLearnedResponse(
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tabla response_learning no existe aún. Ejecuta la migración 004_learning_system.sql');
+      logger.warn('Table response_learning does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return { created: false, updated: false };
     }
     throw error;
@@ -2238,7 +2243,7 @@ export async function upsertAgentMemory(
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
-      console.log('Tabla agent_memory no existe aún. Ejecuta la migración 004_learning_system.sql');
+      logger.warn('Table agent_memory does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
     throw error;
@@ -2593,6 +2598,94 @@ export async function getZohoNotesFromDB(
   }
 }
 
+// =====================================================
+// ZOHO NOTES - AI INSIGHTS (PERSISTENCIA)
+// =====================================================
+
+/**
+ * Obtiene el último insight IA guardado para un contexto (hash estable).
+ * Retorna null si no existe o si la tabla no está creada.
+ */
+export async function getZohoNotesAIInsightsByContextHash(
+  contextHash: string
+): Promise<any | null> {
+  try {
+    const result = await query<{ payload: any }>(
+      `SELECT payload
+       FROM zoho_notes_ai_insights
+       WHERE context_hash = $1
+       LIMIT 1`,
+      [contextHash]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const payload = result.rows[0].payload;
+    return typeof payload === 'string' ? JSON.parse(payload) : payload;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('no existe la relación') || error.message.includes('does not exist'))
+    ) {
+      // Tabla no creada (migración no aplicada)
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Inserta o actualiza el insight IA para un contexto.
+ * Si la tabla no existe (migración no aplicada), no falla: solo hace warn.
+ */
+export async function upsertZohoNotesAIInsights(
+  params: {
+    contextHash: string;
+    context: Record<string, unknown>;
+    notesCount: number;
+    payload: any;
+    generatedByUserId?: number;
+  }
+): Promise<void> {
+  try {
+    const { contextHash, context, notesCount, payload, generatedByUserId } = params;
+
+    await query(
+      `INSERT INTO zoho_notes_ai_insights (
+        context_hash,
+        context,
+        notes_count,
+        payload,
+        generated_by_user_id
+      ) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (context_hash) DO UPDATE SET
+        context = EXCLUDED.context,
+        notes_count = EXCLUDED.notes_count,
+        payload = EXCLUDED.payload,
+        generated_by_user_id = EXCLUDED.generated_by_user_id,
+        updated_at = NOW()`,
+      [
+        contextHash,
+        JSON.stringify(context),
+        notesCount,
+        JSON.stringify(payload),
+        generatedByUserId ?? null,
+      ]
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('no existe la relación') || error.message.includes('does not exist'))
+    ) {
+      console.warn('Tabla zoho_notes_ai_insights no existe. Ejecuta la migración 010_zoho_notes_ai_insights.sql');
+      return;
+    }
+    throw error;
+  }
+}
+
 /**
  * Elimina leads que ya no existen en Zoho CRM
  * @param zohoIds Array de IDs de leads que existen en Zoho
@@ -2618,7 +2711,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
         
         // Luego eliminar los leads
         await query(`DELETE FROM zoho_leads`);
-        console.log(`🗑️ Eliminados ${totalLeads} leads que ya no existen en Zoho`);
+        logger.debug('Deleted Zoho leads not present in Zoho', { totalDeleted: totalLeads }, 'postgres');
         return totalLeads;
       }
       return 0;
@@ -2666,7 +2759,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
       totalDeleted += batch.length;
     }
 
-    console.log(`🗑️ Eliminados ${totalDeleted} leads que ya no existen en Zoho`);
+    logger.debug('Deleted Zoho leads not present in Zoho', { totalDeleted }, 'postgres');
     return totalDeleted;
   } catch (error) {
     console.error('Error eliminando leads eliminados en Zoho:', error);
@@ -2698,7 +2791,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
         
         // Luego eliminar los deals
         await query(`DELETE FROM zoho_deals`);
-        console.log(`🗑️ Eliminados ${totalDeals} deals que ya no existen en Zoho`);
+        logger.debug('Deleted Zoho deals not present in Zoho', { totalDeleted: totalDeals }, 'postgres');
         return totalDeals;
       }
       return 0;
@@ -2746,7 +2839,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
       totalDeleted += batch.length;
     }
 
-    console.log(`🗑️ Eliminados ${totalDeleted} deals que ya no existen en Zoho`);
+    logger.debug('Deleted Zoho deals not present in Zoho', { totalDeleted }, 'postgres');
     return totalDeleted;
   } catch (error) {
     console.error('Error eliminando deals eliminados en Zoho:', error);
@@ -2812,7 +2905,15 @@ export async function getZohoLeadsFromDB(
     let paramIndex = 1;
 
     if (filters?.desarrollo) {
-      whereConditions.push(`desarrollo = $${paramIndex}`);
+      // Buscar en la columna desarrollo O en el JSONB (tanto "Desarrollo" como "Desarollo")
+      // Nota: Zoho tiene un error de tipeo y usa "Desarollo" en lugar de "Desarrollo"
+      whereConditions.push(`(
+        LOWER(TRIM(COALESCE(
+          desarrollo,
+          data->>'Desarrollo',
+          data->>'Desarollo'
+        ))) = LOWER(TRIM($${paramIndex}))
+      )`);
       params.push(filters.desarrollo);
       paramIndex++;
     }
@@ -2964,11 +3065,11 @@ export async function getZohoDealsFromDB(
       // Nota: Zoho tiene un error de tipeo y usa "Desarollo" en lugar de "Desarrollo"
       // Esto asegura que encontremos deals incluso si la columna está NULL o el campo tiene el nombre incorrecto
       whereConditions.push(`(
-        COALESCE(
+        LOWER(TRIM(COALESCE(
           desarrollo,
           data->>'Desarrollo',
           data->>'Desarollo'
-        ) = $${paramIndex}
+        ))) = LOWER(TRIM($${paramIndex}))
       )`);
       params.push(filters.desarrollo);
       paramIndex++;

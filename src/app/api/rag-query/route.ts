@@ -18,6 +18,7 @@ import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { generatePreview } from '@/lib/cleanText';
 import { findCachedResponse, saveToCache } from '@/lib/cache';
 import { processQuery } from '@/lib/queryProcessing';
+import { logger } from '@/lib/logger';
 
 
 import type { 
@@ -98,6 +99,7 @@ function isSimpleQuery(query: string): boolean {
 
 export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryResponse>> {
   const startTime = Date.now();
+  const logScope = 'rag-query';
 
   try {
     // 1. Verificar autenticación
@@ -211,7 +213,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
       );
 
       if (cachedResult && cachedResult.similarity >= 0.85) {
-        console.log(`⚡ Usando respuesta desde caché (similaridad: ${(cachedResult.similarity * 100).toFixed(1)}%)`);
+        logger.debug('Using cached response', { similarity: cachedResult.similarity }, logScope);
         // Usar respuesta del caché
         answer = cachedResult.entry.response;
         
@@ -225,16 +227,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
             relevance_score: cachedResult.similarity, // Usar la similitud del caché como score
             text_preview: '',
           }));
-          console.log(`⚡ Respuesta desde caché (similaridad: ${(cachedResult.similarity * 100).toFixed(1)}%) con ${sources.length} fuentes`);
+          logger.debug('Cached response has sources', { similarity: cachedResult.similarity, sourcesCount: sources.length }, logScope);
         } else {
           sources = [];
-          console.log(`⚡ Respuesta desde caché (similaridad: ${(cachedResult.similarity * 100).toFixed(1)}%) - sin fuentes guardadas`);
+          logger.debug('Cached response without sources', { similarity: cachedResult.similarity }, logScope);
         }
         
         fromCache = true;
       }
     } else if (skipCache) {
-      console.log(`🔄 Regenerando respuesta (ignorando caché)...`);
+      logger.debug('Skipping cache (forced regeneration)', undefined, logScope);
     }
 
     // 10.5. Si no hay respuesta del caché, buscar respuestas aprendidas
@@ -242,7 +244,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     if (!fromCache && !answer && !skipCache) {
       const learnedResponse = await getLearnedResponse(processedQuery);
       if (learnedResponse && learnedResponse.quality_score >= 0.7) {
-        console.log(`📚 Usando respuesta aprendida (quality_score: ${learnedResponse.quality_score.toFixed(2)}, uso: ${learnedResponse.usage_count})`);
+        logger.debug('Using learned response', {
+          qualityScore: learnedResponse.quality_score,
+          usageCount: learnedResponse.usage_count,
+        }, logScope);
         
         // Incrementar contador de uso
         await incrementLearnedResponseUsage(processedQuery);
@@ -277,12 +282,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     if (!fromCache && !answer) {
       if (isSimple) {
         // Consulta simple: responder directamente sin buscar en Pinecone
-        console.log('💬 Consulta simple detectada, respondiendo sin búsqueda RAG...');
+        logger.debug('Simple query detected; responding without RAG', undefined, logScope);
         answer = await runSimpleQuery(query);
-        console.log('✅ Respuesta simple generada');
+        logger.debug('Simple response generated', undefined, logScope);
       } else {
         // Consulta compleja: usar RAG con búsqueda en Pinecone
-        console.log('📚 Consulta compleja, usando RAG con búsqueda en Pinecone...');
+        logger.debug('Complex query; using RAG', undefined, logScope);
         
         // 11. Obtener configuración dinámica
         const topKConfig = await getConfig('top_k');
@@ -295,11 +300,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
           ...(type && { type: type as DocumentContentType }),
         };
 
-        console.log(`📊 Buscando en Pinecone: namespace=${namespace}, filter=`, filter);
+        logger.debug('Querying Pinecone', { namespace, filter, topK }, logScope);
 
         // ✅ Usar query procesado para mejor búsqueda semántica
         matches = await queryChunks(namespace, filter, processedQuery, topK);
-        console.log(`📄 Resultados encontrados: ${matches.length}`);
+        logger.debug('Pinecone matches found', { count: matches.length }, logScope);
 
         // 13. Construir contexto desde los matches
         const context = buildContextFromMatches(matches);
@@ -307,15 +312,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
         // 13.5. Cargar memoria operativa del agente
         const memories = await getAgentMemories(0.7); // Cargar memorias con importancia >= 0.7
         if (memories.length > 0) {
-          console.log(`🧠 Cargadas ${memories.length} memorias operativas del agente`);
+          logger.debug('Agent memories loaded', { count: memories.length }, logScope);
         }
 
         // 14. Enviar al LLM con contexto RAG y memoria operativa
         // Usar el query original (no procesado) para la respuesta, pero el contexto ya tiene
         // la información relevante gracias al query procesado
-        console.log('🤖 Enviando al LLM con contexto RAG...');
+        logger.debug('Sending request to LLM (RAG)', undefined, logScope);
         answer = await runRAGQuery(query, context, type, memories, matches);
-        console.log('✅ Respuesta RAG recibida del LLM y validada contra los chunks');
+        logger.debug('RAG response received from LLM', undefined, logScope);
 
         // 15. Preparar referencias de fuentes
         sources = buildSourceReferences(matches);
@@ -374,7 +379,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     }
 
     // 15. Retornar respuesta
-    console.log(`📤 Retornando respuesta con ${sources.length} fuentes: ${sources.map(s => s.filename).join(', ')}`);
+    logger.debug('Returning response', { sourcesCount: sources.length, sources: sources.map(s => s.filename) }, logScope);
     return NextResponse.json({
       success: true,
       answer,

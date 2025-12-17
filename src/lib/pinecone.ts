@@ -25,6 +25,7 @@ import type {
 } from '@/types/documents';
 import { getMultipleChunkStats } from './postgres';
 import { processQuery, generateQueryVariants } from './queryProcessing';
+import { logger } from '@/lib/logger';
 // Pinecone Inference lo hace automáticamente
 
 // =====================================================
@@ -59,7 +60,7 @@ export async function initPinecone(): Promise<Pinecone> {
     apiKey: PINECONE_API_KEY,
   });
 
-  console.log('✅ Cliente Pinecone inicializado');
+  logger.debug('Pinecone client initialized', undefined, 'pinecone');
   return pineconeClient;
 }
 
@@ -75,7 +76,7 @@ export async function getPineconeIndex(): Promise<Index<RecordMetadata>> {
   const client = await initPinecone();
   pineconeIndex = client.index(PINECONE_INDEX_NAME);
   
-  console.log(`✅ Índice Pinecone "${PINECONE_INDEX_NAME}" conectado`);
+  logger.debug('Pinecone index connected', { indexName: PINECONE_INDEX_NAME }, 'pinecone');
   return pineconeIndex;
 }
 
@@ -105,7 +106,7 @@ export async function upsertChunks(
       return 0;
     }
 
-    console.log(`📦 Preparando ${chunks.length} chunks para Pinecone...`);
+    logger.debug('Preparing chunks for Pinecone upsert', { namespace, count: chunks.length }, 'pinecone');
     
     // ========================================
     // PASO 1: Generar embeddings con Pinecone Inference API
@@ -113,7 +114,7 @@ export async function upsertChunks(
     const client = await initPinecone();
     const texts = chunks.map(chunk => chunk.text);
     
-    console.log(`🧠 Generando embeddings con llama-text-embed-v2...`);
+    logger.debug('Generating embeddings (llama-text-embed-v2)', { count: texts.length }, 'pinecone');
     
     // La API de Inference tiene un límite de ~96 textos por llamada
     // Generamos embeddings en batches si es necesario
@@ -122,7 +123,11 @@ export async function upsertChunks(
     
     for (let i = 0; i < texts.length; i += INFERENCE_BATCH_SIZE) {
       const textBatch = texts.slice(i, i + INFERENCE_BATCH_SIZE);
-      console.log(`   Generando embeddings para batch ${Math.floor(i / INFERENCE_BATCH_SIZE) + 1}/${Math.ceil(texts.length / INFERENCE_BATCH_SIZE)} (${textBatch.length} textos)...`);
+      logger.debug('Generating embeddings batch', {
+        batch: Math.floor(i / INFERENCE_BATCH_SIZE) + 1,
+        totalBatches: Math.ceil(texts.length / INFERENCE_BATCH_SIZE),
+        batchSize: textBatch.length,
+      }, 'pinecone');
       
       const embeddings = await client.inference.embed(
         'llama-text-embed-v2',     // Modelo configurado en tu índice
@@ -139,7 +144,7 @@ export async function upsertChunks(
       }
     }
     
-    console.log(`✅ Embeddings generados: ${allEmbeddings.length} vectores de dimensión 1024`);
+    logger.debug('Embeddings generated', { count: allEmbeddings.length, dimension: 1024 }, 'pinecone');
     
     // ========================================
     // PASO 2: Crear records con los embeddings generados
@@ -173,13 +178,17 @@ export async function upsertChunks(
       const batch = records.slice(i, i + UPSERT_BATCH_SIZE);
       await ns.upsert(batch);
       totalUpserted += batch.length;
-      console.log(`📤 Upserted batch ${Math.floor(i / UPSERT_BATCH_SIZE) + 1}: ${batch.length} chunks`);
+      logger.debug('Upserted batch', {
+        batch: Math.floor(i / UPSERT_BATCH_SIZE) + 1,
+        batchSize: batch.length,
+        namespace,
+      }, 'pinecone');
     }
 
-    console.log(`✅ Total chunks insertados en namespace "${namespace}": ${totalUpserted}`);
+    logger.debug('Upsert completed', { namespace, totalUpserted }, 'pinecone');
     return totalUpserted;
   } catch (error) {
-    console.error('❌ Error en upsertChunks:', error);
+    logger.error('Error in upsertChunks', error, { namespace }, 'pinecone');
     throw error;
   }
 }
@@ -208,7 +217,7 @@ export async function upsertChunksWithVectors(
 
     return totalUpserted;
   } catch (error) {
-    console.error('❌ Error en upsertChunksWithVectors:', error);
+    logger.error('Error in upsertChunksWithVectors', error, { namespace }, 'pinecone');
     throw error;
   }
 }
@@ -237,24 +246,24 @@ export async function queryChunks(
   topK: number = 5
 ): Promise<PineconeMatch[]> {
   try {
-    console.log(`🔍 Buscando: "${queryText.substring(0, 50)}..."`);
+    logger.debug('Querying Pinecone', { queryPreview: `${queryText.substring(0, 50)}...`, namespace, topK }, 'pinecone');
     
     // ========================================
     // PASO 0: Procesar query (corrección ortográfica + expansión semántica)
     // ========================================
     const processedQuery = processQuery(queryText);
-    console.log(`🔧 Query procesado: "${processedQuery.substring(0, 50)}..."`);
+    logger.debug('Processed query', { queryPreview: `${processedQuery.substring(0, 50)}...` }, 'pinecone');
     
     // Si el query procesado es diferente, loguear la mejora
     if (processedQuery !== queryText) {
-      console.log(`✨ Query mejorado: "${queryText}" → "${processedQuery}"`);
+      logger.debug('Query improved', { original: queryText, processed: processedQuery }, 'pinecone');
     }
     
     // ========================================
     // PASO 1: Generar embedding del query procesado con Inference API
     // ========================================
     const client = await initPinecone();
-    console.log(`🧠 Generando embedding del query con llama-text-embed-v2...`);
+    logger.debug('Generating query embedding (llama-text-embed-v2)', undefined, 'pinecone');
     
     const embeddings = await client.inference.embed(
       'llama-text-embed-v2',
@@ -268,7 +277,7 @@ export async function queryChunks(
     }
     
     const queryVector = embeddings[0].values;
-    console.log(`✅ Embedding del query generado (${queryVector.length} dimensiones)`);
+    logger.debug('Query embedding generated', { dimension: queryVector.length }, 'pinecone');
     
     // ========================================
     // PASO 2: Buscar vectores similares
@@ -346,7 +355,7 @@ export async function queryChunks(
       const goodMatches = sortedMatches.filter(m => m.score >= 0.5); // Umbral de relevancia
       
       if (goodMatches.length < topK && goodMatches.length < 3) {
-        console.log(`⚠️ Pocos resultados relevantes (${goodMatches.length}), intentando con variantes del query...`);
+        logger.debug('Few relevant results; trying query variants', { goodMatches: goodMatches.length, topK }, 'pinecone');
         
         try {
           // Generar variantes del query y buscar con ellas
@@ -401,7 +410,8 @@ export async function queryChunks(
                 });
               }
             } catch (variantError) {
-              console.log(`⚠️ Error buscando con variante "${variant}":`, variantError);
+              logger.debug('Variant query failed', { variant }, 'pinecone');
+              logger.error('Variant query error', variantError, { variant }, 'pinecone');
               // Continuar con la siguiente variante
             }
           }
@@ -412,25 +422,26 @@ export async function queryChunks(
             .slice(0, topK);
           
           if (finalMatches.length > sortedMatches.length) {
-            console.log(`✅ Encontrados ${finalMatches.length} resultados usando variantes del query`);
+            logger.debug('Found results using query variants', { count: finalMatches.length }, 'pinecone');
             return finalMatches;
           }
         } catch (variantError) {
-          console.log('⚠️ Error en búsqueda con variantes, usando resultados originales:', variantError);
+          logger.debug('Variant search failed; using original results', undefined, 'pinecone');
+          logger.error('Variant search error', variantError, undefined, 'pinecone');
         }
       }
       
-      console.log(`✅ Encontrados ${sortedMatches.length} resultados (re-ranked con estadísticas)`);
+      logger.debug('Matches found (re-ranked with stats)', { count: sortedMatches.length }, 'pinecone');
       return sortedMatches;
     } catch {
       // Si hay error obteniendo stats, usar resultados originales
-      console.log('⚠️ Error obteniendo estadísticas de chunks, usando resultados sin re-ranking');
+      logger.debug('Failed fetching chunk stats; using results without re-ranking', undefined, 'pinecone');
       const matches = initialMatches.slice(0, topK);
-      console.log(`✅ Encontrados ${matches.length} resultados`);
+      logger.debug('Matches found', { count: matches.length }, 'pinecone');
       return matches;
     }
   } catch (error) {
-    console.error('❌ Error en queryChunks:', error);
+    logger.error('Error in queryChunks', error, { namespace, topK }, 'pinecone');
     throw error;
   }
 }
@@ -470,7 +481,7 @@ export async function queryChunksWithVector(
 
     return matches;
   } catch (error) {
-    console.error('❌ Error en queryChunksWithVector:', error);
+    logger.error('Error in queryChunksWithVector', error, { namespace, topK }, 'pinecone');
     throw error;
   }
 }
@@ -487,9 +498,9 @@ export async function deleteNamespace(namespace: string): Promise<void> {
   try {
     const index = await getPineconeIndex();
     await index.namespace(namespace).deleteAll();
-    console.log(`🗑️ Namespace "${namespace}" eliminado`);
+    logger.debug('Namespace deleted', { namespace }, 'pinecone');
   } catch (error) {
-    console.error('❌ Error eliminando namespace:', error);
+    logger.error('Error deleting namespace', error, { namespace }, 'pinecone');
     throw error;
   }
 }
@@ -503,9 +514,9 @@ export async function deleteByIds(namespace: string, ids: string[]): Promise<voi
   try {
     const index = await getPineconeIndex();
     await index.namespace(namespace).deleteMany(ids);
-    console.log(`🗑️ Eliminados ${ids.length} vectores de namespace "${namespace}"`);
+    logger.debug('Deleted vectors by ids', { namespace, count: ids.length }, 'pinecone');
   } catch (error) {
-    console.error('❌ Error eliminando vectores:', error);
+    logger.error('Error deleting vectors by ids', error, { namespace, count: ids.length }, 'pinecone');
     throw error;
   }
 }
@@ -528,9 +539,9 @@ export async function deleteDocumentChunks(
       sourceFileName: sourceFileName
     });
     
-    console.log(`🗑️ Chunks eliminados del documento "${sourceFileName}" en namespace "${namespace}"`);
+    logger.debug('Deleted document chunks', { namespace, sourceFileName }, 'pinecone');
   } catch (error) {
-    console.error('❌ Error eliminando chunks del documento:', error);
+    logger.error('Error deleting document chunks', error, { namespace, sourceFileName }, 'pinecone');
     throw error;
   }
 }
@@ -544,7 +555,7 @@ export async function getIndexStats(): Promise<object> {
     const stats = await index.describeIndexStats();
     return stats;
   } catch (error) {
-    console.error('❌ Error obteniendo stats:', error);
+    logger.error('Error getting index stats', error, undefined, 'pinecone');
     throw error;
   }
 }
@@ -607,10 +618,10 @@ export async function getDocumentChunks(
       return a.metadata.chunk - b.metadata.chunk;
     });
     
-    console.log(`✅ Obtenidos ${chunks.length} chunks del documento "${sourceFileName}"`);
+    logger.debug('Document chunks fetched', { namespace, sourceFileName, count: chunks.length }, 'pinecone');
     return chunks;
   } catch (error) {
-    console.error('❌ Error obteniendo chunks del documento:', error);
+    logger.error('Error getting document chunks', error, { namespace, sourceFileName }, 'pinecone');
     throw error;
   }
 }

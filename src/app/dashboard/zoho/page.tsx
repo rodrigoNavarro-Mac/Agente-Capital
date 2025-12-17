@@ -13,6 +13,7 @@ import {
   getZohoDeals, 
   getZohoStats,
   getZohoNotesInsightsAI,
+  getZohoNotesInsightsStored,
   triggerZohoSync,
   type ZohoLead,
   type ZohoDeal,
@@ -24,6 +25,7 @@ import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/development-colors';
+import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, type TimePeriod } from '@/lib/time-buckets';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,10 @@ export default function ZohoCRMPage() {
   // Insights con IA (on-demand)
   const [aiNotesInsights, setAiNotesInsights] = useState<ZohoNotesInsightsResponse | null>(null);
   const [aiNotesInsightsLoading, setAiNotesInsightsLoading] = useState(false);
+  // Último insight guardado (por contexto/filtros) - fuente de verdad para gráficas
+  const [storedNotesInsights, setStoredNotesInsights] = useState<ZohoNotesInsightsResponse | null>(null);
+  const [storedNotesInsightsLoading, setStoredNotesInsightsLoading] = useState(false);
+  const [aiChartsMode, setAiChartsMode] = useState<'themes' | 'objections' | 'friction' | 'actions'>('themes');
   const [leads, setLeads] = useState<ZohoLead[]>([]);
   const [deals, setDeals] = useState<ZohoDeal[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +55,7 @@ export default function ZohoCRMPage() {
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [selectedOwner, setSelectedOwner] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'quarter' | 'year'>('month');
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [syncing, setSyncing] = useState(false);
   
@@ -139,43 +145,14 @@ export default function ZohoCRMPage() {
     return getDevelopmentColors(selectedDesarrollo);
   }, [selectedDesarrollo]);
 
-  // Calcular fechas según el periodo seleccionado
-  const getPeriodDates = useCallback((period: 'month' | 'quarter' | 'year', isLastPeriod: boolean = false) => {
-    const now = new Date();
-    let startDate: Date;
-    let endDate: Date;
-
-    if (isLastPeriod) {
-      // Para comparativo con periodo anterior
-      if (period === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      } else if (period === 'quarter') {
-        const currentQuarter = Math.floor(now.getMonth() / 3);
-        const lastQuarter = currentQuarter === 0 ? 3 : currentQuarter - 1;
-        const lastQuarterYear = currentQuarter === 0 ? now.getFullYear() - 1 : now.getFullYear();
-        startDate = new Date(lastQuarterYear, lastQuarter * 3, 1);
-        endDate = new Date(lastQuarterYear, (lastQuarter + 1) * 3, 0, 23, 59, 59, 999);
-      } else {
-        startDate = new Date(now.getFullYear() - 1, 0, 1);
-        endDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
-      }
-    } else {
-      // Periodo actual
-      if (period === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      } else if (period === 'quarter') {
-        const currentQuarter = Math.floor(now.getMonth() / 3);
-        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
-        endDate = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59, 999);
-      } else {
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-      }
-    }
-
-    return { startDate, endDate };
+  // Calcular fechas según el periodo seleccionado (rangos de calendario)
+  const getPeriodDates = useCallback((period: TimePeriod, isLastPeriod: boolean = false) => {
+    // Calendar ranges:
+    // - week: Mon -> Sun of current week
+    // - month: 1st -> last day of current month
+    // - quarter: start -> end of current quarter
+    // - year: Jan 1 -> Dec 31 of current year
+    return getRollingPeriodDates(period, isLastPeriod);
   }, []);
 
   // Si cambian filtros, invalidamos el resultado de IA (evita mostrar insights de otro periodo)
@@ -193,16 +170,21 @@ export default function ZohoCRMPage() {
 
     const loadActivityStats = async () => {
       try {
-        // Solo pedir cuando estamos en la pestaña de stats para no cargar de más.
-        if (activeTab !== 'stats') return;
+        // Solo pedir cuando estamos en las pestañas que lo usan (stats + executive).
+        // Esto evita llamadas innecesarias cuando el usuario está viendo listas (leads/deals).
+        if (activeTab !== 'stats' && activeTab !== 'executive') return;
 
         const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+        const debugZohoStats =
+          typeof window !== 'undefined' &&
+          new URLSearchParams(window.location.search).get('debugZohoStats') === '1';
 
         setActivityStatsLoading(true);
         const data = await getZohoStats({
           desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
           startDate,
           endDate,
+          debug: debugZohoStats,
         });
         if (!cancelled) setActivityStats(data);
       } catch (e) {
@@ -281,13 +263,13 @@ export default function ZohoCRMPage() {
       return stripNoise(`${title} ${content}`.trim());
     };
 
-    const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+    const { startDate: rangeStartDate, endDate: rangeEndDate } = getPeriodDates(selectedPeriod, showLastMonth);
 
     const filteredLeads = leads.filter((lead) => {
       const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
       if (!createdTime) return false;
       const leadDate = new Date(createdTime);
-      if (leadDate < startDate || leadDate > endDate) return false;
+      if (leadDate < rangeStartDate || leadDate > rangeEndDate) return false;
 
       if (selectedDesarrollo !== 'all') {
         const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
@@ -303,7 +285,7 @@ export default function ZohoCRMPage() {
       const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
       if (!dealCreatedTime) return false;
       const dealDate = new Date(dealCreatedTime);
-      if (dealDate < startDate || dealDate > endDate) return false;
+      if (dealDate < rangeStartDate || dealDate > rangeEndDate) return false;
 
       if (selectedDesarrollo !== 'all') {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
@@ -365,37 +347,25 @@ export default function ZohoCRMPage() {
       .slice(0, 10)
       .map(([term, count]) => ({ term, count }));
 
-    // Trend buckets: week for month/quarter, month for year
-    const getWeekNumberLocal = (date: Date): number => {
-      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-      const dayNum = d.getUTCDay() || 7;
-      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-    };
-
-    const bucketKey = (isoDate: string) => {
-      const d = new Date(isoDate);
-      if (selectedPeriod === 'year') {
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        return `${yyyy}-${mm}`;
-      }
-      const yyyy = d.getFullYear();
-      const ww = String(getWeekNumberLocal(d)).padStart(2, '0');
-      return `${yyyy}-W${ww}`;
-    };
-
     const trendTerms = topTerms.slice(0, 3).map(t => t.term);
-    // We store "bucket" plus dynamic term keys. Recharts accepts this shape well.
+    const bucketKeys = buildBucketKeys(selectedPeriod, rangeStartDate, rangeEndDate);
+
+    // Pre-create rows for all buckets so charts always have a stable number of points.
     const trendMap = new Map<string, Record<string, number | string>>();
+    for (const b of bucketKeys) {
+      const row = { bucket: b } as Record<string, number | string>;
+      for (const term of trendTerms) row[term] = 0;
+      trendMap.set(b, row);
+    }
 
     allNoteItems.forEach((item: any) => {
       const created = (typeof item?.createdTime === 'string' && item.createdTime) ? item.createdTime : null;
       if (!created) return;
-      const bucket = bucketKey(created);
-
-      const row = (trendMap.get(bucket) || { bucket }) as Record<string, number | string>;
+      const createdDate = new Date(created);
+      if (Number.isNaN(createdDate.getTime())) return;
+      const bucket = getBucketKeyForDate(createdDate, selectedPeriod, rangeStartDate);
+      const row = trendMap.get(bucket);
+      if (!row) return;
       const text = getNoteText(item.note);
       const words = tokenize(text);
       trendTerms.forEach((term) => {
@@ -403,15 +373,11 @@ export default function ZohoCRMPage() {
         if (occurrences > 0) {
           const prev = typeof row[term] === 'number' ? row[term] : 0;
           row[term] = prev + occurrences;
-        } else if (row[term] === undefined) {
-          row[term] = 0;
         }
       });
-      trendMap.set(bucket, row);
     });
 
-    const trend = Array.from(trendMap.values())
-      .sort((a: any, b: any) => String(a.bucket).localeCompare(String(b.bucket)));
+    const trend = bucketKeys.map((b) => trendMap.get(b) as Record<string, number | string>);
 
     // Notes payload for AI (cleaned + compact)
     const notesForAI: ZohoNoteForAI[] = allNoteItems
@@ -449,6 +415,74 @@ export default function ZohoCRMPage() {
     showLastMonth,
   ]);
 
+  // Build bar chart data from stored IA insights (meaningful labels instead of raw tokens)
+  const aiBarChartData = useMemo(() => {
+    if (!storedNotesInsights) return [];
+    const pick =
+      aiChartsMode === 'themes'
+        ? storedNotesInsights.topThemes
+        : aiChartsMode === 'objections'
+          ? storedNotesInsights.topObjections
+          : aiChartsMode === 'friction'
+            ? storedNotesInsights.frictionSignals
+            : storedNotesInsights.nextActions;
+
+    if (!Array.isArray(pick)) return [];
+
+    return pick
+      .slice(0, 10)
+      .map((x) => ({
+        label: x.label,
+        count: x.count,
+      }));
+  }, [aiChartsMode, storedNotesInsights]);
+
+  // Cargar insight guardado para el contexto actual (para que las gráficas "concuerden" con la IA)
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStored = async () => {
+      try {
+        setStoredNotesInsightsLoading(true);
+        const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+        const data = await getZohoNotesInsightsStored({
+          period: selectedPeriod,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+          source: selectedSource === 'all' ? undefined : selectedSource,
+          owner: selectedOwner === 'all' ? undefined : selectedOwner,
+          status: selectedStatus === 'all' ? undefined : selectedStatus,
+        });
+        if (!cancelled) setStoredNotesInsights(data);
+      } catch (e) {
+        // No toast para evitar ruido al cambiar filtros
+        console.warn('⚠️ No se pudo cargar storedNotesInsights:', e);
+        if (!cancelled) setStoredNotesInsights(null);
+      } finally {
+        if (!cancelled) setStoredNotesInsightsLoading(false);
+      }
+    };
+
+    // Solo intentamos cargar cuando estamos en las pestañas que lo muestran (stats + executive).
+    if (activeTab === 'stats' || activeTab === 'executive') {
+      loadStored();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    getPeriodDates,
+    selectedDesarrollo,
+    selectedOwner,
+    selectedPeriod,
+    selectedSource,
+    selectedStatus,
+    showLastMonth,
+  ]);
+
   const handleGenerateAINotesInsights = async () => {
     try {
       if (notesInsights.notesForAI.length === 0) {
@@ -476,9 +510,12 @@ export default function ZohoCRMPage() {
           owner: selectedOwner === 'all' ? undefined : selectedOwner,
           status: selectedStatus === 'all' ? undefined : selectedStatus,
         },
+        regenerate: true,
       });
 
       setAiNotesInsights(result);
+      // La API ahora persiste el resultado: actualizar también el "stored" (fuente para gráficas)
+      setStoredNotesInsights(result);
       toast({
         title: 'Insights generados',
         description: 'La IA generó insights a partir de las notas.',
@@ -499,7 +536,7 @@ export default function ZohoCRMPage() {
   const calculateStatsFromData = useCallback((
     allLeads: ZohoLead[],
     allDeals: ZohoDeal[],
-    period: 'month' | 'quarter' | 'year',
+    period: TimePeriod,
     isLastPeriod: boolean,
     desarrollo?: string,
     source?: string,
@@ -612,27 +649,43 @@ export default function ZohoCRMPage() {
       }
     });
 
-    // Estadísticas por fecha
-    const leadsByDate: Record<string, number> = {};
+    // Estadísticas temporales (bucketizadas según periodo)
+    // month   -> cada 2 días (15 puntos)
+    // quarter -> semanal (13 puntos)
+    // year    -> mensual (12 puntos)
+    const bucketKeys = buildBucketKeys(period, startDate, endDate);
+
+    const leadsByDateCounts: Record<string, number> = {};
     filteredLeads.forEach(lead => {
       const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
-      if (createdTime) {
-        const date = new Date(createdTime).toISOString().split('T')[0];
-        leadsByDate[date] = (leadsByDate[date] || 0) + 1;
+      if (!createdTime) return;
+      const d = new Date(createdTime);
+      if (Number.isNaN(d.getTime())) return;
+      const bucket = getBucketKeyForDate(d, period, startDate);
+      leadsByDateCounts[bucket] = (leadsByDateCounts[bucket] || 0) + 1;
+    });
+
+    const dealsByDateCounts: Record<string, number> = {};
+    const dealValueByDateCounts: Record<string, number> = {};
+    filteredDeals.forEach(deal => {
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (!dealCreatedTime) return;
+      const d = new Date(dealCreatedTime);
+      if (Number.isNaN(d.getTime())) return;
+      const bucket = getBucketKeyForDate(d, period, startDate);
+      dealsByDateCounts[bucket] = (dealsByDateCounts[bucket] || 0) + 1;
+      if (deal.Amount) {
+        dealValueByDateCounts[bucket] = (dealValueByDateCounts[bucket] || 0) + deal.Amount;
       }
     });
 
+    const leadsByDate: Record<string, number> = {};
     const dealsByDate: Record<string, number> = {};
     const dealValueByDate: Record<string, number> = {};
-    filteredDeals.forEach(deal => {
-      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
-      if (dealCreatedTime) {
-        const date = new Date(dealCreatedTime).toISOString().split('T')[0];
-        dealsByDate[date] = (dealsByDate[date] || 0) + 1;
-        if (deal.Amount) {
-          dealValueByDate[date] = (dealValueByDate[date] || 0) + deal.Amount;
-        }
-      }
+    bucketKeys.forEach((b) => {
+      leadsByDate[b] = leadsByDateCounts[b] || 0;
+      dealsByDate[b] = dealsByDateCounts[b] || 0;
+      dealValueByDate[b] = dealValueByDateCounts[b] || 0;
     });
 
     // Embudos
@@ -711,43 +764,77 @@ export default function ZohoCRMPage() {
       dealsByOwner[owner] = (dealsByOwner[owner] || 0) + 1;
     });
 
-    // Calcular tiempo promedio a primer contacto SOLO dentro del horario laboral (08:30-20:30)
+    // Calcular tiempo promedio a primer contacto (REPORTE-ALINEADO):
+    // - Filter: lead CREATED within 08:30-20:30 (any day)
+    // - Metric: time to first contact in REAL minutes (24/7), not "business minutes"
     let totalTimeToFirstContact = 0;
     let countWithFirstContact = 0;
-    const businessStart = 8 * 60 + 30; // 08:30 en minutos
-    const businessEnd = 20 * 60 + 30; // 20:30 en minutos
+    const businessStart = 8 * 60 + 30; // 08:30 in minutes
+    const businessEnd = 20 * 60 + 30; // 20:30 in minutes
+
+    // Mexico City standard time (UTC-06:00). We use a fixed offset so results don't depend on viewer timezone.
+    const BUSINESS_UTC_OFFSET_MINUTES = -360;
+    const offsetMs = BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000;
+
+    const getLocalParts = (date: Date) => {
+      const local = new Date(date.getTime() + offsetMs);
+      return {
+        year: local.getUTCFullYear(),
+        month: local.getUTCMonth(),
+        day: local.getUTCDate(),
+        dow: local.getUTCDay(),
+        hour: local.getUTCHours(),
+        minute: local.getUTCMinutes(),
+      };
+    };
+
+    const isCreatedWithinBusinessHours = (date: Date) => {
+      const p = getLocalParts(date);
+      const minutes = p.hour * 60 + p.minute;
+      return minutes >= businessStart && minutes <= businessEnd;
+    };
     
     filteredLeads.forEach(lead => {
       const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
       const firstContactTime = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
+      const tiempoEntreContacto = (lead as any).Tiempo_entre_primer_contacto;
       
-      if (createdTime && firstContactTime) {
+      if (createdTime) {
         const created = new Date(createdTime);
-        const firstContact = new Date(firstContactTime);
-        
-        // Verificar que el primer contacto sea dentro del horario laboral
-        const contactHour = firstContact.getHours();
-        const contactMinute = firstContact.getMinutes();
-        const contactTimeInMinutes = contactHour * 60 + contactMinute;
-        const dayOfWeek = firstContact.getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // 0 = domingo, 6 = sábado
-        
-        // Solo contar si el contacto fue dentro del horario laboral y no es fin de semana
-        if (!isWeekend && contactTimeInMinutes >= businessStart && contactTimeInMinutes <= businessEnd) {
-          const diffMinutes = (firstContact.getTime() - created.getTime()) / (1000 * 60);
-          if (diffMinutes > 0 && diffMinutes < 100000) { // Validar rango razonable
-            totalTimeToFirstContact += diffMinutes;
+        if (Number.isNaN(created.getTime())) return;
+
+        // Filter by CREATED time within business hours (08:30-20:30, any day).
+        if (!isCreatedWithinBusinessHours(created)) return;
+
+        // Prefer Zoho-provided minutes if available.
+        if (tiempoEntreContacto !== null && tiempoEntreContacto !== undefined) {
+          const parsed = typeof tiempoEntreContacto === 'number' ? tiempoEntreContacto : parseFloat(tiempoEntreContacto);
+          if (!Number.isFinite(parsed)) return;
+          if (parsed > 0 && parsed < 100000) {
+            totalTimeToFirstContact += parsed;
             countWithFirstContact++;
           }
+          return;
+        }
+
+        // Otherwise compute from timestamps.
+        if (!firstContactTime) return;
+        const firstContact = new Date(firstContactTime);
+        if (Number.isNaN(firstContact.getTime())) return;
+
+        const diffMinutes = (firstContact.getTime() - created.getTime()) / (1000 * 60);
+        if (diffMinutes > 0 && diffMinutes < 100000) {
+          totalTimeToFirstContact += diffMinutes;
+          countWithFirstContact++;
         }
       }
     });
     
     const averageTimeToFirstContact = countWithFirstContact > 0
-      ? Math.round(totalTimeToFirstContact / countWithFirstContact)
+      ? Math.round((totalTimeToFirstContact / countWithFirstContact) * 10) / 10
       : 0;
 
-    // Leads fuera de horario laboral (08:30-20:30)
+    // Leads fuera de horario laboral (08:00-20:30)
     let leadsOutsideBusinessHours = 0;
     filteredLeads.forEach(lead => {
       const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
@@ -756,7 +843,7 @@ export default function ZohoCRMPage() {
         const hour = date.getHours();
         const minute = date.getMinutes();
         const timeInMinutes = hour * 60 + minute;
-        const businessStart = 8 * 60 + 30; // 08:30
+        const businessStart = 8 * 60; // 08:00
         const businessEnd = 20 * 60 + 30; // 20:30
         if (timeInMinutes < businessStart || timeInMinutes > businessEnd) {
           leadsOutsideBusinessHours++;
@@ -1142,6 +1229,61 @@ export default function ZohoCRMPage() {
     }
   };
 
+  // -----------------------------------------------------
+  // Display helpers (MUST be before early returns to keep hook order stable)
+  // -----------------------------------------------------
+  // Stats que se están mostrando en la UI (periodo actual o periodo anterior)
+  // Prefer the freshly computed memoized stats to avoid a render where state is still null.
+  const effectiveCurrentStats = currentStats ?? stats;
+  const effectivePreviousStats = previousStats ?? lastMonthStats;
+  const displayedStats = showLastMonth ? effectivePreviousStats : effectiveCurrentStats;
+  // For the "average time to first contact" KPI:
+  // - Show local calculation immediately (fast)
+  // - If backend value differs, it will still be available in debug, but we don't block UI on it.
+  const displayedAvgTimeToFirstContact =
+    displayedStats?.averageTimeToFirstContact ?? activityStats?.averageTimeToFirstContact ?? 0;
+
+  // Lists for Leads/Deals tabs (must follow the selected period + toggle)
+  const displayedFilteredLeads = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+    return leads.filter((lead) => {
+      const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
+      if (!createdTime) return false;
+      const leadDate = new Date(createdTime);
+      if (Number.isNaN(leadDate.getTime())) return false;
+      if (leadDate < startDate || leadDate > endDate) return false;
+
+      if (selectedDesarrollo !== 'all') {
+        const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
+        if (leadDesarrollo !== selectedDesarrollo) return false;
+      }
+      if (selectedSource !== 'all' && lead.Lead_Source !== selectedSource) return false;
+      if (selectedOwner !== 'all' && lead.Owner?.name !== selectedOwner) return false;
+      if (selectedStatus !== 'all' && lead.Lead_Status !== selectedStatus) return false;
+      return true;
+    });
+  }, [getPeriodDates, leads, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
+
+  const displayedFilteredDeals = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
+    return deals.filter((deal) => {
+      const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
+      if (!dealCreatedTime) return false;
+      const dealDate = new Date(dealCreatedTime);
+      if (Number.isNaN(dealDate.getTime())) return false;
+      if (dealDate < startDate || dealDate > endDate) return false;
+
+      if (selectedDesarrollo !== 'all') {
+        const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
+        if (dealDesarrollo !== selectedDesarrollo) return false;
+      }
+      if (selectedSource !== 'all' && deal.Lead_Source !== selectedSource) return false;
+      if (selectedOwner !== 'all' && deal.Owner?.name !== selectedOwner) return false;
+      if (selectedStatus !== 'all' && deal.Stage !== selectedStatus) return false;
+      return true;
+    });
+  }, [deals, getPeriodDates, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
+
   // Si no tiene permisos
   if (userRole !== null && !['admin', 'ceo', 'sales_manager'].includes(userRole)) {
     return (
@@ -1176,9 +1318,6 @@ export default function ZohoCRMPage() {
       </div>
     );
   }
-
-  // Stats que se están mostrando en la UI (periodo actual o mes anterior)
-  const displayedStats = showLastMonth ? lastMonthStats : stats;
 
   return (
     <div className="w-full h-full flex flex-col gap-6">
@@ -1242,6 +1381,109 @@ export default function ZohoCRMPage() {
         </Card>
       )}
 
+      {/* Global Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Filter className="h-5 w-5" />
+            Filtros Globales
+          </CardTitle>
+          <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Periodo</label>
+              <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar periodo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="week">Semanal</SelectItem>
+                  <SelectItem value="month">Mensual</SelectItem>
+                  <SelectItem value="quarter">Trimestral</SelectItem>
+                  <SelectItem value="year">Anual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Desarrollo</label>
+              <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar desarrollo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los desarrollos</SelectItem>
+                  {availableDevelopments.map((dev) => (
+                    <SelectItem key={dev} value={dev}>
+                      {dev}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
+              <Select value={selectedSource} onValueChange={setSelectedSource}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar fuente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las fuentes</SelectItem>
+                  {availableSources.map((source) => (
+                    <SelectItem key={source} value={source}>
+                      {source}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Asesor</label>
+              <Select value={selectedOwner} onValueChange={setSelectedOwner}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar asesor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los asesores</SelectItem>
+                  {availableOwners.map((owner) => (
+                    <SelectItem key={owner} value={owner}>
+                      {owner}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  {availableStatuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                variant={showLastMonth ? "default" : "outline"}
+                onClick={() => setShowLastMonth(!showLastMonth)}
+                className="w-full"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                {showLastMonth ? 'Ver periodo actual' : 'Ver periodo anterior'}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <TabsList>
@@ -1262,7 +1504,7 @@ export default function ZohoCRMPage() {
                 </div>
               </CardContent>
             </Card>
-          ) : stats && lastMonthStats ? (
+          ) : displayedStats ? (
             <div className="mt-4 space-y-4">
               {/* Resumen Ejecutivo */}
               <Card>
@@ -1278,21 +1520,21 @@ export default function ZohoCRMPage() {
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>Leads Totales:</span>
-                          <span className="font-medium">{stats.totalLeads}</span>
+                          <span className="font-medium">{displayedStats.totalLeads}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Deals Creados:</span>
-                          <span className="font-medium">{stats.totalDeals}</span>
+                          <span className="font-medium">{displayedStats.totalDeals}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>% Conversión:</span>
-                          <span className={`font-medium ${(stats.conversionRate || 0) >= 15 ? 'text-green-600' : 'text-red-600'}`}>
-                            {(stats.conversionRate || 0).toFixed(1)}%
+                          <span className={`font-medium ${(displayedStats.conversionRate || 0) >= 15 ? 'text-green-600' : 'text-red-600'}`}>
+                            {(displayedStats.conversionRate || 0).toFixed(1)}%
                           </span>
                         </div>
                         <div className="flex justify-between">
                           <span>Valor Total:</span>
-                          <span className="font-medium">{formatCurrency(stats.totalDealValue || 0)}</span>
+                          <span className="font-medium">{formatCurrency(displayedStats.totalDealValue || 0)}</span>
                         </div>
                       </div>
                     </div>
@@ -1300,9 +1542,9 @@ export default function ZohoCRMPage() {
                     {/* Pipeline */}
                     <div className="space-y-2">
                       <h3 className="font-semibold text-sm">Pipeline</h3>
-                      {stats.leadsFunnel && Object.keys(stats.leadsFunnel).length > 0 && (
+                      {displayedStats.leadsFunnel && Object.keys(displayedStats.leadsFunnel).length > 0 && (
                         <div className="space-y-1 text-sm">
-                          {Object.entries(stats.leadsFunnel)
+                          {Object.entries(displayedStats.leadsFunnel)
                             .slice(0, 5)
                             .map(([status, count]) => (
                               <div key={status} className="flex justify-between">
@@ -1320,16 +1562,16 @@ export default function ZohoCRMPage() {
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>Deals Activos:</span>
-                          <span className="font-medium">{stats.totalDeals}</span>
+                          <span className="font-medium">{displayedStats.totalDeals}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Valor Promedio:</span>
-                          <span className="font-medium">{formatCurrency(stats.averageDealValue || 0)}</span>
+                          <span className="font-medium">{formatCurrency(displayedStats.averageDealValue || 0)}</span>
                         </div>
-                        {stats.dealsByStage && (
+                        {displayedStats.dealsByStage && (
                           <div className="pt-2 border-t">
                             <p className="text-xs text-muted-foreground mb-1">Top Etapas:</p>
-                            {Object.entries(stats.dealsByStage)
+                            {Object.entries(displayedStats.dealsByStage)
                               .sort(([, a], [, b]) => b - a)
                               .slice(0, 3)
                               .map(([stage, count]) => (
@@ -1356,15 +1598,15 @@ export default function ZohoCRMPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {(stats.discardedLeadsPercentage || 0) > 30 && (
+                      {(displayedStats?.discardedLeadsPercentage || 0) > 30 && (
                         <div className="p-3 bg-red-50 rounded-lg">
                           <p className="text-sm font-medium text-red-800">Alta Tasa de Descarte</p>
                           <p className="text-xs text-red-600 mt-1">
-                            {(stats.discardedLeadsPercentage || 0).toFixed(1)}% de leads descartados
+                            {(displayedStats?.discardedLeadsPercentage || 0).toFixed(1)}% de leads descartados
                           </p>
                         </div>
                       )}
-                      {stats.channelConcentration && Object.entries(stats.channelConcentration).some(([, p]) => p > 50) && (
+                      {displayedStats?.channelConcentration && Object.entries(displayedStats.channelConcentration).some(([, p]) => p > 50) && (
                         <div className="p-3 bg-red-50 rounded-lg">
                           <p className="text-sm font-medium text-red-800">Dependencia de Canal</p>
                           <p className="text-xs text-red-600 mt-1">
@@ -1372,26 +1614,26 @@ export default function ZohoCRMPage() {
                           </p>
                         </div>
                       )}
-                      {(stats.averageTimeToFirstContact || 0) > 60 && (
+                      {displayedAvgTimeToFirstContact > 60 && (
                         <div className="p-3 bg-red-50 rounded-lg">
-                          <p className="text-sm font-medium text-red-800">Tiempos de Contacto Elevados</p>
+                          <p className="text-sm font-medium text-red-800">Tiempo de contacto dentro de horario laboral elevado</p>
                           <p className="text-xs text-red-600 mt-1">
-                            Tiempo promedio: {(stats.averageTimeToFirstContact || 0).toFixed(0)} min (Meta: 30 min)
+                            Tiempo promedio (dentro de horario laboral): {displayedAvgTimeToFirstContact.toFixed(1)} min (Meta: 30 min)
                           </p>
                         </div>
                       )}
-                      {(stats.conversionRate || 0) < 10 && (
+                      {(displayedStats?.conversionRate || 0) < 10 && (
                         <div className="p-3 bg-red-50 rounded-lg">
                           <p className="text-sm font-medium text-red-800">Baja Conversión</p>
                           <p className="text-xs text-red-600 mt-1">
-                            {(stats.conversionRate || 0).toFixed(1)}% (Meta: 15%)
+                            {(displayedStats?.conversionRate || 0).toFixed(1)}% (Meta: 15%)
                           </p>
                         </div>
                       )}
-                      {(!stats.channelConcentration || Object.keys(stats.channelConcentration).length === 0) && 
-                       (!stats.discardedLeadsPercentage || stats.discardedLeadsPercentage < 30) &&
-                       (!stats.averageTimeToFirstContact || stats.averageTimeToFirstContact <= 60) &&
-                       (stats.conversionRate || 0) >= 10 && (
+                      {(!displayedStats?.channelConcentration || Object.keys(displayedStats.channelConcentration).length === 0) && 
+                       (!displayedStats?.discardedLeadsPercentage || displayedStats.discardedLeadsPercentage < 30) &&
+                       displayedAvgTimeToFirstContact <= 60 &&
+                       (displayedStats?.conversionRate || 0) >= 10 && (
                         <p className="text-sm text-muted-foreground">No se detectaron riesgos significativos</p>
                       )}
                     </div>
@@ -1406,41 +1648,44 @@ export default function ZohoCRMPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {(stats.averageTimeToFirstContact || 0) <= 30 && (
+                      {displayedAvgTimeToFirstContact <= 30 && (
                         <div className="p-3 bg-green-50 rounded-lg">
-                          <p className="text-sm font-medium text-green-800">Excelente Tiempo de Contacto</p>
+                          <p className="text-sm font-medium text-green-800">Excelente tiempo de contacto dentro de horario laboral</p>
                           <p className="text-xs text-green-600 mt-1">
-                            Tiempo promedio: {(stats.averageTimeToFirstContact || 0).toFixed(0)} min (Meta alcanzada)
+                            Tiempo promedio (dentro de horario laboral): {displayedAvgTimeToFirstContact.toFixed(1)} min (Meta alcanzada)
                           </p>
                         </div>
                       )}
-                      {(stats.conversionRate || 0) >= 15 && (
+                      {(displayedStats?.conversionRate || 0) >= 15 && (
                         <div className="p-3 bg-green-50 rounded-lg">
                           <p className="text-sm font-medium text-green-800">Alta Conversión</p>
                           <p className="text-xs text-green-600 mt-1">
-                            {(stats.conversionRate || 0).toFixed(1)}% (Meta alcanzada)
+                            {(displayedStats?.conversionRate || 0).toFixed(1)}% (Meta alcanzada)
                           </p>
                         </div>
                       )}
-                      {(stats.qualityLeadsPercentage || 0) > 50 && (
+                      {(displayedStats?.qualityLeadsPercentage || 0) > 50 && (
                         <div className="p-3 bg-green-50 rounded-lg">
                           <p className="text-sm font-medium text-green-800">Alta Calidad de Leads</p>
                           <p className="text-xs text-green-600 mt-1">
-                            {(stats.qualityLeadsPercentage || 0).toFixed(1)}% de leads de calidad
+                            {(displayedStats?.qualityLeadsPercentage || 0).toFixed(1)}% de leads de calidad
                           </p>
                         </div>
                       )}
-                      {stats && lastMonthStats && (stats.totalLeads > lastMonthStats.totalLeads) && (
+                      {!showLastMonth &&
+                        stats &&
+                        lastMonthStats &&
+                        (stats?.totalLeads ?? 0) > (lastMonthStats?.totalLeads ?? 0) && (
                         <div className="p-3 bg-green-50 rounded-lg">
                           <p className="text-sm font-medium text-green-800">Crecimiento en Leads</p>
                           <p className="text-xs text-green-600 mt-1">
-                            +{stats.totalLeads - lastMonthStats.totalLeads} leads vs mes anterior
+                            +{(stats?.totalLeads ?? 0) - (lastMonthStats?.totalLeads ?? 0)} leads vs periodo anterior
                           </p>
                         </div>
                       )}
-                      {(!stats.averageTimeToFirstContact || stats.averageTimeToFirstContact > 30) &&
-                       (!stats.conversionRate || stats.conversionRate < 15) &&
-                       (!stats.qualityLeadsPercentage || stats.qualityLeadsPercentage <= 50) && (
+                      {displayedAvgTimeToFirstContact > 30 &&
+                       (!displayedStats.conversionRate || displayedStats.conversionRate < 15) &&
+                       (!displayedStats.qualityLeadsPercentage || displayedStats.qualityLeadsPercentage <= 50) && (
                         <p className="text-sm text-muted-foreground">Oportunidades de mejora identificadas en las métricas principales</p>
                       )}
                     </div>
@@ -1448,63 +1693,65 @@ export default function ZohoCRMPage() {
                 </Card>
               </div>
 
-              {/* Comparativo vs Mes Anterior */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Comparativo vs Mes Anterior</CardTitle>
-                  <CardDescription>Variación del periodo actual respecto al mes anterior</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <div className="p-4 border rounded-lg">
-                      <p className="text-sm text-muted-foreground mb-1">Leads</p>
-                      <p className="text-2xl font-bold">{stats.totalLeads}</p>
-                      {lastMonthStats.totalLeads > 0 && stats.totalLeads !== lastMonthStats.totalLeads && (
-                        <p className={`text-xs mt-1 ${stats.totalLeads > lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
-                          {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
-                          {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}%
-                        </p>
-                      )}
-                      {lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
-                        <p className="text-xs text-green-600 mt-1">Nuevo</p>
-                      )}
+              {/* Comparativo vs Periodo Anterior (solo cuando estamos viendo periodo actual) */}
+              {!showLastMonth && stats && lastMonthStats && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Comparativo vs Periodo Anterior</CardTitle>
+                    <CardDescription>Variación del periodo actual respecto al periodo anterior</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">Leads</p>
+                        <p className="text-2xl font-bold">{stats.totalLeads}</p>
+                        {lastMonthStats.totalLeads > 0 && stats.totalLeads !== lastMonthStats.totalLeads && (
+                          <p className={`text-xs mt-1 ${stats.totalLeads > lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
+                            {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
+                            {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}%
+                          </p>
+                        )}
+                        {lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
+                          <p className="text-xs text-green-600 mt-1">Nuevo</p>
+                        )}
+                      </div>
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">Deals</p>
+                        <p className="text-2xl font-bold">{stats.totalDeals}</p>
+                        {lastMonthStats.totalDeals > 0 && stats.totalDeals !== lastMonthStats.totalDeals && (
+                          <p className={`text-xs mt-1 ${stats.totalDeals > lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
+                            {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
+                            {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}%
+                          </p>
+                        )}
+                        {lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
+                          <p className="text-xs text-green-600 mt-1">Nuevo</p>
+                        )}
+                      </div>
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">Conversión</p>
+                        <p className="text-2xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
+                        {stats.conversionRate !== lastMonthStats.conversionRate && (
+                          <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                            {(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? '+' : ''}
+                            {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">Tiempo de contacto dentro de horario laboral</p>
+                        <p className="text-2xl font-bold">{displayedAvgTimeToFirstContact.toFixed(1)} min</p>
+                        {stats.averageTimeToFirstContact !== lastMonthStats.averageTimeToFirstContact && (
+                          <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                            {(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                            {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="p-4 border rounded-lg">
-                      <p className="text-sm text-muted-foreground mb-1">Deals</p>
-                      <p className="text-2xl font-bold">{stats.totalDeals}</p>
-                      {lastMonthStats.totalDeals > 0 && stats.totalDeals !== lastMonthStats.totalDeals && (
-                        <p className={`text-xs mt-1 ${stats.totalDeals > lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
-                          {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
-                          {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}%
-                        </p>
-                      )}
-                      {lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
-                        <p className="text-xs text-green-600 mt-1">Nuevo</p>
-                      )}
-                    </div>
-                    <div className="p-4 border rounded-lg">
-                      <p className="text-sm text-muted-foreground mb-1">Conversión</p>
-                      <p className="text-2xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
-                      {stats.conversionRate !== lastMonthStats.conversionRate && (
-                        <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                          {(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? '+' : ''}
-                          {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}%
-                        </p>
-                      )}
-                    </div>
-                    <div className="p-4 border rounded-lg">
-                      <p className="text-sm text-muted-foreground mb-1">Tiempo Contacto</p>
-                      <p className="text-2xl font-bold">{(stats.averageTimeToFirstContact || 0).toFixed(0)} min</p>
-                      {stats.averageTimeToFirstContact !== lastMonthStats.averageTimeToFirstContact && (
-                        <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                          {(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
-                          {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           ) : (
             <Card className="mt-4">
@@ -1519,108 +1766,6 @@ export default function ZohoCRMPage() {
 
         {/* Estadísticas */}
         <TabsContent value="stats" className="flex-1 overflow-auto">
-          {/* Filtros Globales */}
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Filtros Globales
-              </CardTitle>
-              <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Periodo</label>
-                  <Select value={selectedPeriod} onValueChange={(value: 'month' | 'quarter' | 'year') => setSelectedPeriod(value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar periodo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="month">Mensual</SelectItem>
-                      <SelectItem value="quarter">Trimestral</SelectItem>
-                      <SelectItem value="year">Anual</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Desarrollo</label>
-                  <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar desarrollo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos los desarrollos</SelectItem>
-                      {availableDevelopments.map((dev) => (
-                        <SelectItem key={dev} value={dev}>
-                          {dev}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
-                  <Select value={selectedSource} onValueChange={setSelectedSource}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar fuente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas las fuentes</SelectItem>
-                      {availableSources.map((source) => (
-                        <SelectItem key={source} value={source}>
-                          {source}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Asesor</label>
-                  <Select value={selectedOwner} onValueChange={setSelectedOwner}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar asesor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos los asesores</SelectItem>
-                      {availableOwners.map((owner) => (
-                        <SelectItem key={owner} value={owner}>
-                          {owner}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
-                  <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar estado" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos los estados</SelectItem>
-                      {availableStatuses.map((status) => (
-                        <SelectItem key={status} value={status}>
-                          {status}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    variant={showLastMonth ? "default" : "outline"}
-                    onClick={() => setShowLastMonth(!showLastMonth)}
-                    className="w-full"
-                  >
-                    <Calendar className="h-4 w-4 mr-2" />
-                    {showLastMonth ? 'Ver Actual' : 'Ver Mes Anterior'}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           {loading ? (
             <Card className="mt-4">
               <CardContent className="pt-6">
@@ -1630,7 +1775,7 @@ export default function ZohoCRMPage() {
                 </div>
               </CardContent>
             </Card>
-          ) : (showLastMonth ? lastMonthStats : stats) ? (
+          ) : displayedStats ? (
             <div className="mt-4 space-y-4">
               {/* Resumen Informativo */}
               <Card className="bg-blue-50 border-blue-200">
@@ -1639,14 +1784,14 @@ export default function ZohoCRMPage() {
                     <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-blue-900 mb-1">
-                        Periodo: {selectedPeriod === 'month' ? 'Mensual' : selectedPeriod === 'quarter' ? 'Trimestral' : 'Anual'}
+                        Periodo: {selectedPeriod === 'week' ? 'Semanal' : selectedPeriod === 'month' ? 'Mensual' : selectedPeriod === 'quarter' ? 'Trimestral' : 'Anual'}
                         {selectedDesarrollo !== 'all' && ` | Desarrollo: ${selectedDesarrollo}`}
                         {selectedSource !== 'all' && ` | Fuente: ${selectedSource}`}
                         {selectedOwner !== 'all' && ` | Asesor: ${selectedOwner}`}
                       </p>
                       <p className="text-xs text-blue-700">
-                        Mostrando {showLastMonth ? 'datos del mes anterior' : 'datos del periodo actual'}
-                        {stats && ` - Total: ${stats.totalLeads} leads, ${stats.totalDeals} deals`}
+                        Mostrando {showLastMonth ? 'datos del periodo anterior' : 'datos del periodo actual'}
+                        {displayedStats && ` - Total: ${displayedStats.totalLeads} leads, ${displayedStats.totalDeals} deals`}
                       </p>
                     </div>
                   </div>
@@ -1662,7 +1807,7 @@ export default function ZohoCRMPage() {
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalLeads || 0}</div>
+                  <div className="text-2xl font-bold">{displayedStats?.totalLeads || 0}</div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads > 0 && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
                       stats.totalLeads >= lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'
@@ -1673,7 +1818,7 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
-                      {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}% vs mes anterior
+                      {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}% vs periodo anterior
                     </p>
                   )}
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
@@ -1683,7 +1828,7 @@ export default function ZohoCRMPage() {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    {showLastMonth ? 'Leads del mes anterior' : 'Leads registrados'}
+                    {showLastMonth ? 'Leads del periodo anterior' : 'Leads registrados'}
                   </p>
                 </CardContent>
               </Card>
@@ -1695,7 +1840,7 @@ export default function ZohoCRMPage() {
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{(showLastMonth ? lastMonthStats : stats)?.totalDeals || 0}</div>
+                  <div className="text-2xl font-bold">{displayedStats?.totalDeals || 0}</div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals > 0 && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
                       stats.totalDeals >= lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'
@@ -1706,7 +1851,7 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
-                      {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}% vs mes anterior
+                      {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}% vs periodo anterior
                     </p>
                   )}
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
@@ -1716,7 +1861,7 @@ export default function ZohoCRMPage() {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    {showLastMonth ? 'Deals del mes anterior' : 'Oportunidades activas'}
+                    {showLastMonth ? 'Deals del periodo anterior' : 'Oportunidades activas'}
                   </p>
                 </CardContent>
               </Card>
@@ -1729,7 +1874,7 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {((showLastMonth ? lastMonthStats : stats)?.conversionRate || 0).toFixed(1)}%
+                    {((displayedStats?.conversionRate || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.conversionRate !== undefined && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
@@ -1741,7 +1886,7 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? '+' : ''}
-                      {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                      {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
@@ -1750,15 +1895,15 @@ export default function ZohoCRMPage() {
                 </CardContent>
               </Card>
 
-              {/* Tiempo Promedio a Primer Contacto */}
+              {/* Tiempo de contacto dentro de horario laboral (tiempo promedio a primer contacto) */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Tiempo Promedio</CardTitle>
+                  <CardTitle className="text-sm font-medium">Tiempo de contacto dentro de horario laboral</CardTitle>
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {((showLastMonth ? lastMonthStats : stats)?.averageTimeToFirstContact || 0).toFixed(0)} min
+                    {displayedAvgTimeToFirstContact.toFixed(1)} min
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
@@ -1770,11 +1915,11 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
-                      {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs mes anterior
+                      {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs periodo anterior
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    Meta: 30 min
+                    Meta: 30 min (dentro de horario laboral)
                   </p>
                 </CardContent>
               </Card>
@@ -1787,7 +1932,7 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {((showLastMonth ? lastMonthStats : stats)?.leadsOutsideBusinessHoursPercentage || 0).toFixed(1)}%
+                    {((displayedStats?.leadsOutsideBusinessHoursPercentage || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
@@ -1799,11 +1944,11 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
-                      {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                      {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    Horario: 08:30-20:30
+                    Horario: 08:00-20:30
                   </p>
                 </CardContent>
               </Card>
@@ -1816,7 +1961,7 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {((showLastMonth ? lastMonthStats : stats)?.discardedLeadsPercentage || 0).toFixed(1)}%
+                    {((displayedStats?.discardedLeadsPercentage || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
@@ -1828,18 +1973,18 @@ export default function ZohoCRMPage() {
                         <TrendingDown className="h-3 w-3" />
                       )}
                       {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? '-' : '+'}
-                      {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs mes anterior
+                      {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    {(showLastMonth ? lastMonthStats : stats)?.discardedLeads || 0} leads descartados
+                    {displayedStats?.discardedLeads || 0} leads descartados
                   </p>
                 </CardContent>
               </Card>
               </div>
 
               {/* SECCIÓN: EMBUDO DE VENTAS INMOBILIARIO - DISEÑO EJECUTIVO */}
-              {stats && stats.lifecycleFunnel && (
+              {displayedStats && displayedStats.lifecycleFunnel && (
                 <Card className="border border-gray-200 bg-white shadow-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-xl font-semibold text-gray-900">Embudo de Ventas</CardTitle>
@@ -1848,11 +1993,11 @@ export default function ZohoCRMPage() {
                   <CardContent className="pt-4">
                     {/* Función helper para determinar estado de salud */}
                     {(() => {
-                      const leadsToDealsRate = stats.lifecycleFunnel.leads > 0 
-                        ? (stats.lifecycleFunnel.dealsWithAppointment / stats.lifecycleFunnel.leads) * 100 
+                      const leadsToDealsRate = displayedStats.lifecycleFunnel.leads > 0 
+                        ? (displayedStats.lifecycleFunnel.dealsWithAppointment / displayedStats.lifecycleFunnel.leads) * 100 
                         : 0;
-                      const dealsToWonRate = stats.lifecycleFunnel.dealsWithAppointment > 0 
-                        ? (stats.lifecycleFunnel.closedWon / stats.lifecycleFunnel.dealsWithAppointment) * 100 
+                      const dealsToWonRate = displayedStats.lifecycleFunnel.dealsWithAppointment > 0 
+                        ? (displayedStats.lifecycleFunnel.closedWon / displayedStats.lifecycleFunnel.dealsWithAppointment) * 100 
                         : 0;
 
                       const getHealthStatus = (rate: number, thresholds: { optimal: number; attention: number }) => {
@@ -1885,7 +2030,7 @@ export default function ZohoCRMPage() {
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Leads</p>
-                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.leads}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.leads}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -1917,14 +2062,14 @@ export default function ZohoCRMPage() {
                             <div 
                               className="w-full max-w-3xl"
                               style={{
-                                width: `${Math.max(35, Math.min(90, (stats.lifecycleFunnel.dealsWithAppointment / stats.lifecycleFunnel.leads) * 100))}%`
+                                width: `${Math.max(35, Math.min(90, (displayedStats.lifecycleFunnel.dealsWithAppointment / displayedStats.lifecycleFunnel.leads) * 100))}%`
                               }}
                             >
                               <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: dealsColor }}>
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Deals (Agendó cita)</p>
-                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.dealsWithAppointment}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.dealsWithAppointment}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -1956,14 +2101,14 @@ export default function ZohoCRMPage() {
                             <div 
                               className="w-full max-w-3xl"
                               style={{
-                                width: `${Math.max(25, Math.min(70, (stats.lifecycleFunnel.closedWon / stats.lifecycleFunnel.leads) * 100))}%`
+                                width: `${Math.max(25, Math.min(70, (displayedStats.lifecycleFunnel.closedWon / displayedStats.lifecycleFunnel.leads) * 100))}%`
                               }}
                             >
                               <div className="rounded-lg shadow-md p-5 text-white" style={{ backgroundColor: wonColor }}>
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <p className="text-xs font-medium opacity-90 mb-1">Cerrado Ganado</p>
-                                    <p className="text-4xl font-bold tracking-tight">{stats.lifecycleFunnel.closedWon}</p>
+                                    <p className="text-4xl font-bold tracking-tight">{displayedStats.lifecycleFunnel.closedWon}</p>
                                   </div>
                                   <div className="text-right">
                                     <Badge variant="outline" className="bg-white/20 text-white border-white/30 text-xs px-2 py-0.5">
@@ -1995,7 +2140,7 @@ export default function ZohoCRMPage() {
                                   {leadsToDealsRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
-                                  {stats.lifecycleFunnel.dealsWithAppointment} de {stats.lifecycleFunnel.leads} leads
+                                  {displayedStats.lifecycleFunnel.dealsWithAppointment} de {displayedStats.lifecycleFunnel.leads} leads
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1 italic">
                                   {leadsToDealsHealth.label}
@@ -2016,7 +2161,7 @@ export default function ZohoCRMPage() {
                                   {dealsToWonRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
-                                  {stats.lifecycleFunnel.closedWon} de {stats.lifecycleFunnel.dealsWithAppointment} deals
+                                  {displayedStats.lifecycleFunnel.closedWon} de {displayedStats.lifecycleFunnel.dealsWithAppointment} deals
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1 italic">
                                   {dealsToWonHealth.label}
@@ -2045,7 +2190,7 @@ export default function ZohoCRMPage() {
                     <div className="p-4 border rounded-lg bg-muted/30">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-medium">Insights con IA</p>
+                          <p className="text-sm font-medium">Insights</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             Usa las notas (limpias) para detectar temas, objeciones, siguientes pasos y señales de fricción.
                           </p>
@@ -2064,7 +2209,7 @@ export default function ZohoCRMPage() {
                               Generando...
                             </>
                           ) : (
-                            'Generar insights con IA'
+                            'Generar insights '
                           )}
                         </Button>
                       </div>
@@ -2202,24 +2347,65 @@ export default function ZohoCRMPage() {
                     </div>
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      {/* Top términos */}
+                      {/* IA: Top temas/objeciones/fricción/acciones */}
                       <Card className="border">
                         <CardHeader>
-                          <CardTitle className="text-sm">Top palabras en notas</CardTitle>
+                          <CardTitle className="text-sm">Qué está pasando </CardTitle>
                           <CardDescription className="text-xs">
-                            Palabras más repetidas (se excluyen conectores y palabras comunes)
+                            Conteo de los insights más relevantes (no son “palabras sueltas”)
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
-                          {notesInsights.topTerms.length === 0 ? (
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            <Button
+                              type="button"
+                              variant={aiChartsMode === 'themes' ? 'default' : 'outline'}
+                              onClick={() => setAiChartsMode('themes')}
+                              size="sm"
+                            >
+                              Temas
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={aiChartsMode === 'objections' ? 'default' : 'outline'}
+                              onClick={() => setAiChartsMode('objections')}
+                              size="sm"
+                            >
+                              Objeciones
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={aiChartsMode === 'friction' ? 'default' : 'outline'}
+                              onClick={() => setAiChartsMode('friction')}
+                              size="sm"
+                            >
+                              Fricción
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={aiChartsMode === 'actions' ? 'default' : 'outline'}
+                              onClick={() => setAiChartsMode('actions')}
+                              size="sm"
+                            >
+                              Siguientes pasos
+                            </Button>
+                          </div>
+
+                          {storedNotesInsightsLoading ? (
+                            <p className="text-sm text-muted-foreground">Cargando insight guardado...</p>
+                          ) : !storedNotesInsights ? (
                             <p className="text-sm text-muted-foreground">
-                              No hay suficientes notas en este periodo para generar tendencias.
+                              Aún no hay un insight guardado para estos filtros. Genera el insights para ver las gráficas.
+                            </p>
+                          ) : aiBarChartData.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              El insight guardado no trae datos suficientes para esta gráfica. Regenera el insight.
                             </p>
                           ) : (
-                            <ResponsiveContainer width="100%" height={260}>
-                              <BarChart data={notesInsights.topTerms}>
+                            <ResponsiveContainer width="100%" height={280}>
+                              <BarChart data={aiBarChartData}>
                                 <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="term" interval={0} angle={-35} textAnchor="end" height={70} />
+                                <XAxis dataKey="label" interval={0} angle={-25} textAnchor="end" height={70} />
                                 <YAxis />
                                 <Tooltip />
                                 <Bar dataKey="count" fill={colors.primary} name="Menciones" />
@@ -2229,37 +2415,37 @@ export default function ZohoCRMPage() {
                         </CardContent>
                       </Card>
 
-                      {/* Tendencia */}
+                      {/* Tendencia: métricas ejecutivas */}
                       <Card className="border">
                         <CardHeader>
-                          <CardTitle className="text-sm">Tendencia en el tiempo</CardTitle>
+                          <CardTitle className="text-sm">Tendencia de fricción (en el tiempo)</CardTitle>
                           <CardDescription className="text-xs">
-                            Menciones por semana/mes de los 3 términos principales
+                            Por semana/mes: No contacto, Precio, Crédito, Ubicación, Timing
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
-                          {notesInsights.trend.length === 0 || notesInsights.trendTerms.length === 0 ? (
+                          {storedNotesInsightsLoading ? (
+                            <p className="text-sm text-muted-foreground">Cargando insight guardado...</p>
+                          ) : !storedNotesInsights || !Array.isArray((storedNotesInsights as any).metricsTrend) || (storedNotesInsights as any).metricsTrend.length === 0 ? (
                             <p className="text-sm text-muted-foreground">
-                              No hay suficientes datos para mostrar tendencia temporal.
+                              Aún no hay datos guardados para tendencia. Genera (o regenera) el insight.
                             </p>
                           ) : (
-                            <ResponsiveContainer width="100%" height={260}>
-                              <LineChart data={notesInsights.trend as any}>
+                            <ResponsiveContainer width="100%" height={280}>
+                              <LineChart data={(storedNotesInsights as any).metricsTrend}>
                                 <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="bucket" />
+                                <XAxis
+                                  dataKey="bucket"
+                                  tickFormatter={(value) => formatBucketLabel(selectedPeriod, String(value))}
+                                />
                                 <YAxis />
-                                <Tooltip />
+                                <Tooltip labelFormatter={(label) => formatBucketLabel(selectedPeriod, String(label))} />
                                 <Legend />
-                                {notesInsights.trendTerms.map((term, idx) => (
-                                  <Line
-                                    key={term}
-                                    type="monotone"
-                                    dataKey={term}
-                                    stroke={getChartColor(selectedDesarrollo, idx)}
-                                    strokeWidth={2}
-                                    dot={false}
-                                  />
-                                ))}
+                                <Line type="monotone" dataKey="noAnswerOrNoContact" name="No contacto" stroke={getChartColor(selectedDesarrollo, 0)} strokeWidth={2} dot={false} />
+                                <Line type="monotone" dataKey="priceOrBudget" name="Precio" stroke={getChartColor(selectedDesarrollo, 1)} strokeWidth={2} dot={false} />
+                                <Line type="monotone" dataKey="financingOrCredit" name="Crédito" stroke={getChartColor(selectedDesarrollo, 2)} strokeWidth={2} dot={false} />
+                                <Line type="monotone" dataKey="locationOrArea" name="Ubicación" stroke={getChartColor(selectedDesarrollo, 3)} strokeWidth={2} dot={false} />
+                                <Line type="monotone" dataKey="timingOrUrgency" name="Timing" stroke={getChartColor(selectedDesarrollo, 4)} strokeWidth={2} dot={false} />
                               </LineChart>
                             </ResponsiveContainer>
                           )}
@@ -2272,84 +2458,91 @@ export default function ZohoCRMPage() {
 
               {/* SECCIÓN: EVOLUCIÓN TEMPORAL */}
               <div className="grid gap-4 md:grid-cols-2">
-                {stats && stats.leadsByDate && Object.keys(stats.leadsByDate).length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Leads Generados en el Tiempo</CardTitle>
-                      <CardDescription>Evolución diaria de leads generados</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={Object.entries(stats.leadsByDate).map(([date, count]) => {
-                          const dateObj = new Date(date);
-                          const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-                          return {
-                            fecha: dateObj.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                            leads: count,
-                            isWeekend
-                          };
-                        }).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="fecha" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Line 
-                            type="monotone" 
-                            dataKey="leads" 
-                            stroke={colors.primary} 
-                            name="Leads"
-                            strokeWidth={2}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
+                {displayedStats &&
+                  ((displayedStats.leadsByDate && Object.keys(displayedStats.leadsByDate).length > 0) ||
+                    (displayedStats.dealsByDate && Object.keys(displayedStats.dealsByDate).length > 0)) && (
+                    <Card className="md:col-span-2">
+                      <CardHeader>
+                        <CardTitle>Leads y Deals en el Tiempo</CardTitle>
+                        <CardDescription>
+                          Evolución por periodo (2 días / semana / mes)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart
+                            data={Object.keys({
+                              ...(displayedStats.leadsByDate || {}),
+                              ...(displayedStats.dealsByDate || {}),
+                            })
+                              .sort((a, b) => a.localeCompare(b))
+                              .map((bucket) => ({
+                                bucket,
+                                // Si falta un bucket en uno de los dos, lo tratamos como 0.
+                                // Esto permite comparar en el mismo eje X sin “huecos” raros.
+                                leads: displayedStats.leadsByDate?.[bucket] ?? 0,
+                                deals: displayedStats.dealsByDate?.[bucket] ?? 0,
+                              }))}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis
+                              dataKey="bucket"
+                              tickFormatter={(value) =>
+                                formatBucketLabel(selectedPeriod, String(value))
+                              }
+                            />
+                            <YAxis />
+                            <Tooltip
+                              labelFormatter={(label) =>
+                                formatBucketLabel(selectedPeriod, String(label))
+                              }
+                            />
+                            <Legend />
+                            <Line
+                              type="monotone"
+                              dataKey="leads"
+                              stroke={colors.primary}
+                              name="Leads"
+                              strokeWidth={2}
+                              dot={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="deals"
+                              stroke={colors.secondary}
+                              name="Deals"
+                              strokeWidth={2}
+                              dot={false}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {stats && stats.dealsByDate && Object.keys(stats.dealsByDate).length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Deals Creados en el Tiempo</CardTitle>
-                      <CardDescription>Evolución diaria de deals creados</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={Object.entries(stats.dealsByDate).map(([date, count]) => {
-                          const dateObj = new Date(date);
-                          return {
-                            fecha: dateObj.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                            deals: count
-                          };
-                        }).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="fecha" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Line type="monotone" dataKey="deals" stroke={colors.secondary} name="Deals" strokeWidth={2} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {stats && stats.conversionByDate && Object.keys(stats.conversionByDate).length > 0 && (
+                {displayedStats && displayedStats.conversionByDate && Object.keys(displayedStats.conversionByDate).length > 0 && (
                   <Card className="md:col-span-2">
                     <CardHeader>
                       <CardTitle>Conversión en el Tiempo</CardTitle>
-                      <CardDescription>Evolución del porcentaje de conversión diario</CardDescription>
+                      <CardDescription>Evolución por periodo (2 días / semana / mes)</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={Object.entries(stats.conversionByDate).map(([date, rate]) => ({
-                          fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                          conversion: rate
-                        })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
+                        <LineChart
+                          data={Object.entries(displayedStats.conversionByDate)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([bucket, rate]) => ({ bucket, conversion: rate }))}
+                        >
                           <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="fecha" />
+                          <XAxis
+                            dataKey="bucket"
+                            tickFormatter={(value) => formatBucketLabel(selectedPeriod, String(value))}
+                          />
                           <YAxis />
-                          <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
+                          <Tooltip
+                            labelFormatter={(label) => formatBucketLabel(selectedPeriod, String(label))}
+                            formatter={(value: number) => [`${value}%`, 'Conversión']}
+                          />
                           <Legend />
                           <Line type="monotone" dataKey="conversion" stroke={colors.accent} name="% Conversión" strokeWidth={2} />
                         </LineChart>
@@ -2361,7 +2554,7 @@ export default function ZohoCRMPage() {
 
               {/* SECCIÓN: MARKETING & CALIDAD DE LEADS */}
               <div className="grid gap-4 md:grid-cols-2">
-                {stats && stats.leadsBySource && Object.entries(stats.leadsBySource).some(([_source, count]) => count > 0) && (
+                {displayedStats && displayedStats.leadsBySource && Object.entries(displayedStats.leadsBySource).some(([_source, count]) => count > 0) && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Leads por Fuente</CardTitle>
@@ -2371,7 +2564,7 @@ export default function ZohoCRMPage() {
                       <ResponsiveContainer width="100%" height={300}>
                         <PieChart>
                           <Pie
-                            data={Object.entries(stats.leadsBySource)
+                            data={Object.entries(displayedStats.leadsBySource)
                               .filter(([_source, count]) => count > 0) // Filtrar fuentes con valor 0
                               .map(([source, count]) => ({
                                 name: source,
@@ -2385,7 +2578,7 @@ export default function ZohoCRMPage() {
                             fill={colors.primary}
                             dataKey="value"
                           >
-                            {Object.entries(stats.leadsBySource)
+                            {Object.entries(displayedStats.leadsBySource)
                               .filter(([_source, count]) => count > 0) // Filtrar fuentes con valor 0 para los colores
                               .map((entry, index) => {
                                 return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
@@ -2399,7 +2592,7 @@ export default function ZohoCRMPage() {
                   </Card>
                 )}
 
-                {stats && (
+                {displayedStats && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Calidad de Leads</CardTitle>
@@ -2410,19 +2603,19 @@ export default function ZohoCRMPage() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium">Leads de Calidad</span>
                           <Badge variant="default" className="text-lg px-3 py-1">
-                            {stats.qualityLeads || 0}
+                            {displayedStats.qualityLeads || 0}
                           </Badge>
                         </div>
                         <div className="w-full bg-muted rounded-full h-4">
                           <div
                             className="bg-primary h-4 rounded-full transition-all"
                             style={{
-                              width: `${stats.qualityLeadsPercentage || 0}%`,
+                              width: `${displayedStats.qualityLeadsPercentage || 0}%`,
                             }}
                           />
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {(stats.qualityLeadsPercentage || 0).toFixed(1)}% del total de leads
+                          {(displayedStats.qualityLeadsPercentage || 0).toFixed(1)}% del total de leads
                         </p>
                         <div className="pt-4 border-t">
                           <p className="text-xs text-muted-foreground">
@@ -2434,31 +2627,58 @@ export default function ZohoCRMPage() {
                   </Card>
                 )}
 
-                {stats && stats.conversionBySource && Object.keys(stats.conversionBySource).length > 0 && (
+                {displayedStats && displayedStats.conversionBySource && Object.keys(displayedStats.conversionBySource).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Conversión por Fuente</CardTitle>
                       <CardDescription>Porcentaje de conversión según la fuente de captación</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={Object.entries(stats.conversionBySource).map(([source, rate]) => ({
-                          fuente: source,
-                          conversion: rate
-                        }))}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="fuente" angle={-45} textAnchor="end" height={100} />
-                          <YAxis />
-                          <Tooltip formatter={(value: number) => [`${value}%`, 'Conversión']} />
-                          <Legend />
-                          <Bar dataKey="conversion" fill={colors.secondary} name="% Conversión" />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left p-2">Fuente</th>
+                              <th className="text-right p-2">Conversión</th>
+                              <th className="text-left p-2">Visual</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(displayedStats.conversionBySource)
+                              .map(([source, rate]) => ({ source, rate }))
+                              .sort((a, b) => b.rate - a.rate)
+                              .map(({ source, rate }) => {
+                                // Clamp por si llega un valor fuera de rango (buena práctica para UI)
+                                const safeRate = Number.isFinite(rate) ? Math.max(0, Math.min(100, rate)) : 0;
+
+                                return (
+                                  <tr key={source} className="border-b">
+                                    <td className="p-2">{source}</td>
+                                    <td className="text-right p-2 font-medium">
+                                      {safeRate.toFixed(1)}%
+                                    </td>
+                                    <td className="p-2">
+                                      <div className="w-full bg-muted rounded-full h-2">
+                                        <div
+                                          className="h-2 rounded-full"
+                                          style={{
+                                            width: `${safeRate}%`,
+                                            backgroundColor: colors.secondary,
+                                          }}
+                                        />
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
                     </CardContent>
                   </Card>
                 )}
 
-                {stats && stats.channelConcentration && Object.keys(stats.channelConcentration).length > 0 && (
+                {displayedStats && displayedStats.channelConcentration && Object.keys(displayedStats.channelConcentration).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Dependencia de Canal</CardTitle>
@@ -2466,7 +2686,7 @@ export default function ZohoCRMPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {Object.entries(stats.channelConcentration)
+                        {Object.entries(displayedStats.channelConcentration)
                           .sort(([, a], [, b]) => b - a)
                           .map(([channel, percentage]) => (
                             <div key={channel} className="space-y-1">
@@ -2487,7 +2707,7 @@ export default function ZohoCRMPage() {
                           ))}
                       </div>
                       <p className="text-xs text-muted-foreground mt-4">
-                        {Object.entries(stats.channelConcentration).some(([, p]) => p > 50) && (
+                        {Object.entries(displayedStats.channelConcentration).some(([, p]) => p > 50) && (
                           <span className="text-red-600">⚠️ Alta dependencia de un solo canal detectada</span>
                         )}
                       </p>
@@ -2497,7 +2717,7 @@ export default function ZohoCRMPage() {
               </div>
 
               {/* SECCIÓN: DESCARTES */}
-              {stats && stats.leadsDiscardReasons && Object.keys(stats.leadsDiscardReasons).length > 0 && (
+              {displayedStats && displayedStats.leadsDiscardReasons && Object.keys(displayedStats.leadsDiscardReasons).length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Análisis de Descartes</CardTitle>
@@ -2516,11 +2736,11 @@ export default function ZohoCRMPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {Object.entries(stats.leadsDiscardReasons)
+                              {Object.entries(displayedStats.leadsDiscardReasons)
                                 .sort(([, a], [, b]) => b - a)
                                 .map(([motivo, count]) => {
-                                  const porcentaje = stats.totalLeads > 0 
-                                    ? Math.round((count / stats.totalLeads) * 10000) / 100 
+                                  const porcentaje = displayedStats.totalLeads > 0 
+                                    ? Math.round((count / displayedStats.totalLeads) * 10000) / 100 
                                     : 0;
                                   return (
                                     <tr key={motivo} className="border-b">
@@ -2536,7 +2756,7 @@ export default function ZohoCRMPage() {
                         <div className="mt-4 p-3 bg-muted rounded-lg">
                           <p className="text-xs font-medium mb-1">Principales Causas:</p>
                           <ul className="text-xs text-muted-foreground list-disc list-inside">
-                            {Object.entries(stats.leadsDiscardReasons)
+                            {Object.entries(displayedStats.leadsDiscardReasons)
                               .sort(([, a], [, b]) => b - a)
                               .slice(0, 3)
                               .map(([motivo, count]) => (
@@ -2550,25 +2770,25 @@ export default function ZohoCRMPage() {
               )}
 
               {/* SECCIÓN: TIEMPOS DE CONTACTO */}
-              {stats && stats.averageTimeToFirstContactByOwner && Object.keys(stats.averageTimeToFirstContactByOwner).length > 0 && (
+              {displayedStats && displayedStats.averageTimeToFirstContactByOwner && Object.keys(displayedStats.averageTimeToFirstContactByOwner).length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Tiempos de Contacto</CardTitle>
-                    <CardDescription>Tiempo promedio a primer contacto por asesor</CardDescription>
+                    <CardTitle>Tiempos de contacto dentro de horario laboral</CardTitle>
+                    <CardDescription>Tiempo promedio a primer contacto dentro de horario laboral por asesor</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={Object.entries(stats.averageTimeToFirstContactByOwner).map(([owner, time]) => ({
+                      <BarChart data={Object.entries(displayedStats.averageTimeToFirstContactByOwner).map(([owner, time]) => ({
                         asesor: owner,
                         tiempo: time
                       }))}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="asesor" angle={-45} textAnchor="end" height={100} />
                         <YAxis label={{ value: 'Minutos', angle: -90, position: 'insideLeft' }} />
-                        <Tooltip formatter={(value: number) => [`${value} min`, 'Tiempo promedio']} />
+                        <Tooltip formatter={(value: number) => [`${value} min`, 'Tiempo promedio (dentro de horario laboral)']} />
                         <Legend />
                         <Bar dataKey="tiempo" fill={colors.secondary} name="Tiempo (min)">
-                          {Object.entries(stats.averageTimeToFirstContactByOwner).map((entry, index) => {
+                          {Object.entries(displayedStats.averageTimeToFirstContactByOwner).map((entry, index) => {
                             const time = entry[1];
                             const color = time <= 30 ? colors.success : time <= 60 ? colors.warning : colors.danger;
                             return <Cell key={`cell-${index}`} fill={color} />;
@@ -2590,12 +2810,12 @@ export default function ZohoCRMPage() {
                         <span>&gt; 60 min</span>
                       </div>
                     </div>
-                    {stats.averageTimeToFirstContact && (
+                    {displayedAvgTimeToFirstContact > 0 && (
                       <div className="mt-4 p-3 bg-muted rounded-lg">
                         <p className="text-sm">
-                          <span className="font-medium">Tiempo promedio general:</span>{' '}
-                          {stats.averageTimeToFirstContact.toFixed(0)} minutos
-                          {stats.averageTimeToFirstContact <= 30 ? (
+                          <span className="font-medium">Tiempo promedio general (dentro de horario laboral):</span>{' '}
+                          {displayedAvgTimeToFirstContact.toFixed(1)} minutos
+                          {displayedAvgTimeToFirstContact <= 30 ? (
                             <Badge variant="default" className="ml-2">✓ Meta alcanzada</Badge>
                           ) : (
                             <Badge variant="destructive" className="ml-2">Meta: 30 min</Badge>
@@ -2607,160 +2827,9 @@ export default function ZohoCRMPage() {
                 </Card>
               )}
 
-              {/* Gráficas del mes anterior */}
-              {showLastMonth && lastMonthStats && (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* Gráfica de Leads por Fecha */}
-                  {lastMonthStats.leadsByDate && Object.keys(lastMonthStats.leadsByDate).length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Leads por Día - Mes Anterior</CardTitle>
-                        <CardDescription>Evolución diaria de leads</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <LineChart data={Object.entries(lastMonthStats.leadsByDate).map(([date, count]) => ({
-                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                            leads: count
-                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="fecha" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="leads" stroke={colors.primary} name="Leads" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Gráfica de Deals por Fecha */}
-                  {lastMonthStats.dealsByDate && Object.keys(lastMonthStats.dealsByDate).length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Deals por Día - Mes Anterior</CardTitle>
-                        <CardDescription>Evolución diaria de deals</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <LineChart data={Object.entries(lastMonthStats.dealsByDate).map(([date, count]) => ({
-                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                            deals: count
-                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="fecha" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="deals" stroke={colors.secondary} name="Deals" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Gráfica de Valor por Fecha */}
-                  {lastMonthStats.dealValueByDate && Object.keys(lastMonthStats.dealValueByDate).length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Valor de Deals por Día - Mes Anterior</CardTitle>
-                        <CardDescription>Evolución diaria del valor</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={Object.entries(lastMonthStats.dealValueByDate).map(([date, value]) => ({
-                            fecha: new Date(date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }),
-                            valor: value
-                          })).sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="fecha" />
-                            <YAxis />
-                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                            <Legend />
-                            <Bar dataKey="valor" fill={colors.primary} name="Valor (MXN)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Gráfica de Leads por Desarrollo */}
-                  {lastMonthStats.leadsByDevelopment && Object.keys(lastMonthStats.leadsByDevelopment).length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Leads por Desarrollo - Mes Anterior</CardTitle>
-                        <CardDescription>Distribución de leads</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={Object.entries(lastMonthStats.leadsByDevelopment).map(([dev, count]) => ({
-                            desarrollo: dev,
-                            leads: count
-                          }))}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="desarrollo" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="leads" fill={colors.primary} name="Leads" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Gráfica de Deals por Desarrollo */}
-                  {lastMonthStats.dealsByDevelopment && Object.keys(lastMonthStats.dealsByDevelopment).length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Deals por Desarrollo - Mes Anterior</CardTitle>
-                        <CardDescription>Distribución de deals</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={Object.entries(lastMonthStats.dealsByDevelopment).map(([dev, count]) => ({
-                            desarrollo: dev,
-                            deals: count
-                          }))}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="desarrollo" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="deals" fill={colors.secondary} name="Deals" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Gráfica de Valor por Desarrollo */}
-                  {lastMonthStats.dealValueByDevelopment && Object.keys(lastMonthStats.dealValueByDevelopment).length > 0 && (
-                    <Card className="md:col-span-2">
-                      <CardHeader>
-                        <CardTitle>Valor de Deals por Desarrollo - Mes Anterior</CardTitle>
-                        <CardDescription>Valor total por desarrollo</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={Object.entries(lastMonthStats.dealValueByDevelopment).map(([dev, value]) => ({
-                            desarrollo: dev,
-                            valor: value
-                          }))}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="desarrollo" />
-                            <YAxis />
-                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                            <Legend />
-                            <Bar dataKey="valor" fill={colors.accent} name="Valor (MXN)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )}
+              {/* Nota:
+                  El botón "Ver periodo anterior" ahora cambia TODO el dashboard.
+                  Por eso ya no mostramos una sección extra separada para evitar duplicados. */}
 
               {/* Estadísticas por Estado y Etapa */}
               <div className="grid gap-4 md:grid-cols-2">
@@ -2773,8 +2842,8 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {Object.entries((showLastMonth ? lastMonthStats : stats)?.leadsByStatus || {}).map(([status, count]) => {
-                      const total = (showLastMonth ? lastMonthStats : stats)?.totalLeads || 1;
+                    {Object.entries(displayedStats?.leadsByStatus || {}).map(([status, count]) => {
+                      const total = displayedStats?.totalLeads || 1;
                       return (
                         <div key={status} className="flex items-center justify-between">
                           <span className="text-sm">{status}</span>
@@ -2804,8 +2873,8 @@ export default function ZohoCRMPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {Object.entries((showLastMonth ? lastMonthStats : stats)?.dealsByStage || {}).map(([stage, count]) => {
-                      const total = (showLastMonth ? lastMonthStats : stats)?.totalDeals || 1;
+                    {Object.entries(displayedStats?.dealsByStage || {}).map(([stage, count]) => {
+                      const total = displayedStats?.totalDeals || 1;
                       return (
                         <div key={stage} className="flex items-center justify-between">
                           <span className="text-sm">{stage}</span>
@@ -2843,10 +2912,10 @@ export default function ZohoCRMPage() {
         <TabsContent value="leads" className="flex-1 overflow-auto">
           <div className="mt-4 space-y-4">
             {/* Análisis de Leads */}
-            {stats && (
+            {displayedStats && (
               <>
                 {/* Embudo de Leads */}
-                {stats.leadsFunnel && Object.keys(stats.leadsFunnel).length > 0 && (
+                {displayedStats.leadsFunnel && Object.keys(displayedStats.leadsFunnel).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Embudo de Leads</CardTitle>
@@ -2855,10 +2924,10 @@ export default function ZohoCRMPage() {
                     <CardContent>
                       <ResponsiveContainer width="100%" height={400}>
                         <BarChart
-                          data={Object.entries(stats.leadsFunnel).map(([status, count]) => ({
+                          data={Object.entries(displayedStats.leadsFunnel).map(([status, count]) => ({
                             estado: status,
                             cantidad: count,
-                            porcentaje: stats.totalLeads > 0 ? Math.round((count / stats.totalLeads) * 100) : 0
+                            porcentaje: displayedStats.totalLeads > 0 ? Math.round((count / displayedStats.totalLeads) * 100) : 0
                           }))}
                           layout="vertical"
                         >
@@ -2875,7 +2944,7 @@ export default function ZohoCRMPage() {
                           />
                           <Legend />
                           <Bar dataKey="cantidad" fill={colors.primary} name="Leads">
-                            {Object.entries(stats.leadsFunnel).map((entry, index) => {
+                            {Object.entries(displayedStats.leadsFunnel).map((entry, index) => {
                               return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
@@ -2886,7 +2955,7 @@ export default function ZohoCRMPage() {
                 )}
 
                 {/* Motivos de Descarte - Leads */}
-                {stats.leadsDiscardReasons && Object.keys(stats.leadsDiscardReasons).length > 0 && (
+                {displayedStats?.leadsDiscardReasons && Object.keys(displayedStats.leadsDiscardReasons).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Motivos de Descarte</CardTitle>
@@ -2894,7 +2963,7 @@ export default function ZohoCRMPage() {
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={Object.entries(stats.leadsDiscardReasons)
+                        <BarChart data={Object.entries(displayedStats.leadsDiscardReasons)
                           .sort(([, a], [, b]) => b - a)
                           .map(([motivo, count]) => ({
                             motivo,
@@ -2919,13 +2988,13 @@ export default function ZohoCRMPage() {
               <CardHeader>
                 <CardTitle>Lista de Leads</CardTitle>
                 <CardDescription>
-                  Lista de leads de ZOHO CRM (mostrando primeros 200)
+                  Lista de leads (según filtros y periodo) - mostrando primeros 200
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {leads.length > 0 ? (
+                {displayedFilteredLeads.length > 0 ? (
                   <div className="space-y-4">
-                    {leads.map((lead) => (
+                    {displayedFilteredLeads.slice(0, 200).map((lead) => (
                       <div
                         key={lead.id}
                         className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
@@ -2967,7 +3036,7 @@ export default function ZohoCRMPage() {
                   </div>
                 ) : (
                   <p className="text-center text-muted-foreground py-8">
-                    No hay leads disponibles
+                    No hay leads disponibles para este periodo/filtros
                   </p>
                 )}
               </CardContent>
@@ -2979,10 +3048,10 @@ export default function ZohoCRMPage() {
         <TabsContent value="deals" className="flex-1 overflow-auto">
           <div className="mt-4 space-y-4">
             {/* Análisis de Deals */}
-            {stats && (
+            {displayedStats && (
               <>
                 {/* Deals por Desarrollo */}
-                {stats.dealsByDevelopment && Object.keys(stats.dealsByDevelopment).length > 0 && (
+                {displayedStats.dealsByDevelopment && Object.keys(displayedStats.dealsByDevelopment).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Deals por Desarrollo</CardTitle>
@@ -2993,7 +3062,7 @@ export default function ZohoCRMPage() {
                         <div>
                           <h4 className="text-sm font-medium mb-4">Cantidad de Deals</h4>
                           <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={Object.entries(stats.dealsByDevelopment).map(([dev, count]) => ({
+                            <BarChart data={Object.entries(displayedStats.dealsByDevelopment).map(([dev, count]) => ({
                               desarrollo: dev,
                               cantidad: count
                             }))}>
@@ -3006,11 +3075,11 @@ export default function ZohoCRMPage() {
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
-                        {stats.dealValueByDevelopment && Object.keys(stats.dealValueByDevelopment).length > 0 && (
+                        {displayedStats.dealValueByDevelopment && Object.keys(displayedStats.dealValueByDevelopment).length > 0 && (
                           <div>
                             <h4 className="text-sm font-medium mb-4">Valor de Deals</h4>
                             <ResponsiveContainer width="100%" height={300}>
-                              <BarChart data={Object.entries(stats.dealValueByDevelopment).map(([dev, value]) => ({
+                              <BarChart data={Object.entries(displayedStats.dealValueByDevelopment).map(([dev, value]) => ({
                                 desarrollo: dev,
                                 valor: value
                               }))}>
@@ -3030,7 +3099,7 @@ export default function ZohoCRMPage() {
                 )}
 
                 {/* Embudo de Deals */}
-                {stats.dealsFunnel && Object.keys(stats.dealsFunnel).length > 0 && (
+                {displayedStats.dealsFunnel && Object.keys(displayedStats.dealsFunnel).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Embudo de Deals</CardTitle>
@@ -3039,10 +3108,10 @@ export default function ZohoCRMPage() {
                     <CardContent>
                       <ResponsiveContainer width="100%" height={400}>
                         <BarChart
-                          data={Object.entries(stats.dealsFunnel).map(([stage, count]) => ({
+                          data={Object.entries(displayedStats.dealsFunnel).map(([stage, count]) => ({
                             etapa: stage,
                             cantidad: count,
-                            porcentaje: stats.totalDeals > 0 ? Math.round((count / stats.totalDeals) * 100) : 0
+                            porcentaje: displayedStats.totalDeals > 0 ? Math.round((count / displayedStats.totalDeals) * 100) : 0
                           }))}
                           layout="vertical"
                         >
@@ -3059,7 +3128,7 @@ export default function ZohoCRMPage() {
                           />
                           <Legend />
                           <Bar dataKey="cantidad" fill={colors.secondary} name="Deals">
-                            {Object.entries(stats.dealsFunnel).map((entry, index) => {
+                            {Object.entries(displayedStats.dealsFunnel).map((entry, index) => {
                               return <Cell key={`cell-${index}`} fill={getChartColor(selectedDesarrollo, index)} />;
                             })}
                           </Bar>
@@ -3070,7 +3139,7 @@ export default function ZohoCRMPage() {
                 )}
 
                 {/* Motivos de Descarte - Deals */}
-                {stats.dealsDiscardReasons && Object.keys(stats.dealsDiscardReasons).length > 0 && (
+                {displayedStats.dealsDiscardReasons && Object.keys(displayedStats.dealsDiscardReasons).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Motivos de Descarte</CardTitle>
@@ -3078,7 +3147,7 @@ export default function ZohoCRMPage() {
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={Object.entries(stats.dealsDiscardReasons)
+                        <BarChart data={Object.entries(displayedStats.dealsDiscardReasons)
                           .sort(([, a], [, b]) => b - a)
                           .map(([motivo, count]) => ({
                             motivo,
@@ -3103,13 +3172,13 @@ export default function ZohoCRMPage() {
               <CardHeader>
                 <CardTitle>Lista de Deals</CardTitle>
                 <CardDescription>
-                  Lista de deals de ZOHO CRM (mostrando primeros 200)
+                  Lista de deals (según filtros y periodo) - mostrando primeros 200
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {deals.length > 0 ? (
+                {displayedFilteredDeals.length > 0 ? (
                   <div className="space-y-4">
-                    {deals.map((deal) => (
+                    {displayedFilteredDeals.slice(0, 200).map((deal) => (
                       <div
                         key={deal.id}
                         className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
@@ -3188,7 +3257,7 @@ export default function ZohoCRMPage() {
                   </div>
                 ) : (
                   <p className="text-center text-muted-foreground py-8">
-                    No hay deals disponibles
+                    No hay deals disponibles para este periodo/filtros
                   </p>
                 )}
               </CardContent>

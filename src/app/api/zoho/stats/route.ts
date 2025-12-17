@@ -79,19 +79,35 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const startDate = searchParams.get('startDate') ? new Date(searchParams.get('startDate')!) : undefined;
     const endDate = searchParams.get('endDate') ? new Date(searchParams.get('endDate')!) : undefined;
     const useLocal = searchParams.get('use_local') !== 'false'; // Por defecto usar BD local
+    const debug = searchParams.get('debug') === '1' || searchParams.get('debug') === 'true';
+    const requestId = Math.random().toString(16).slice(2);
+
+    if (debug) {
+      console.log('[zoho-stats][debug] request', {
+        requestId,
+        desarrollo,
+        lastMonth,
+        useLocal,
+        startDateRaw: searchParams.get('startDate'),
+        endDateRaw: searchParams.get('endDate'),
+        startDate: startDate?.toISOString?.(),
+        endDate: endDate?.toISOString?.(),
+        serverTzOffsetMinutes: new Date().getTimezoneOffset(),
+      });
+    }
 
     // 4. Obtener estadísticas de ZOHO CRM
     let stats;
     if (lastMonth) {
       // Si se solicita el mes anterior, usar la función específica
-      stats = await getZohoStatsLastMonth(desarrollo, useLocal);
+      stats = await getZohoStatsLastMonth(desarrollo, useLocal, debug);
     } else {
       // Usar filtros normales (con opción de usar BD local)
       stats = await getZohoStats({
         desarrollo,
         startDate,
         endDate,
-      }, useLocal);
+      }, useLocal, debug);
     }
 
     return NextResponse.json({

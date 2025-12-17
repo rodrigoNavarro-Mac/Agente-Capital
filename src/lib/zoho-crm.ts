@@ -7,6 +7,8 @@
  * Documentación: https://www.zoho.com/crm/developer/docs/api/v2/
  */
 
+import { logger } from '@/lib/logger';
+
 // =====================================================
 // TIPOS Y INTERFACES
 // =====================================================
@@ -128,6 +130,9 @@ export interface ZohoStats {
   dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
   // Nuevos KPIs
   conversionRate?: number; // % Conversión (Deals / Leads)
+  // Report-aligned:
+  // - Only leads CREATED within 08:30-20:30 (any day)
+  // - Average minutes to first contact (real elapsed minutes, 24/7)
   averageTimeToFirstContact?: number; // Tiempo promedio a primer contacto (minutos)
   leadsOutsideBusinessHours?: number; // Cantidad de leads fuera de horario laboral
   leadsOutsideBusinessHoursPercentage?: number; // % Leads fuera de horario laboral
@@ -140,7 +145,7 @@ export interface ZohoStats {
   // Estadísticas por asesor
   leadsByOwner?: Record<string, number>;
   dealsByOwner?: Record<string, number>;
-  averageTimeToFirstContactByOwner?: Record<string, number>; // Tiempo promedio a primer contacto por asesor (minutos)
+  averageTimeToFirstContactByOwner?: Record<string, number>; // Tiempo promedio a primer contacto dentro de horario laboral por asesor (minutos)
   // Calidad de leads
   qualityLeads?: number; // Leads de calidad (contactados exitosamente con solicitud de cotización o visita)
   qualityLeadsPercentage?: number; // % Leads de calidad
@@ -152,8 +157,8 @@ export interface ZohoStats {
   leadsByMonth?: Record<string, number>;
   dealsByMonth?: Record<string, number>;
   conversionByDate?: Record<string, number>; // Conversión en el tiempo
-  // Tiempos de contacto
-  firstContactTimes?: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }>; // Tiempos de primer contacto
+  // Tiempos de contacto dentro de horario laboral
+  firstContactTimes?: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }>; // Tiempos de primer contacto dentro de horario laboral
   // Actividades
   activitiesByType?: Record<string, number>; // Actividades por tipo (Call, Task)
   activitiesByOwner?: Record<string, number>; // Actividades por asesor
@@ -225,13 +230,13 @@ async function getAccessToken(): Promise<string> {
   // Construir la URL del token correctamente
   const tokenUrl = `${normalizedAccountsUrl}/oauth/v2/token`;
   
-  console.log('🔑 Intentando obtener token de Zoho...', {
+  logger.debug('Requesting Zoho access token', {
     accountsUrl: ZOHO_ACCOUNTS_URL,
     tokenUrl,
     hasClientId: !!ZOHO_CLIENT_ID,
     hasClientSecret: !!ZOHO_CLIENT_SECRET,
     hasRefreshToken: !!ZOHO_REFRESH_TOKEN,
-  });
+  }, 'zoho-token');
 
   try {
     const response = await fetch(tokenUrl, {
@@ -289,7 +294,7 @@ async function getAccessToken(): Promise<string> {
     cachedAccessToken = tokenData.access_token;
     tokenExpiryTime = Date.now() + (tokenData.expires_in - 300) * 1000;
 
-    console.log('✅ Token de Zoho obtenido exitosamente');
+    logger.debug('Zoho access token acquired', undefined, 'zoho-token');
     return tokenData.access_token;
   } catch (error) {
     console.error('❌ Error obteniendo token de ZOHO CRM:', {
@@ -692,8 +697,60 @@ export async function getZohoStats(filters?: {
   desarrollo?: string;
   startDate?: Date;
   endDate?: Date;
-}, useLocal: boolean = true): Promise<ZohoStats> {
+}, useLocal: boolean = true, debug: boolean = false): Promise<ZohoStats> {
   try {
+    const debugLog = (message: string, context?: Record<string, unknown>) => {
+      if (!debug) return;
+      logger.debug(message, context, 'zoho-stats');
+    };
+
+    debugLog('getZohoStats called', {
+      desarrollo: filters?.desarrollo,
+      startDate: filters?.startDate?.toISOString?.(),
+      endDate: filters?.endDate?.toISOString?.(),
+      useLocal,
+      serverTzOffsetMinutes: new Date().getTimezoneOffset(),
+    });
+
+    // Activities are expensive to fetch from Zoho (network + token).
+    // We fetch them at most ONCE per request and reuse across KPIs.
+    let cachedActivitiesAll: ZohoActivity[] | null = null;
+    const getActivitiesAllOnce = async (): Promise<ZohoActivity[]> => {
+      if (cachedActivitiesAll) return cachedActivitiesAll;
+      const activities = await getAllZohoActivities('all').catch(() => []);
+      cachedActivitiesAll = activities;
+      return activities;
+    };
+
+    // Report-aligned "business hours" filter:
+    // - We filter by the LEAD CREATION TIME only (not contact time)
+    // - Window is 08:30-20:30 (any day)
+    // - Then we compute "time to first contact" in REAL minutes (24/7), not "business minutes".
+    //
+    // We apply a fixed timezone offset to avoid server timezone differences (e.g. server running in UTC).
+    // Default is Mexico City standard time (UTC-06:00 => -360 minutes).
+    const BUSINESS_UTC_OFFSET_MINUTES = Number(process.env.BUSINESS_UTC_OFFSET_MINUTES ?? '-360');
+    const BUSINESS_START_MINUTES = 8 * 60 + 30; // 08:30
+    const BUSINESS_END_MINUTES = 20 * 60 + 30; // 20:30
+
+    const offsetMs = BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000;
+
+    const getBusinessLocalParts = (date: Date) => {
+      // Convert to "business local time" using a fixed UTC offset, then read UTC parts.
+      const local = new Date(date.getTime() + offsetMs);
+      return {
+        dow: local.getUTCDay(), // 0=Sun..6=Sat (kept for debugging)
+        hour: local.getUTCHours(),
+        minute: local.getUTCMinutes(),
+      };
+    };
+
+    const isLeadCreatedWithinBusinessHours = (createdDate: Date) => {
+      const p = getBusinessLocalParts(createdDate);
+      const minutes = p.hour * 60 + p.minute;
+      return minutes >= BUSINESS_START_MINUTES && minutes <= BUSINESS_END_MINUTES;
+    };
+
     let allLeads: ZohoLead[] = [];
     let allDeals: ZohoDeal[] = [];
 
@@ -742,13 +799,13 @@ export async function getZohoStats(filters?: {
         // Si hay datos en BD local, marcarlos como provenientes de BD local
         if (allLeads.length > 0 || allDeals.length > 0) {
           dataFromLocalDB = true;
-          console.log(`📊 Usando datos de BD local: ${allLeads.length} leads, ${allDeals.length} deals`);
+          logger.debug('Using data from local DB', { leads: allLeads.length, deals: allDeals.length }, 'zoho-stats');
           // NO sincronizar si ya hay datos en BD local - continuar con el procesamiento normal
         } else {
           // Si no hay datos locales, limpiar arrays y obtener desde Zoho
           allLeads = [];
           allDeals = [];
-          console.log('📊 BD local vacía, obteniendo datos desde Zoho...');
+          logger.debug('Local DB empty; fetching from Zoho', undefined, 'zoho-stats');
         }
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho
@@ -760,19 +817,19 @@ export async function getZohoStats(filters?: {
 
     // Si no hay datos de BD local, obtener desde Zoho y sincronizar automáticamente
     if (!dataFromLocalDB) {
-      console.log('📊 BD local vacía o no disponible. Obteniendo datos desde Zoho y sincronizando...');
+      logger.debug('Local DB unavailable/empty; fetching from Zoho (and syncing if enabled)', { useLocal }, 'zoho-stats');
       
       try {
         // Usar las funciones completas que obtienen todos los registros
         allLeads = await getAllZohoLeads();
-        console.log(`📊 Obtenidos ${allLeads.length} leads desde Zoho`);
+        logger.debug('Leads fetched from Zoho', { count: allLeads.length }, 'zoho-stats');
 
         allDeals = await getAllZohoDeals();
-        console.log(`📊 Obtenidos ${allDeals.length} deals desde Zoho`);
+        logger.debug('Deals fetched from Zoho', { count: allDeals.length }, 'zoho-stats');
 
         // Sincronizar automáticamente a la BD local si useLocal es true
         if (useLocal && (allLeads.length > 0 || allDeals.length > 0)) {
-          console.log('💾 Iniciando sincronización automática a la BD local...');
+          logger.debug('Starting automatic sync to local DB', undefined, 'zoho-stats');
           try {
             const { syncZohoLead, syncZohoDeal } = await import('@/lib/postgres');
             
@@ -783,7 +840,7 @@ export async function getZohoStats(filters?: {
             let leadsSkipped = 0; // Registros que no necesitan actualización
             let leadsFailed = 0;
             
-            console.log(`🔄 Sincronizando ${allLeads.length} leads...`);
+            logger.debug('Syncing leads to local DB', { total: allLeads.length }, 'zoho-stats');
             const totalLeads = allLeads.length;
             for (let i = 0; i < allLeads.length; i++) {
               const lead = allLeads[i];
@@ -803,14 +860,24 @@ export async function getZohoStats(filters?: {
                 
                 // Mostrar progreso cada 50 leads
                 if ((i + 1) % 50 === 0 || (i + 1) === totalLeads) {
-                  console.log(`📊 Progreso leads: ${i + 1}/${totalLeads} (${Math.round(((i + 1) / totalLeads) * 100)}%)`);
+                  logger.debug('Leads sync progress', {
+                    processed: i + 1,
+                    total: totalLeads,
+                    percent: Math.round(((i + 1) / totalLeads) * 100),
+                  }, 'zoho-stats');
                 }
               } catch (error) {
                 leadsFailed++;
                 console.warn(`⚠️ Error sincronizando lead ${lead.id}:`, error);
               }
             }
-            console.log(`✅ Leads sincronizados: ${leadsSynced} total (${leadsCreated} nuevos, ${leadsUpdated} actualizados, ${leadsSkipped} sin cambios, ${leadsFailed} fallidos)`);
+            logger.debug('Leads sync summary', {
+              leadsSynced,
+              leadsCreated,
+              leadsUpdated,
+              leadsSkipped,
+              leadsFailed,
+            }, 'zoho-stats');
 
             // Sincronizar deals
             let dealsSynced = 0;
@@ -819,7 +886,7 @@ export async function getZohoStats(filters?: {
             let dealsSkipped = 0; // Registros que no necesitan actualización
             let dealsFailed = 0;
             
-            console.log(`🔄 Sincronizando ${allDeals.length} deals...`);
+            logger.debug('Syncing deals to local DB', { total: allDeals.length }, 'zoho-stats');
             const totalDeals = allDeals.length;
             for (let i = 0; i < allDeals.length; i++) {
               const deal = allDeals[i];
@@ -839,16 +906,26 @@ export async function getZohoStats(filters?: {
                 
                 // Mostrar progreso cada 10 deals o al final
                 if ((i + 1) % 10 === 0 || (i + 1) === totalDeals) {
-                  console.log(`📊 Progreso deals: ${i + 1}/${totalDeals} (${Math.round(((i + 1) / totalDeals) * 100)}%)`);
+                  logger.debug('Deals sync progress', {
+                    processed: i + 1,
+                    total: totalDeals,
+                    percent: Math.round(((i + 1) / totalDeals) * 100),
+                  }, 'zoho-stats');
                 }
               } catch (error) {
                 dealsFailed++;
                 console.warn(`⚠️ Error sincronizando deal ${deal.id}:`, error);
               }
             }
-            console.log(`✅ Deals sincronizados: ${dealsSynced} total (${dealsCreated} nuevos, ${dealsUpdated} actualizados, ${dealsSkipped} sin cambios, ${dealsFailed} fallidos)`);
+            logger.debug('Deals sync summary', {
+              dealsSynced,
+              dealsCreated,
+              dealsUpdated,
+              dealsSkipped,
+              dealsFailed,
+            }, 'zoho-stats');
             
-            console.log(`🎉 Sincronización automática completada: ${leadsSynced + dealsSynced} registros sincronizados`);
+            logger.debug('Automatic sync completed', { totalSynced: leadsSynced + dealsSynced }, 'zoho-stats');
           } catch (error) {
             console.error('❌ Error crítico sincronizando datos a BD local:', error);
             // No fallar la función si la sincronización falla, solo continuar con los datos obtenidos
@@ -881,7 +958,13 @@ export async function getZohoStats(filters?: {
           return dealDesarrollo === filters.desarrollo;
         });
         
-        console.log(`🔍 Filtro desarrollo "${filters.desarrollo}": ${leadsBefore} → ${filteredLeads.length} leads, ${dealsBefore} → ${filteredDeals.length} deals`);
+        logger.debug('Applied development filter', {
+          development: filters.desarrollo,
+          leadsBefore,
+          leadsAfter: filteredLeads.length,
+          dealsBefore,
+          dealsAfter: filteredDeals.length,
+        }, 'zoho-stats');
       }
 
       // Filtrar por rango de fechas si se especifica
@@ -909,7 +992,14 @@ export async function getZohoStats(filters?: {
           return true;
         });
         
-        console.log(`🔍 Filtro fechas (${startDate?.toISOString()} - ${endDate?.toISOString()}): ${leadsBefore} → ${filteredLeads.length} leads, ${dealsBefore} → ${filteredDeals.length} deals`);
+        logger.debug('Applied date filter', {
+          startDate: startDate?.toISOString(),
+          endDate: endDate?.toISOString(),
+          leadsBefore,
+          leadsAfter: filteredLeads.length,
+          dealsBefore,
+          dealsAfter: filteredDeals.length,
+        }, 'zoho-stats');
       }
     }
 
@@ -1069,15 +1159,16 @@ export async function getZohoStats(filters?: {
       dealsByOwner[owner] = (dealsByOwner[owner] || 0) + 1;
     });
 
-    // 5. Tiempo promedio a primer contacto
-    // Intentar obtener actividades para calcular tiempos de primer contacto
+    // 5. Tiempo promedio a primer contacto dentro de horario laboral
+    // Intentar obtener actividades para calcular tiempos de primer contacto dentro de horario laboral
     const firstContactTimes: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }> = [];
     let averageTimeToFirstContact = 0;
     const averageTimeToFirstContactByOwner: Record<string, number> = {};
 
     try {
-      // Obtener actividades relacionadas con leads
-      const activities = await getAllZohoActivities('all').catch(() => []);
+      debugLog('first contact calc start', { filteredLeads: filteredLeads.length });
+      // Obtener actividades relacionadas con leads (cached per request)
+      const activities = await getActivitiesAllOnce();
       
       // Crear mapa de actividades por lead (Who_Id)
       const activitiesByLead = new Map<string, ZohoActivity[]>();
@@ -1091,98 +1182,177 @@ export async function getZohoStats(filters?: {
         }
       });
 
-      // Calcular tiempo a primer contacto para cada lead
+      debugLog('activities mapped', { activities: activities.length, leadsWithActivities: activitiesByLead.size });
+
+      // Calcular tiempo a primer contacto para cada lead (reporte-alineado):
+      // - Filter: lead CREATED within 08:30-20:30 (any day)
+      // - Metric: time to first contact in REAL minutes (24/7)
       const contactTimesByOwner: Record<string, number[]> = {};
+
+      // Debug counters + samples (kept small to avoid noisy logs)
+      const debugCounters = {
+        leadsTotal: filteredLeads.length,
+        leadsWithCreatedTime: 0,
+        leadsCreatedWithinBusinessHours: 0,
+        leadsCreatedOutsideBusinessHours: 0,
+        leadsWithContactDate: 0,
+        leadsUsedTiempoEntreContactoField: 0,
+        leadsComputedFromDates: 0,
+        leadsNegativeDiff: 0,
+      };
+
+      type DebugSample = {
+        leadId: string;
+        owner?: string;
+        createdTime: string;
+        contactTime: string;
+        createdDow: number;
+        createdHm: string;
+        contactDow: number;
+        contactHm: string;
+        usedTiempoField: boolean;
+        timeDiffMinutes: number;
+      };
+
+      const debugTopDiffs: DebugSample[] = [];
+      const debugBottomDiffs: DebugSample[] = [];
+      const pushTop = (x: DebugSample) => {
+        debugTopDiffs.push(x);
+        debugTopDiffs.sort((a, b) => b.timeDiffMinutes - a.timeDiffMinutes);
+        if (debugTopDiffs.length > 10) debugTopDiffs.pop();
+      };
+      const pushBottom = (x: DebugSample) => {
+        debugBottomDiffs.push(x);
+        debugBottomDiffs.sort((a, b) => a.timeDiffMinutes - b.timeDiffMinutes);
+        if (debugBottomDiffs.length > 10) debugBottomDiffs.pop();
+      };
       
       filteredLeads.forEach(lead => {
         // Usar Creacion_de_Lead si existe, sino Created_Time
         const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
         if (!createdTime) return;
+        debugCounters.leadsWithCreatedTime++;
         
         // También verificar si ya tiene First_Contact_Time o Tiempo_entre_primer_contacto
         const firstContactTime = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
         const tiempoEntreContacto = (lead as any).Tiempo_entre_primer_contacto;
-        
-        // Si ya tiene el tiempo calculado, usarlo directamente
-        if (tiempoEntreContacto !== null && tiempoEntreContacto !== undefined) {
-          const timeDiffMinutes = typeof tiempoEntreContacto === 'number' 
-            ? tiempoEntreContacto 
-            : parseFloat(tiempoEntreContacto) || 0;
-          
-          if (timeDiffMinutes >= 0) {
-            firstContactTimes.push({
-              leadId: lead.id,
-              timeToContact: timeDiffMinutes,
-              owner: lead.Owner?.name,
-              createdTime: createdTime,
-            });
 
-            const owner = lead.Owner?.name || 'Sin Asesor';
-            if (!contactTimesByOwner[owner]) {
-              contactTimesByOwner[owner] = [];
-            }
-            contactTimesByOwner[owner].push(timeDiffMinutes);
-          }
-        } else if (firstContactTime) {
-          // Si tiene First_Contact_Time, calcular la diferencia
-          const leadCreated = new Date(createdTime);
-          const firstContact = new Date(firstContactTime);
-          const timeDiffMinutes = Math.floor((firstContact.getTime() - leadCreated.getTime()) / (1000 * 60));
-          
-          if (timeDiffMinutes >= 0) {
-            firstContactTimes.push({
-              leadId: lead.id,
-              timeToContact: timeDiffMinutes,
-              owner: lead.Owner?.name,
-              createdTime: createdTime,
-            });
+        const leadCreated = new Date(createdTime);
+        if (Number.isNaN(leadCreated.getTime())) return;
 
-            const owner = lead.Owner?.name || 'Sin Asesor';
-            if (!contactTimesByOwner[owner]) {
-              contactTimesByOwner[owner] = [];
-            }
-            contactTimesByOwner[owner].push(timeDiffMinutes);
-          }
-        } else {
-          // Intentar obtener de actividades
-          const leadActivities = activitiesByLead.get(lead.id) || [];
-          if (leadActivities.length === 0) return;
-
-          const firstActivity = leadActivities
-            .filter(a => a.Created_Time)
-            .sort((a, b) => {
-              const timeA = new Date(a.Created_Time!).getTime();
-              const timeB = new Date(b.Created_Time!).getTime();
-              return timeA - timeB;
-            })[0];
-
-          if (firstActivity && firstActivity.Created_Time) {
-            const leadCreated = new Date(createdTime);
-            const firstContact = new Date(firstActivity.Created_Time);
-            const timeDiffMinutes = Math.floor((firstContact.getTime() - leadCreated.getTime()) / (1000 * 60));
-            
-            if (timeDiffMinutes >= 0) {
-              firstContactTimes.push({
-                leadId: lead.id,
-                timeToContact: timeDiffMinutes,
-                owner: lead.Owner?.name,
-                createdTime: createdTime,
-              });
-
-              const owner = lead.Owner?.name || 'Sin Asesor';
-              if (!contactTimesByOwner[owner]) {
-                contactTimesByOwner[owner] = [];
-              }
-              contactTimesByOwner[owner].push(timeDiffMinutes);
-            }
-          }
+        if (!isLeadCreatedWithinBusinessHours(leadCreated)) {
+          debugCounters.leadsCreatedOutsideBusinessHours++;
+          return;
         }
+        debugCounters.leadsCreatedWithinBusinessHours++;
+
+        // Obtener fecha/hora real del primer contacto (para poder validar horario laboral)
+        const leadActivities = activitiesByLead.get(lead.id) || [];
+        let contactDate: Date | null = null;
+
+        // Calcular diferencia (minutos).
+        // Report behavior:
+        // - If the field exists, we can use it directly (it represents real elapsed minutes).
+        // - Otherwise we compute (contactDate - createdDate) in minutes.
+        let timeDiffMinutes: number;
+        let usedTiempoField = false;
+        if (tiempoEntreContacto !== null && tiempoEntreContacto !== undefined) {
+          const parsed = typeof tiempoEntreContacto === 'number' ? tiempoEntreContacto : parseFloat(tiempoEntreContacto);
+          if (!Number.isFinite(parsed)) return;
+          timeDiffMinutes = parsed;
+          usedTiempoField = true;
+          debugCounters.leadsUsedTiempoEntreContactoField++;
+        } else {
+          // Need a contact timestamp to compute.
+          if (firstContactTime) {
+            contactDate = new Date(firstContactTime);
+          } else if (leadActivities.length > 0) {
+            const firstActivity = leadActivities
+              .filter(a => a.Created_Time)
+              .sort((a, b) => {
+                const timeA = new Date(a.Created_Time!).getTime();
+                const timeB = new Date(b.Created_Time!).getTime();
+                return timeA - timeB;
+              })[0];
+
+            if (firstActivity?.Created_Time) {
+              contactDate = new Date(firstActivity.Created_Time);
+            }
+          }
+
+          if (!contactDate || Number.isNaN(contactDate.getTime())) return;
+          debugCounters.leadsWithContactDate++;
+          timeDiffMinutes = Math.floor((contactDate.getTime() - leadCreated.getTime()) / (1000 * 60));
+          debugCounters.leadsComputedFromDates++;
+        }
+
+        if (timeDiffMinutes < 0) {
+          debugCounters.leadsNegativeDiff++;
+          return;
+        }
+        if (timeDiffMinutes > 100000) return;
+
+        firstContactTimes.push({
+          leadId: lead.id,
+          timeToContact: timeDiffMinutes,
+          owner: lead.Owner?.name,
+          createdTime: createdTime,
+        });
+
+        if (debug) {
+          const fmtHmLocal = (d: Date) => {
+            const p = getBusinessLocalParts(d);
+            return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
+          };
+          const sample: DebugSample = {
+            leadId: lead.id,
+            owner: lead.Owner?.name,
+            createdTime: String(createdTime),
+            contactTime: String(firstContactTime || (contactDate ? contactDate.toISOString() : '')),
+            createdDow: getBusinessLocalParts(leadCreated).dow,
+            createdHm: fmtHmLocal(leadCreated),
+            contactDow: contactDate ? getBusinessLocalParts(contactDate).dow : -1,
+            contactHm: contactDate ? fmtHmLocal(contactDate) : '--:--',
+            usedTiempoField,
+            timeDiffMinutes,
+          };
+          pushTop(sample);
+          pushBottom(sample);
+        }
+
+        const owner = lead.Owner?.name || 'Sin Asesor';
+        if (!contactTimesByOwner[owner]) {
+          contactTimesByOwner[owner] = [];
+        }
+        contactTimesByOwner[owner].push(timeDiffMinutes);
       });
 
       // Calcular promedio general
       if (firstContactTimes.length > 0) {
         const totalMinutes = firstContactTimes.reduce((sum, item) => sum + item.timeToContact, 0);
         averageTimeToFirstContact = Math.round((totalMinutes / firstContactTimes.length) * 10) / 10;
+      }
+
+      if (debug) {
+        const times = firstContactTimes.map((x) => x.timeToContact).filter((n) => Number.isFinite(n));
+        times.sort((a, b) => a - b);
+        const pickPct = (p: number) =>
+          times.length ? times[Math.min(times.length - 1, Math.floor((p / 100) * times.length))] : null;
+
+        debugLog('first contact calc summary', {
+          ...debugCounters,
+          includedInAverage: firstContactTimes.length,
+          avgMinutes: averageTimeToFirstContact,
+          minMinutes: times[0] ?? null,
+          p50Minutes: pickPct(50),
+          p90Minutes: pickPct(90),
+          p95Minutes: pickPct(95),
+          maxMinutes: times[times.length - 1] ?? null,
+          top10ByMinutes: debugTopDiffs,
+          bottom10ByMinutes: debugBottomDiffs,
+          note:
+            'Report-aligned: filters leads by CREATED time within 08:30-20:30 (any day) and uses real elapsed minutes to first contact (24/7).',
+        });
       }
 
       // Calcular promedio por asesor
@@ -1196,7 +1366,7 @@ export async function getZohoStats(filters?: {
       console.warn('⚠️ Error calculando tiempos de primer contacto:', error);
     }
 
-    // 6. Leads fuera de horario laboral (08:30-20:30)
+    // 6. Leads fuera de horario laboral (08:00-20:30)
     let leadsOutsideBusinessHours = 0;
     filteredLeads.forEach(lead => {
       // Usar Creacion_de_Lead si existe, sino Created_Time
@@ -1206,7 +1376,7 @@ export async function getZohoStats(filters?: {
       const hour = createdDate.getHours();
       const minute = createdDate.getMinutes();
       const timeInMinutes = hour * 60 + minute;
-      const businessStart = 8 * 60 + 30; // 08:30
+      const businessStart = 8 * 60; // 08:00
       const businessEnd = 20 * 60 + 30; // 20:30
       
       // Verificar si es fin de semana
@@ -1228,7 +1398,7 @@ export async function getZohoStats(filters?: {
     // - Tiene un deal creado O tiene estado que indique interés (ej: "Contactado", "Cotización", "Visita")
     let qualityLeads = 0;
     try {
-      const activities = await getAllZohoActivities('all').catch(() => []);
+      const activities = await getActivitiesAllOnce();
       const leadsWithActivities = new Set<string>();
       activities.forEach(activity => {
         if (activity.Who_Id?.id) {
@@ -1370,7 +1540,7 @@ export async function getZohoStats(filters?: {
     const activitiesByOwner: Record<string, number> = {};
     
     try {
-      const activities = await getAllZohoActivities('all').catch(() => []);
+      const activities = await getActivitiesAllOnce();
       activities.forEach(activity => {
         const type = activity.Activity_Type || 'Unknown';
         activitiesByType[type] = (activitiesByType[type] || 0) + 1;
@@ -1436,7 +1606,7 @@ export async function getZohoStats(filters?: {
  * @param desarrollo Desarrollo específico para filtrar (opcional)
  * @param useLocal Si es true, usa la BD local primero (por defecto true)
  */
-export async function getZohoStatsLastMonth(desarrollo?: string, useLocal: boolean = true): Promise<ZohoStats> {
+export async function getZohoStatsLastMonth(desarrollo?: string, useLocal: boolean = true, debug: boolean = false): Promise<ZohoStats> {
   // Calcular fechas del mes anterior
   const now = new Date();
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -1446,7 +1616,7 @@ export async function getZohoStatsLastMonth(desarrollo?: string, useLocal: boole
     desarrollo,
     startDate: lastMonth,
     endDate: lastMonthEnd,
-  }, useLocal);
+  }, useLocal, debug);
 }
 
 /**

@@ -663,6 +663,9 @@ export interface ZohoStats {
   dealsDiscardReasons?: Record<string, number>; // Motivos de descarte de deals
   // Nuevos KPIs
   conversionRate?: number; // % Conversión (Deals / Leads)
+  // Report-aligned:
+  // - Only leads CREATED within 08:30-20:30 (any day)
+  // - Average minutes to first contact (real elapsed minutes, 24/7)
   averageTimeToFirstContact?: number; // Tiempo promedio a primer contacto (minutos)
   leadsOutsideBusinessHours?: number; // Cantidad de leads fuera de horario laboral
   leadsOutsideBusinessHoursPercentage?: number; // % Leads fuera de horario laboral
@@ -675,7 +678,7 @@ export interface ZohoStats {
   // Estadísticas por asesor
   leadsByOwner?: Record<string, number>;
   dealsByOwner?: Record<string, number>;
-  averageTimeToFirstContactByOwner?: Record<string, number>; // Tiempo promedio a primer contacto por asesor (minutos)
+  averageTimeToFirstContactByOwner?: Record<string, number>; // Tiempo promedio a primer contacto dentro de horario laboral por asesor (minutos)
   // Calidad de leads
   qualityLeads?: number; // Leads de calidad (contactados exitosamente con solicitud de cotización o visita)
   qualityLeadsPercentage?: number; // % Leads de calidad
@@ -687,8 +690,8 @@ export interface ZohoStats {
   leadsByMonth?: Record<string, number>;
   dealsByMonth?: Record<string, number>;
   conversionByDate?: Record<string, number>; // Conversión en el tiempo
-  // Tiempos de contacto
-  firstContactTimes?: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }>; // Tiempos de primer contacto
+  // Tiempos de contacto dentro de horario laboral
+  firstContactTimes?: Array<{ leadId: string; timeToContact: number; owner?: string; createdTime: string }>; // Tiempos de primer contacto dentro de horario laboral
   // Actividades
   activitiesByType?: Record<string, number>; // Actividades por tipo (Call, Task)
   activitiesByOwner?: Record<string, number>; // Actividades por asesor
@@ -712,7 +715,7 @@ export interface ZohoNoteForAI {
 export interface ZohoNotesInsightsRequest {
   notes: ZohoNoteForAI[];
   context?: {
-    period?: 'month' | 'quarter' | 'year';
+    period?: 'week' | 'month' | 'quarter' | 'year';
     startDate?: string;
     endDate?: string;
     desarrollo?: string;
@@ -720,9 +723,28 @@ export interface ZohoNotesInsightsRequest {
     owner?: string;
     status?: string;
   };
+  regenerate?: boolean;
 }
 
 export interface ZohoNotesInsightsResponse {
+  // Metadata to keep charts + text aligned and cached by context
+  contextHash: string;
+  generatedAt: string;
+  notesCount: number;
+
+  // Chart data (deterministic, stored with the insight)
+  topTerms: Array<{ term: string; count: number }>;
+  trendTerms: string[];
+  trend: Array<Record<string, number | string>>;
+  metricsTrend?: Array<{
+    bucket: string;
+    noAnswerOrNoContact: number;
+    priceOrBudget: number;
+    financingOrCredit: number;
+    locationOrArea: number;
+    timingOrUrgency: number;
+  }>;
+
   summary: string;
   topThemes: Array<{ label: string; count: number; examples: string[] }>;
   topObjections: Array<{ label: string; count: number; examples: string[] }>;
@@ -736,6 +758,40 @@ export interface ZohoNotesInsightsResponse {
     locationOrArea: number;
     timingOrUrgency: number;
   };
+}
+
+export async function getZohoNotesInsightsStored(
+  context?: ZohoNotesInsightsRequest['context']
+): Promise<ZohoNotesInsightsResponse | null> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  const params = new URLSearchParams();
+  if (context?.period) params.set('period', context.period);
+  if (context?.startDate) params.set('startDate', context.startDate);
+  if (context?.endDate) params.set('endDate', context.endDate);
+  if (context?.desarrollo) params.set('desarrollo', context.desarrollo);
+  if (context?.source) params.set('source', context.source);
+  if (context?.owner) params.set('owner', context.owner);
+  if (context?.status) params.set('status', context.status);
+
+  const url = `/api/zoho/notes-insights?${params.toString()}`;
+
+  const response = await fetcher<{ success: boolean; data: ZohoNotesInsightsResponse | null; error?: string }>(
+    url,
+    {
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : undefined,
+    }
+  );
+
+  if (!response.success) {
+    throw new Error(response.error || 'Error leyendo insights guardados');
+  }
+
+  return response.data || null;
 }
 
 export async function getZohoNotesInsightsAI(
@@ -798,6 +854,7 @@ export async function getZohoStats(filters?: {
   lastMonth?: boolean;
   startDate?: Date;
   endDate?: Date;
+  debug?: boolean;
 }): Promise<ZohoStats> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   
@@ -814,6 +871,9 @@ export async function getZohoStats(filters?: {
   }
   if (filters?.endDate) {
     params.append('endDate', filters.endDate.toISOString());
+  }
+  if (filters?.debug) {
+    params.append('debug', '1');
   }
   
   const queryString = params.toString();

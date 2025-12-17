@@ -28,6 +28,7 @@ import { createPageAwareChunks, summarizeChunks } from '@/lib/chunker';
 import { cleanPDFText, cleanCSVText, cleanDOCXText } from '@/lib/cleanText';
 import { extractTextFromPDF, extractTextFromPDFWithOCR, needsOCR } from '@/lib/ocr';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
 
 import type { 
   Zone, 
@@ -76,7 +77,7 @@ function getUploadDir(): string {
   const uploadDir = isServerless ? '/tmp' : './tmp';
   
   // Log para debugging (útil también en producción para diagnosticar)
-  console.log(`📁 Directorio temporal: ${uploadDir} | CWD: ${currentDir} | Serverless: ${isServerless}`);
+  logger.debug('Resolved upload temp directory', { uploadDir, currentDir, isServerless }, 'upload');
   
   return uploadDir;
 }
@@ -103,6 +104,7 @@ interface ParsedFormData {
 export async function POST(request: NextRequest): Promise<NextResponse<UploadResponse>> {
   const startTime = Date.now();
   let tempFilePath: string | null = null;
+  const logScope = 'upload';
 
   try {
     // 1. Parsear el FormData
@@ -140,7 +142,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
 
     // 4. Guardar archivo temporalmente
     tempFilePath = await saveTemporaryFile(file);
-    console.log(`📁 Archivo guardado temporalmente: ${tempFilePath}`);
+    logger.debug('Temp file saved', { tempFilePath }, logScope);
 
     // 5. Extraer texto según el tipo de archivo
     const fileExtension = getFileExtension(file.name);
@@ -153,11 +155,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       );
     }
 
-    console.log(`📝 Texto extraído: ${rawText.length} caracteres`);
+    logger.debug('Raw text extracted', { length: rawText.length }, logScope);
 
     // 6. Limpiar el texto
     const cleanedText = cleanTextByType(rawText, fileExtension);
-    console.log(`🧹 Texto limpio: ${cleanedText.length} caracteres`);
+    logger.debug('Cleaned text', { length: cleanedText.length }, logScope);
 
     // 7. Crear chunks con metadatos
     const chunks = createPageAwareChunks(
@@ -176,12 +178,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     );
 
     const chunkSummary = summarizeChunks(chunks);
-    console.log(`📦 Chunks creados:`, chunkSummary);
+    logger.debug('Chunks created', { chunkSummary }, logScope);
 
     // 8. Subir chunks a Pinecone
     const namespace = zone; // Usamos la zona como namespace
     await upsertChunks(namespace, chunks);
-    console.log(`📤 Chunks subidos a Pinecone namespace: ${namespace}`);
+    logger.debug('Chunks upserted to Pinecone', { namespace, chunks: chunks.length }, logScope);
 
     // 9. Guardar metadata en PostgreSQL
     const documentMeta = await saveDocumentMeta({
@@ -193,7 +195,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       pinecone_namespace: namespace,
       tags: extractTags(file.name, type),
     });
-    console.log(`💾 Metadata guardada en PostgreSQL, ID: ${documentMeta.id}`);
+    logger.debug('Document metadata saved', { documentId: documentMeta.id }, logScope);
 
     // 10. Registrar acción en logs
     const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
@@ -222,14 +224,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     memoryCache.invalidate('documents*');
     memoryCache.invalidate('developments*');
     memoryCache.invalidate('stats*');
-    console.log('🔄 Caché invalidado después de subir documento');
+    logger.debug('Cache invalidated after upload', undefined, logScope);
 
     // 12. Limpiar archivo temporal
     await cleanupTempFile(tempFilePath);
     tempFilePath = null;
 
     const processingTime = Date.now() - startTime;
-    console.log(`✅ Documento procesado en ${processingTime}ms`);
+    logger.debug('Upload processed', { processingTimeMs: processingTime }, logScope);
 
     return NextResponse.json({
       success: true,
@@ -240,7 +242,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     });
 
   } catch (error) {
-    console.error('❌ Error en upload:', error);
+    logger.error('Upload failed', error, { tempFilePath }, 'upload');
     
     // Limpiar archivo temporal en caso de error
     if (tempFilePath) {
@@ -399,18 +401,18 @@ async function extractPDFText(filepath: string): Promise<string> {
   const fs = await import('fs');
   
   // PASO 1: Intento rápido con pdf-parse
-  console.log('📄 Intentando extracción rápida con pdf-parse...');
+  logger.debug('Trying fast PDF extraction (pdf-parse)', undefined, 'upload');
   const dataBuffer = fs.readFileSync(filepath);
   const standardText = await extractTextFromPDF(dataBuffer);
 
   // PASO 2: Verificar si necesita OCR
   if (needsOCR(standardText)) {
-    console.log('⚠️ PDF parece ser escaneado (texto insuficiente), intentando OCR...');
+    logger.debug('PDF likely scanned (low text); trying OCR', undefined, 'upload');
     
     try {
       // Usar OCR (lento pero funciona con imágenes)
       const ocrText = await extractTextFromPDFWithOCR(filepath);
-      console.log('✅ Texto extraído con OCR');
+      logger.debug('OCR extraction succeeded', undefined, 'upload');
       return ocrText;
     } catch (ocrError) {
       // Si OCR falla, lanzar error claro para el usuario
@@ -435,7 +437,7 @@ async function extractPDFText(filepath: string): Promise<string> {
     }
   }
 
-  console.log('✅ Texto extraído con pdf-parse (método rápido)');
+  logger.debug('Fast PDF extraction succeeded', undefined, 'upload');
   return standardText;
 }
 
@@ -518,7 +520,7 @@ async function cleanupTempFile(filepath: string): Promise<void> {
   try {
     if (existsSync(filepath)) {
       await unlink(filepath);
-      console.log(`🗑️ Archivo temporal eliminado: ${filepath}`);
+      logger.debug('Temp file deleted', { filepath }, 'upload');
     }
   } catch (error) {
     console.warn('⚠️ No se pudo eliminar archivo temporal:', error);

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getQueryLogs, getActionLogs, getUserById } from '@/lib/postgres';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 import type { QueryLog, ActionLog, APIResponse, ActionType, ResourceType, Zone } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
@@ -28,6 +29,7 @@ export async function GET(
   actions: ActionLog[];
 }>>> {
   try {
+    const logScope = 'api-logs';
     // 1. Verificar autenticación
     const authHeader = request.headers.get('authorization');
     const token = extractTokenFromHeader(authHeader);
@@ -78,14 +80,14 @@ export async function GET(
     const limit = limitParam ? parseInt(limitParam) : 50;
     const offset = offsetParam ? parseInt(offsetParam) : 0;
 
-    console.log('📥 [API Logs] Parámetros recibidos:', {
+    logger.debug('Request params', {
       userId: userIdParam,
       zone: zoneParam,
       actionType,
       resourceType,
       limit,
       offset,
-    });
+    }, logScope);
 
     // Validar que zone sea un Zone válido
     const validZones: Zone[] = ['yucatan', 'puebla', 'quintana_roo', 'cdmx', 'jalisco', 'nuevo_leon'];
@@ -94,17 +96,17 @@ export async function GET(
       : undefined;
 
     // Obtener query logs
-    console.log('🔍 [API Logs] Obteniendo query logs...');
+    logger.debug('Fetching query logs', undefined, logScope);
     const queryLogs = await getQueryLogs({
       userId: userIdParam ? parseInt(userIdParam) : undefined,
       zone: zone,
       limit: Math.floor(limit / 2), // Dividir entre queries y actions
       offset: Math.floor(offset / 2),
     });
-    console.log(`✅ [API Logs] Query logs obtenidos: ${queryLogs.length}`);
+    logger.debug('Query logs fetched', { count: queryLogs.length }, logScope);
 
     // Obtener action logs
-    console.log('🔍 [API Logs] Obteniendo action logs...');
+    logger.debug('Fetching action logs', undefined, logScope);
     const actionLogs = await getActionLogs({
       userId: userIdParam ? parseInt(userIdParam) : undefined,
       actionType: actionType || undefined,
@@ -113,7 +115,7 @@ export async function GET(
       limit: Math.floor(limit / 2),
       offset: Math.floor(offset / 2),
     });
-    console.log(`✅ [API Logs] Action logs obtenidos: ${actionLogs.length}`);
+    logger.debug('Action logs fetched', { count: actionLogs.length }, logScope);
 
     const response = {
       success: true,
@@ -123,19 +125,16 @@ export async function GET(
       },
     };
 
-    console.log('📤 [API Logs] Enviando respuesta:', {
+    logger.debug('Sending response', {
       queriesCount: queryLogs.length,
       actionsCount: actionLogs.length,
       total: queryLogs.length + actionLogs.length,
-    });
+    }, logScope);
 
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('❌ [API Logs] Error obteniendo logs:', error);
-    if (error instanceof Error) {
-      console.error('Error stack:', error.stack);
-    }
+    logger.error('Error fetching logs', error, undefined, 'api-logs');
 
     return NextResponse.json(
       {
