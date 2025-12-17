@@ -123,10 +123,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
             more_records: (page * perPage) < localData.total,
           },
         };
-        console.log(`✅ Leads obtenidos de BD local: ${localData.leads.length} leads, total: ${localData.total}`);
+        console.log(`Leads obtenidos de BD local: ${localData.leads.length} leads, total: ${localData.total}`);
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho como fallback
-        console.warn('⚠️ Error obteniendo leads desde BD local, usando Zoho:', error);
+        console.warn(' Error obteniendo leads desde BD local, usando Zoho:', error);
         leadsResponse = await getZohoLeads(page, perPage);
       }
     }
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo leads de ZOHO:', error);
+    console.error(' Error obteniendo leads de ZOHO:', error);
     
     return NextResponse.json(
       {

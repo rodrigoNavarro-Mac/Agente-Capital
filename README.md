@@ -7,216 +7,529 @@
 
 Sistema completo de Agente de IA para **Capital Plus**, construido con Next.js 14, TypeScript, Pinecone, PostgreSQL y múltiples proveedores de LLM. Sistema RAG (Retrieval Augmented Generation) para consultas inteligentes sobre documentos corporativos.
 
+**Este documento es una referencia técnica sobre cómo funciona el sistema, sus tecnologías, optimizaciones y métodos de interacción.**
+
 ## 📋 Tabla de Contenidos
 
-- [Características](#-características)
-- [Tecnologías](#-tecnologías)
-- [Instalación](#-instalación)
-- [Configuración](#️-configuración)
-- [Uso](#-uso)
-- [Estructura del Proyecto](#-estructura-del-proyecto)
+- [Arquitectura del Sistema](#-arquitectura-del-sistema)
+- [Tecnologías y Componentes](#-tecnologías-y-componentes)
+- [Flujos de Trabajo Principales](#-flujos-de-trabajo-principales)
+- [Optimizaciones Implementadas](#-optimizaciones-implementadas)
+- [Sistema RAG (Retrieval Augmented Generation)](#-sistema-rag-retrieval-augmented-generation)
+- [Integraciones Externas](#-integraciones-externas)
+- [Sistema de Caché](#-sistema-de-caché)
+- [Procesamiento de Documentos](#-procesamiento-de-documentos)
+- [Sistema de Aprendizaje](#-sistema-de-aprendizaje)
+- [Base de Datos y Optimizaciones](#-base-de-datos-y-optimizaciones)
+- [Autenticación y Seguridad](#-autenticación-y-seguridad)
 - [API Endpoints](#-api-endpoints)
-- [Roles y Permisos](#-roles-y-permisos)
-- [Despliegue](#-despliegue)
-- [Contribuir](#-contribuir)
+- [Estructura del Proyecto](#-estructura-del-proyecto)
 
-## ✨ Características
+## 🏗️ Arquitectura del Sistema
 
-### 🎯 Funcionalidades Principales
+El sistema está construido con una arquitectura modular que separa claramente las responsabilidades:
 
-- ✅ **Upload de Documentos** - Procesamiento automático de PDF, CSV, DOCX con extracción de texto
-- ✅ **RAG (Retrieval Augmented Generation)** - Búsqueda semántica con Pinecone y HuggingFace
-- ✅ **Múltiples Proveedores LLM** - Soporte para LM Studio (local), OpenAI, y más
-- ✅ **Sistema de Autenticación** - Login, registro, recuperación de contraseña con JWT
-- ✅ **Gestión de Usuarios** - CRUD completo con roles y permisos granulares
-- ✅ **Integración Zoho CRM** - Sincronización de leads, deals y pipelines
-- ✅ **Sistema de Logs** - Historial completo de consultas y acciones
-- ✅ **Cache Inteligente** - Optimización de consultas frecuentes
-- ✅ **Sistema de Feedback** - Aprendizaje continuo del agente
+### Capas Principales
 
-### 🎨 Frontend
+1. **Frontend (Next.js App Router)**
+   - Páginas del dashboard (`src/app/dashboard/`)
+   - Componentes UI reutilizables (`src/components/`)
+   - Cliente API (`src/lib/api.ts`)
 
-- ✅ **Dashboard Moderno** - Interfaz limpia con colores corporativos (Navy & Gold)
-- ✅ **Upload UI** - Drag & drop con preview y progress bars
-- ✅ **Query Agent** - Interface conversacional con contexto RAG y fuentes
-- ✅ **Documents Browser** - Gestión y filtrado avanzado de documentos
-- ✅ **Configuration Panel** - Ajuste dinámico de parámetros del agente
-- ✅ **Logs Viewer** - Historial de consultas con paginación y filtros
-- ✅ **User Management** - Panel de administración de usuarios
-- ✅ **Zoho Integration** - Dashboard de sincronización con CRM
+2. **Backend (Next.js API Routes)**
+   - Endpoints RESTful (`src/app/api/`)
+   - Lógica de negocio en módulos (`src/lib/`)
 
-### 🔐 Seguridad
+3. **Base de Datos**
+   - PostgreSQL para datos estructurados (usuarios, documentos, logs)
+   - Pinecone para búsqueda vectorial (embeddings de documentos)
 
-- ✅ **Autenticación JWT** - Tokens seguros con refresh automático
-- ✅ **Sistema de Roles** - 7 roles predefinidos con permisos específicos
-- ✅ **Control de Acceso** - Permisos por zona y desarrollo
-- ✅ **Encriptación** - Passwords hasheados con bcrypt
-- ✅ **Validación** - Input sanitization y validación con Zod
+4. **Servicios Externos**
+   - Pinecone Inference API para embeddings
+   - LLM Providers (LM Studio local / OpenAI cloud)
+   - Zoho CRM API para sincronización
 
-## 🚀 Tecnologías
+### Flujo de Datos
 
-| Categoría | Tecnología | Versión |
-|-----------|------------|---------|
-| **Framework** | Next.js | 14.2.0 |
-| **Language** | TypeScript | 5.3.3 |
-| **Styling** | TailwindCSS + ShadCN UI | 3.4.0 |
-| **Vector DB** | Pinecone | 3.0.0 |
-| **Embeddings** | HuggingFace Inference API | 4.13.4 |
-| **Database** | PostgreSQL | 8.11.3 |
-| **LLM Local** | LM Studio | - |
-| **LLM Cloud** | OpenAI | 6.9.1 |
-| **Forms** | React Hook Form + Zod | 7.49.3 |
-| **Auth** | JWT (jsonwebtoken) | 9.0.2 |
-| **PDF Processing** | pdf-parse, pdfjs-dist | 1.1.4, 3.11.174 |
-| **CRM Integration** | Zoho CRM API | - |
-
-## 📦 Instalación
-
-### Prerrequisitos
-
-- Node.js >= 18.17.0
-- PostgreSQL >= 12
-- Cuenta de Pinecone (gratis)
-- Cuenta de HuggingFace (gratis - 30,000 requests/mes)
-- (Opcional) LM Studio para LLM local
-- (Opcional) OpenAI API key para LLM en la nube
-
-### 1. Clonar el Repositorio
-
-```bash
-git clone https://github.com/rodrigoNavarro-Mac/Agente-Capital.git
-cd Agente-Capital
+```
+Usuario → Frontend (React) → API Route → Módulos lib/ → Servicios Externos
+                                    ↓
+                            PostgreSQL / Pinecone
 ```
 
-### 2. Instalar Dependencias
+## 🔧 Tecnologías y Componentes
 
-```bash
-npm install
+### Stack Principal
+
+| Categoría | Tecnología | Versión | Propósito |
+|-----------|------------|---------|-----------|
+| **Framework** | Next.js | 14.2.0 | Framework React con App Router y API Routes |
+| **Language** | TypeScript | 5.3.3 | Tipado estático para seguridad y mantenibilidad |
+| **Styling** | TailwindCSS + ShadCN UI | 3.4.0 | Sistema de diseño y componentes UI |
+| **Vector DB** | Pinecone | 3.0.0 | Almacenamiento y búsqueda de embeddings |
+| **Embeddings** | Pinecone Inference API | - | Generación de embeddings (llama-text-embed-v2, 1024 dims) |
+| **Database** | PostgreSQL | 8.11.3 | Base de datos relacional (Supabase en producción) |
+| **LLM Local** | LM Studio | - | LLM local para desarrollo/pruebas |
+| **LLM Cloud** | OpenAI | 6.9.1 | LLM en la nube (gpt-4o-mini) |
+| **Forms** | React Hook Form + Zod | 7.49.3 | Validación de formularios |
+| **Auth** | JWT (jsonwebtoken) | 9.0.2 | Autenticación basada en tokens |
+| **PDF Processing** | pdf-parse, pdfjs-dist | 1.1.4, 3.11.174 | Extracción de texto de PDFs |
+| **CRM Integration** | Zoho CRM API | - | Sincronización de leads y deals |
+
+### Cómo Interactúan los Componentes
+
+#### 1. **Pinecone (Vector Database)**
+- **Función**: Almacena embeddings de documentos para búsqueda semántica
+- **Modelo de Embeddings**: `llama-text-embed-v2` (1024 dimensiones)
+- **Namespaces**: Organiza vectores por zona (yucatan, puebla, etc.)
+- **Metadata**: Almacena información del documento (zona, desarrollo, tipo, página, chunk)
+- **Búsqueda**: Usa cosine similarity para encontrar chunks relevantes
+
+#### 2. **PostgreSQL (Base de Datos Relacional)**
+- **Función**: Almacena datos estructurados (usuarios, documentos, logs, configuración)
+- **Pool de Conexiones**: Configurado para serverless (conexiones directas)
+- **Índices**: Optimizados para keyset pagination y queries frecuentes
+- **Tablas Principales**:
+  - `users`: Usuarios y autenticación
+  - `documents_meta`: Metadatos de documentos subidos
+  - `query_logs`: Historial de consultas al agente
+  - `query_cache`: Caché de respuestas frecuentes
+  - `learned_responses`: Respuestas aprendidas del sistema
+  - `agent_config`: Configuración del agente (temperature, top_k, etc.)
+  - `zoho_leads`, `zoho_deals`: Datos sincronizados de Zoho CRM
+
+#### 3. **LLM Providers (LM Studio / OpenAI)**
+- **Abstracción**: `src/lib/llm-provider.ts` permite cambiar entre proveedores
+- **Configuración**: Se almacena en `agent_config` (llave `llm_provider`)
+- **Mensajes**: Formato estándar (system, user, assistant)
+- **Health Checks**: Verificación de disponibilidad antes de usar
+
+#### 4. **Sistema de Caché Multi-Nivel**
+- **Caché en Memoria** (`src/lib/memory-cache.ts`): Para datos frecuentes (5-30 min TTL)
+- **Caché de Consultas** (`src/lib/cache.ts`): Para respuestas RAG (30 días TTL)
+- **Caché de Embeddings**: En memoria para evitar regenerar embeddings del mismo query
+
+## 🔄 Flujos de Trabajo Principales
+
+### 1. Flujo de Upload de Documentos
+
+```
+1. Usuario sube archivo (PDF/CSV/DOCX) → /api/upload
+2. Extracción de texto:
+   - PDF: pdf-parse o pdfjs-dist
+   - DOCX: mammoth
+   - CSV: parsing directo
+3. Limpieza de texto (cleanText.ts):
+   - Eliminación de caracteres especiales
+   - Normalización de espacios
+   - Preservación de estructura
+4. Chunking (chunker.ts):
+   - División por párrafos → oraciones → palabras
+   - Overlap configurable (default: 50 tokens)
+   - Tamaño configurable (default: 500 tokens)
+5. Generación de embeddings:
+   - Pinecone Inference API (llama-text-embed-v2)
+   - Batch processing (96 textos por batch)
+6. Almacenamiento:
+   - Vectores → Pinecone (namespace: zona)
+   - Metadatos → PostgreSQL (documents_meta)
+7. Registro de chunks:
+   - Tabla chunks_stats para estadísticas
 ```
 
-### 3. Configurar Variables de Entorno
+### 2. Flujo de Consulta RAG
 
-Copia el archivo de plantilla y completa tus valores:
-
-```bash
-# Windows (PowerShell)
-Copy-Item ENV_TEMPLATE.txt .env
-
-# Mac/Linux
-cp ENV_TEMPLATE.txt .env
+```
+1. Usuario envía query → /api/rag-query
+2. Verificación de permisos:
+   - Autenticación JWT
+   - Permisos por zona/desarrollo
+3. Procesamiento del query (queryProcessing.ts):
+   - Corrección ortográfica
+   - Expansión semántica
+   - Normalización
+4. Búsqueda en caché:
+   - Hash exacto del query
+   - Búsqueda semántica en Pinecone (namespace: cache)
+   - Si encuentra, retorna respuesta cached
+5. Si no hay caché, búsqueda RAG:
+   - Generar embedding del query (Pinecone Inference)
+   - Buscar chunks similares en Pinecone (namespace: zona)
+   - Re-ranking con estadísticas de chunks
+   - Variantes del query si no hay suficientes resultados
+6. Construcción del contexto:
+   - Combinar top K chunks encontrados
+   - Formatear con referencias a fuentes
+7. Consulta al LLM:
+   - System prompt + contexto + query del usuario
+   - Proveedor configurado (LM Studio / OpenAI)
+8. Respuesta:
+   - Respuesta del LLM
+   - Fuentes citadas
+   - Guardar en logs y caché
 ```
 
-Edita el archivo `.env` con tus credenciales:
+### 3. Flujo de Sincronización Zoho CRM
 
-```env
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=capital_user
-POSTGRES_PASSWORD=capital_pass
-POSTGRES_DB=capital_plus_agent
-
-# Pinecone (REQUERIDO)
-# IMPORTANTE: El índice debe tener 384 dimensiones
-PINECONE_API_KEY=tu-pinecone-api-key-aqui
-PINECONE_INDEX_NAME=capitalplus-rag
-
-# HuggingFace (REQUERIDO - ¡GRATIS!)
-# Obtén tu API key en: https://huggingface.co/settings/tokens
-HUGGINGFACE_API_KEY=tu-huggingface-api-key-aqui
-
-# LM Studio (Opcional - para LLM local)
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_MODEL=llama-3.2-3B-Instruct-Q4_K_M
-
-# OpenAI (Opcional - para LLM en la nube)
-OPENAI_API_KEY=tu-openai-api-key-aqui
-OPENAI_MODEL=gpt-4o-mini
-
-# Zoho CRM (Opcional - solo para producción)
-ZOHO_CLIENT_ID=tu-zoho-client-id
-ZOHO_CLIENT_SECRET=tu-zoho-client-secret
-ZOHO_REFRESH_TOKEN=tu-zoho-refresh-token
+```
+1. Cron job → /api/cron/sync-zoho
+2. Autenticación OAuth:
+   - Refresh token → Access token
+   - Renovación automática
+3. Sincronización de Leads:
+   - Obtener desde Zoho API
+   - Transformar y normalizar datos
+   - Upsert en PostgreSQL (zoho_leads)
+4. Sincronización de Deals:
+   - Similar a leads
+   - Upsert en PostgreSQL (zoho_deals)
+5. Sincronización de Notas:
+   - Obtener notas asociadas a leads/deals
+   - Análisis con IA (insights)
+   - Almacenar en zoho_notes
 ```
 
-### 4. Configurar Pinecone
+## ⚡ Optimizaciones Implementadas
 
-**IMPORTANTE:** El índice debe tener **384 dimensiones** (no 1024).
+### 1. Optimizaciones para Serverless (Vercel)
 
-1. Ve a [Pinecone Console](https://app.pinecone.io/)
-2. Crea un nuevo índice con:
-   - **Name:** `capitalplus-rag`
-   - **Dimensions:** `384` ⚠️
-   - **Metric:** `cosine`
-   - **Cloud:** AWS
-   - **Region:** us-east-1
+**Problema**: Conexiones de pool mueren en entornos serverless
 
-### 5. Configurar Base de Datos
+**Solución** (`src/lib/postgres-serverless.ts`):
+- Conexiones directas (Client) en lugar de Pool
+- Una conexión por función
+- Cierre explícito después de cada query
+- Timeouts defensivos (15s conexión, 20s query)
+- Retry logic con backoff
 
-```bash
-# Crear base de datos (si no existe)
-createdb capital_plus_agent
+**Keyset Pagination**:
+- En lugar de `OFFSET` (O(n) costoso)
+- Usa cursor-based pagination (O(log n))
+- Índices compuestos: `(created_at DESC, id DESC)`
 
-# Ejecutar migraciones
-npm run db:migrate:all
+### 2. Sistema de Caché Multi-Nivel
 
-# (Opcional) Insertar datos de prueba
-npm run db:seed
+**Caché en Memoria** (`memory-cache.ts`):
+- TTL por tipo de dato:
+  - Documentos: 5 minutos
+  - Desarrollos: 10 minutos
+  - Estadísticas: 2 minutos
+  - Configuración: 30 minutos
+- Limpieza automática cada 15 minutos
+- Persistencia en `globalThis` para hot reload
 
-# (Opcional) Configurar contraseña de admin
-npm run db:set-admin-password
+**Caché de Consultas RAG** (`cache.ts`):
+- Hash MD5 del query normalizado
+- Embeddings en Pinecone (namespace: cache)
+- Búsqueda semántica con umbral 0.85
+- Expiración: 30 días
+- No guarda si hay feedback negativo
+
+### 3. Optimización de Embeddings
+
+**Caché de Embeddings en Memoria**:
+- Evita regenerar embeddings del mismo query
+- TTL: 1 hora
+- Límite: 100 entradas (LRU)
+
+**Batch Processing**:
+- Pinecone Inference: 96 textos por batch
+- Upsert a Pinecone: 100 vectores por batch
+
+### 4. Re-ranking Inteligente
+
+**Algoritmo** (`pinecone.ts`):
+```
+score_final = (similarity_score * 0.8) + (success_ratio * 0.2)
 ```
 
-### 6. Iniciar la Aplicación
+- `similarity_score`: Score de Pinecone (0-1)
+- `success_ratio`: Ratio de éxito del chunk (de chunks_stats)
+- Mejora resultados basándose en feedback histórico
 
-```bash
-# Modo desarrollo
-npm run dev
+### 5. Procesamiento de Queries
+
+**Corrección Ortográfica** (`queryProcessing.ts`):
+- Diccionario de correcciones comunes
+- Reemplazo inteligente preservando capitalización
+
+**Expansión Semántica**:
+- Mapeo de términos a variantes
+- Ejemplo: "material prohibido" → ["materiales prohibidos", "no se permite", ...]
+- Mejora recall en búsquedas
+
+**Variantes de Query**:
+- Si no hay suficientes resultados, busca con variantes
+- Top 2-3 variantes más relevantes
+- Evita hacer demasiadas llamadas
+
+## 🧠 Sistema RAG (Retrieval Augmented Generation)
+
+### Arquitectura RAG
+
+El sistema implementa RAG con las siguientes características:
+
+1. **Embeddings**:
+   - Modelo: `llama-text-embed-v2` (Pinecone Inference API)
+   - Dimensiones: 1024
+   - Input type: `passage` para documentos, `query` para búsquedas
+
+2. **Búsqueda Vectorial**:
+   - Métrica: Cosine similarity
+   - Top K: Configurable (default: 5)
+   - Filtros: Por zona, desarrollo, tipo de documento
+
+3. **Contexto Construido**:
+   - Combina top K chunks encontrados
+   - Formato: `[Fuente N: archivo.pdf, Página X]\n{texto}\n\n---\n\n`
+   - Preserva referencias para citas
+
+4. **System Prompt** (`systemPrompt.ts`):
+   - Define comportamiento del agente
+   - Restricciones y reglas
+   - Formato de respuestas (Markdown)
+   - Manejo de información no disponible
+
+### Proceso de Búsqueda Mejorado
+
+```
+1. Query original → Procesamiento
+   ├─ Corrección ortográfica
+   ├─ Expansión semántica
+   └─ Normalización
+
+2. Generar embedding del query procesado
+
+3. Búsqueda en Pinecone:
+   ├─ Query vector + filtros
+   ├─ Top K * 2 resultados (para re-ranking)
+   └─ Incluir metadata
+
+4. Re-ranking:
+   ├─ Obtener stats de chunks (success_ratio)
+   ├─ Calcular score final
+   └─ Ordenar y tomar top K
+
+5. Si pocos resultados buenos:
+   ├─ Generar variantes del query
+   ├─ Buscar con variantes
+   └─ Combinar y deduplicar
+
+6. Construir contexto con top K chunks
 ```
 
-La aplicación estará disponible en: `http://localhost:3000`
+## 🔗 Integraciones Externas
 
-### 7. (Opcional) Iniciar LM Studio
+### 1. Pinecone
 
-Si quieres usar un LLM local:
+**Configuración**:
+- Índice: `capitalplus-rag` (1024 dimensiones)
+- Namespaces: Por zona (yucatan, puebla, etc.)
+- Namespace especial: `cache` para caché de consultas
+- Namespace especial: `learned_responses` para respuestas aprendidas
 
-1. Descargar [LM Studio](https://lmstudio.ai/)
-2. Cargar modelo: `llama-3.2-3B-Instruct-Q4_K_M`
-3. Iniciar servidor local en puerto `1234`
+**Operaciones**:
+- `upsertChunks()`: Inserta/actualiza chunks con embeddings
+- `queryChunks()`: Busca chunks similares
+- `deleteDocumentChunks()`: Elimina chunks de un documento
 
-## ⚙️ Configuración
+**Embeddings**:
+- Generados con Pinecone Inference API
+- Modelo: `llama-text-embed-v2`
+- Batch size: 96 textos
 
-### Colores Corporativos
+### 2. Zoho CRM
 
-Los colores de Capital Plus están definidos en `tailwind.config.js`:
+**Autenticación**:
+- OAuth 2.0 con refresh token
+- Renovación automática de access token
+- Cliente configurado en `zoho-crm.ts`
 
-- **Navy**: `#0B1F3A` - Color primario
-- **Gold**: `#C4A062` - Acentos y highlights
-- **Gray**: `#F5F5F5` - Fondos y backgrounds
+**Sincronización**:
+- Leads: Campos mapeados (Full_Name, Email, Desarrollo, etc.)
+- Deals: Campos mapeados (Deal_Name, Amount, Stage, etc.)
+- Notas: Análisis con IA para generar insights
 
-### Zonas y Desarrollos
+**Endpoints Usados**:
+- `GET /crm/v2/Leads`
+- `GET /crm/v2/Deals`
+- `GET /crm/v2/Notes`
 
-Edita `src/lib/constants.ts` para agregar zonas y desarrollos:
+### 3. LLM Providers
 
-```typescript
-export const DEVELOPMENTS = {
-  yucatan: [
-    { value: 'amura', label: 'Amura' },
-    { value: 'm2', label: 'M2' },
-    // Agrega más desarrollos...
-  ],
-  // Agrega más zonas...
-};
-```
+**Abstracción** (`llm-provider.ts`):
+- Interfaz común para diferentes proveedores
+- Cambio dinámico de proveedor
+- Health checks
 
-### Configuración del Agente
+**LM Studio** (Local):
+- Base URL: `http://localhost:1234/v1`
+- Modelo configurable
+- Útil para desarrollo/pruebas
 
-Puedes ajustar los parámetros del agente desde la interfaz web o directamente en la base de datos:
+**OpenAI** (Cloud):
+- API Key requerida
+- Modelo: `gpt-4o-mini` (configurable)
+- Producción
 
-- **Temperature**: Controla la creatividad (0.0 - 1.0)
-- **Top K**: Número de chunks a recuperar
-- **Chunk Size**: Tamaño de los fragmentos de texto
-- **Max Tokens**: Límite de tokens en la respuesta
+## 💾 Sistema de Caché
+
+### Arquitectura de Caché
+
+El sistema usa tres niveles de caché:
+
+1. **Caché en Memoria** (`memory-cache.ts`):
+   - Para datos frecuentes (documentos, desarrollos, stats)
+   - TTL corto (2-30 minutos)
+   - Limpieza automática
+
+2. **Caché de Consultas RAG** (`cache.ts`):
+   - Para respuestas completas de consultas
+   - Hash exacto + búsqueda semántica
+   - TTL largo (30 días)
+   - Almacenado en PostgreSQL + Pinecone
+
+3. **Caché de Embeddings**:
+   - Embeddings de queries frecuentes
+   - TTL: 1 hora
+   - En memoria (Map)
+
+### Estrategia de Invalidación
+
+- **Caché en Memoria**: TTL automático
+- **Caché RAG**: 
+  - No se guarda si hay feedback negativo
+  - Se ignora si tiene feedback negativo asociado
+  - Expiración automática (30 días)
+
+## 📄 Procesamiento de Documentos
+
+### Pipeline de Procesamiento
+
+1. **Extracción de Texto**:
+   - PDF: `pdf-parse` o `pdfjs-dist`
+   - DOCX: `mammoth`
+   - CSV: Parsing directo
+
+2. **Limpieza** (`cleanText.ts`):
+   - Eliminación de caracteres especiales
+   - Normalización de espacios
+   - Preservación de estructura (párrafos, listas)
+
+3. **Chunking** (`chunker.ts`):
+   - Estrategia jerárquica:
+     - Primero: Por párrafos
+     - Si muy largo: Por oraciones
+     - Si muy largo: Por palabras
+   - Overlap configurable (default: 50 tokens)
+   - Preserva información de página (para PDFs)
+
+4. **Generación de Embeddings**:
+   - Batch processing (96 chunks)
+   - Pinecone Inference API
+   - Metadata completa (zona, desarrollo, tipo, página, chunk)
+
+5. **Almacenamiento**:
+   - Vectores → Pinecone
+   - Metadatos → PostgreSQL
+
+### Configuración de Chunking
+
+- **Chunk Size**: 500 tokens (default)
+- **Overlap**: 50 tokens (default)
+- **Estimación**: ~4 caracteres por token
+
+## 🎓 Sistema de Aprendizaje
+
+### Respuestas Aprendidas
+
+El sistema aprende de feedback positivo:
+
+1. **Feedback del Usuario**:
+   - Rating (1-5 estrellas)
+   - Comentarios opcionales
+
+2. **Procesamiento** (`learnedResponses.ts`):
+   - Si rating >= 4: Guardar como respuesta aprendida
+   - Generar embedding del query
+   - Calcular quality_score basado en:
+     - Rating promedio
+     - Número de usos
+     - Feedback positivo/negativo
+
+3. **Búsqueda**:
+   - Antes de buscar en documentos, buscar en respuestas aprendidas
+   - Similitud semántica (umbral: 0.80)
+   - Filtrar por quality_score (default: >= 0.7)
+
+4. **Almacenamiento**:
+   - PostgreSQL: `learned_responses`
+   - Pinecone: Namespace `learned_responses`
+
+### Memoria del Sistema
+
+- Almacena insights importantes
+- Se agrega al system prompt
+- Mejora respuestas futuras
+
+## 🗄️ Base de Datos y Optimizaciones
+
+### Estructura de Tablas Principales
+
+1. **users**: Usuarios y autenticación
+2. **documents_meta**: Metadatos de documentos
+3. **chunks_stats**: Estadísticas de chunks (para re-ranking)
+4. **query_logs**: Historial de consultas
+5. **query_cache**: Caché de respuestas
+6. **learned_responses**: Respuestas aprendidas
+7. **agent_config**: Configuración del agente
+8. **zoho_leads**, **zoho_deals**: Datos de Zoho CRM
+
+### Optimizaciones de Queries
+
+**Índices Creados**:
+- Keyset pagination: `(created_at DESC, id DESC)`
+- Filtros comunes: `(zone, development, created_at DESC)`
+- Búsquedas por usuario: `(user_id, created_at DESC)`
+
+**Keyset Pagination**:
+- En lugar de `OFFSET` (costoso en grandes datasets)
+- Usa cursor: `WHERE id > cursor ORDER BY created_at DESC`
+- Complejidad: O(log n) vs O(n)
+
+### Configuración Serverless
+
+**Conexiones**:
+- Prioridad: `DATABASE_URL_DIRECT` (conexión directa)
+- Fallback: Variables de Vercel
+- SSL requerido para Supabase
+- IPv4 forzado (Vercel no soporta IPv6)
+
+## 🔐 Autenticación y Seguridad
+
+### JWT Tokens
+
+- **Access Token**: 24 horas
+- **Refresh Token**: 7 días
+- **Algoritmo**: HS256
+- **Payload**: `{ userId, email, role }`
+
+### Sistema de Permisos
+
+**Roles**:
+- CEO, Admin, Sales Manager, Sales Agent, Post-Sales, Legal Manager, Marketing Manager
+
+**Permisos por Zona/Desarrollo**:
+- Control granular de acceso
+- Tabla `user_developments`: Asocia usuarios con zonas/desarrollos
+- Verificación en cada endpoint
+
+### Validación
+
+- **Input**: Zod schemas
+- **Sanitización**: Limpieza de inputs
+- **Passwords**: bcrypt (salt rounds: 10)
+
 
 ## 📖 Uso
 
@@ -287,107 +600,199 @@ Puedes ajustar los parámetros del agente desde la interfaz web o directamente e
 
 ## 📁 Estructura del Proyecto
 
+### Organización de Archivos
+
 ```
 Agente-Capital/
 ├── src/
-│   ├── app/
-│   │   ├── api/                    # API Routes
-│   │   │   ├── auth/              # Autenticación
-│   │   │   ├── documents/         # Gestión de documentos
-│   │   │   ├── rag-query/         # Consultas RAG
-│   │   │   ├── upload/            # Upload de archivos
-│   │   │   ├── users/             # Gestión de usuarios
-│   │   │   ├── zoho/              # Integración Zoho CRM
-│   │   │   └── ...
-│   │   ├── dashboard/             # Frontend Dashboard
-│   │   │   ├── agent/            # Interfaz de consulta
-│   │   │   ├── documents/        # Explorador de documentos
-│   │   │   ├── upload/           # Upload UI
-│   │   │   ├── config/           # Configuración
-│   │   │   ├── logs/             # Visor de logs
-│   │   │   ├── users/            # Gestión de usuarios
-│   │   │   └── zoho/             # Dashboard Zoho
-│   │   ├── login/                # Página de login
-│   │   └── layout.tsx            # Layout principal
-│   ├── components/
-│   │   ├── ui/                   # Componentes ShadCN
-│   │   ├── sidebar.tsx           # Navegación lateral
-│   │   ├── navbar.tsx            # Barra superior
+│   ├── app/                          # Next.js App Router
+│   │   ├── api/                      # API Routes (Backend)
+│   │   │   ├── auth/                 # Autenticación JWT
+│   │   │   ├── documents/            # CRUD de documentos
+│   │   │   ├── rag-query/            # Endpoint principal RAG
+│   │   │   ├── rag-feedback/         # Feedback del usuario
+│   │   │   ├── upload/               # Procesamiento de archivos
+│   │   │   ├── users/                # Gestión de usuarios
+│   │   │   ├── zoho/                 # Integración Zoho CRM
+│   │   │   ├── cron/                 # Jobs programados
+│   │   │   └── agent-config/         # Configuración del agente
+│   │   ├── dashboard/                # Frontend (React)
+│   │   │   ├── agent/                # Interfaz de consulta
+│   │   │   ├── documents/            # Explorador de documentos
+│   │   │   ├── upload/               # UI de upload
+│   │   │   ├── config/               # Panel de configuración
+│   │   │   ├── logs/                 # Visor de logs
+│   │   │   ├── users/                # Gestión de usuarios
+│   │   │   ├── zoho/                 # Dashboard Zoho
+│   │   │   └── guia/                 # Guía de usuario
+│   │   └── login/                    # Página de login
+│   ├── components/                   # Componentes React
+│   │   ├── ui/                       # Componentes ShadCN UI
+│   │   ├── sidebar.tsx               # Navegación lateral
+│   │   ├── navbar.tsx                # Barra superior
 │   │   └── ...
-│   ├── lib/
-│   │   ├── postgres.ts           # Cliente PostgreSQL
-│   │   ├── pinecone.ts           # Cliente Pinecone
-│   │   ├── llm-provider.ts       # Proveedores LLM
-│   │   ├── chunker.ts            # Text chunking
-│   │   ├── auth.ts               # Autenticación
-│   │   ├── cache.ts              # Sistema de cache
+│   ├── lib/                          # Módulos de lógica de negocio
+│   │   ├── postgres.ts               # Cliente PostgreSQL (pool)
+│   │   ├── postgres-serverless.ts    # Cliente PostgreSQL (serverless)
+│   │   ├── postgres-keyset.ts        # Keyset pagination helpers
+│   │   ├── pinecone.ts               # Cliente Pinecone + embeddings
+│   │   ├── llm-provider.ts           # Abstracción de LLM
+│   │   ├── lmstudio.ts               # Implementación LM Studio
+│   │   ├── openai.ts                 # Implementación OpenAI
+│   │   ├── chunker.ts                # Text chunking
+│   │   ├── cleanText.ts              # Limpieza de texto
+│   │   ├── queryProcessing.ts        # Procesamiento de queries
+│   │   ├── cache.ts                  # Caché de consultas RAG
+│   │   ├── memory-cache.ts           # Caché en memoria
+│   │   ├── learnedResponses.ts       # Sistema de aprendizaje
+│   │   ├── systemPrompt.ts           # Prompts del sistema
+│   │   ├── zoho-crm.ts               # Cliente Zoho CRM
+│   │   ├── zoho-notes-analytics.ts   # Análisis de notas Zoho
+│   │   ├── auth.ts                   # Autenticación JWT
+│   │   ├── api.ts                    # Cliente API (frontend)
+│   │   ├── time-buckets.ts           # Helpers para time buckets
 │   │   └── ...
-│   └── types/
-│       └── ...                   # TypeScript types
-├── migrations/                   # Scripts de migración SQL
-├── scripts/                      # Scripts utilitarios
-├── docs/                         # Documentación adicional
-├── .env                          # Variables de entorno (no commitear)
-└── package.json
+│   └── types/                        # TypeScript types
+│       └── documents.ts              # Tipos principales
+├── migrations/                       # Migraciones SQL
+│   ├── 001_initial_schema.sql
+│   ├── 003_query_cache.sql
+│   ├── 004_learning_system.sql
+│   ├── 007_zoho_sync_tables.sql
+│   ├── 008_serverless_optimization.sql
+│   └── ...
+├── scripts/                         # Scripts utilitarios
+│   ├── migrate.js                   # Ejecutar migraciones
+│   ├── seed.js                      # Datos de prueba
+│   ├── cleanup-old-query-logs.js    # Limpieza de logs
+│   └── ...
+└── docs/                            # Documentación adicional
 ```
+
+### Módulos Clave
+
+**`src/lib/pinecone.ts`**:
+- Inicialización del cliente Pinecone
+- Generación de embeddings (Pinecone Inference API)
+- Upsert de chunks
+- Query de chunks similares
+- Re-ranking con estadísticas
+
+**`src/lib/postgres.ts`**:
+- Pool de conexiones PostgreSQL
+- Funciones CRUD para todas las tablas
+- Queries optimizadas
+- Keyset pagination helpers
+
+**`src/lib/llm-provider.ts`**:
+- Abstracción para cambiar entre LLM providers
+- Health checks
+- Configuración dinámica
+
+**`src/lib/cache.ts`**:
+- Caché de consultas RAG
+- Búsqueda por hash exacto
+- Búsqueda semántica en Pinecone
+- Invalidación inteligente
+
+**`src/lib/chunker.ts`**:
+- División de texto en chunks
+- Estrategia jerárquica (párrafos → oraciones → palabras)
+- Preservación de overlap
+- Metadata de página/chunk
 
 ## 📊 API Endpoints
 
-### Autenticación
+### Autenticación (`/api/auth/*`)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `POST` | `/api/auth/login` | Iniciar sesión |
-| `POST` | `/api/auth/logout` | Cerrar sesión |
-| `POST` | `/api/auth/refresh` | Refrescar token |
-| `POST` | `/api/auth/forgot-password` | Recuperar contraseña |
-| `POST` | `/api/auth/reset-password` | Resetear contraseña |
-| `POST` | `/api/auth/change-password` | Cambiar contraseña |
+**Flujo de Autenticación**:
+1. `POST /api/auth/login`: Valida credenciales → Retorna JWT tokens
+2. `POST /api/auth/refresh`: Renueva access token con refresh token
+3. `POST /api/auth/logout`: Invalida tokens
+4. `POST /api/auth/forgot-password`: Envía email con reset token
+5. `POST /api/auth/reset-password`: Resetea contraseña con token
+6. `POST /api/auth/change-password`: Cambia contraseña (requiere autenticación)
 
-### Documentos
+**Seguridad**:
+- Passwords hasheados con bcrypt
+- Tokens JWT firmados
+- Refresh tokens rotados en cada uso
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `POST` | `/api/upload` | Subir documento |
-| `GET` | `/api/documents` | Listar documentos |
-| `GET` | `/api/documents/[id]` | Obtener documento |
-| `DELETE` | `/api/documents/[id]` | Eliminar documento |
-| `GET` | `/api/documents/[id]/chunks` | Obtener chunks |
+### Documentos (`/api/documents/*`)
 
-### RAG y Consultas
+**Endpoints**:
+- `POST /api/upload`: Sube y procesa documento (PDF/CSV/DOCX)
+  - Extrae texto → Chunking → Embeddings → Pinecone + PostgreSQL
+- `GET /api/documents`: Lista documentos (con caché en memoria)
+  - Filtros: zona, desarrollo, tipo
+  - Paginación: Keyset (cursor-based)
+- `GET /api/documents/[id]`: Obtiene metadatos de documento
+- `DELETE /api/documents/[id]`: Elimina documento y sus chunks
+- `GET /api/documents/[id]/chunks`: Obtiene chunks del documento
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `POST` | `/api/rag-query` | Consultar al agente |
-| `POST` | `/api/rag-feedback` | Enviar feedback |
+**Procesamiento**:
+- Async: El upload retorna inmediatamente, procesa en background
+- Progress: Se puede consultar estado del procesamiento
 
-### Configuración
+### RAG y Consultas (`/api/rag-query`, `/api/rag-feedback`)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `GET` | `/api/agent-config` | Obtener configuración |
-| `POST` | `/api/agent-config` | Actualizar configuración |
+**POST /api/rag-query**:
+- **Input**: `{ query, zone, development, type?, skipCache? }`
+- **Proceso**:
+  1. Verifica autenticación y permisos
+  2. Procesa query (corrección + expansión)
+  3. Busca en caché (si no skipCache)
+  4. Si no hay caché: Búsqueda RAG → LLM → Respuesta
+  5. Guarda en logs y caché
+- **Output**: `{ success, response, sources, cached?, time_ms }`
 
-### Usuarios
+**POST /api/rag-feedback**:
+- **Input**: `{ query_log_id, rating, comment? }`
+- **Proceso**:
+  - Guarda feedback
+  - Si rating >= 4: Crea/actualiza respuesta aprendida
+  - Actualiza estadísticas de chunks
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `GET` | `/api/users` | Listar usuarios |
-| `POST` | `/api/users` | Crear usuario |
-| `GET` | `/api/users/[id]` | Obtener usuario |
-| `PUT` | `/api/users/[id]` | Actualizar usuario |
-| `DELETE` | `/api/users/[id]` | Eliminar usuario |
+### Configuración (`/api/agent-config`)
 
-### Zoho CRM
+**GET /api/agent-config**:
+- Retorna configuración actual del agente
+- Caché: 30 minutos
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `GET` | `/api/zoho/leads` | Obtener leads |
-| `GET` | `/api/zoho/deals` | Obtener deals |
-| `GET` | `/api/zoho/pipelines` | Obtener pipelines |
-| `GET` | `/api/zoho/stats` | Estadísticas CRM |
+**POST /api/agent-config**:
+- Actualiza una configuración
+- **Parámetros**: `temperature`, `top_k`, `chunk_size`, `chunk_overlap`, `max_tokens`, `llm_provider`
+
+### Usuarios (`/api/users/*`)
+
+**Endpoints**:
+- `GET /api/users`: Lista usuarios (solo admin)
+- `POST /api/users`: Crea usuario (solo admin)
+- `GET /api/users/[id]`: Obtiene usuario
+- `PUT /api/users/[id]`: Actualiza usuario
+- `DELETE /api/users/[id]`: Elimina usuario
+
+**Permisos**:
+- Solo admin/CEO pueden gestionar usuarios
+- Validación de roles y permisos
+
+### Zoho CRM (`/api/zoho/*`)
+
+**Endpoints**:
+- `GET /api/zoho/leads`: Obtiene leads (con caché)
+- `GET /api/zoho/deals`: Obtiene deals (con caché)
+- `GET /api/zoho/pipelines`: Obtiene pipelines
+- `GET /api/zoho/stats`: Estadísticas de CRM
+- `GET /api/zoho/notes-insights`: Insights de notas (análisis con IA)
+
+**Sincronización**:
+- Cron job: `/api/cron/sync-zoho` (ejecuta periódicamente)
+- Sincroniza leads, deals y notas desde Zoho
+- Almacena en PostgreSQL para consultas rápidas
 
 ## 🔐 Roles y Permisos
+
+### Roles del Sistema
 
 | Rol | Permisos | Descripción |
 |-----|----------|-------------|
@@ -399,128 +804,114 @@ Agente-Capital/
 | **Legal Manager** | Upload, Query, View | Gestión legal de documentos |
 | **Marketing Manager** | Upload, Query, View | Gestión de marketing |
 
-Los permisos se aplican por **Zona** y **Desarrollo**, permitiendo control granular del acceso.
+### Control de Acceso
 
-## 🚀 Despliegue
+- **Permisos por Zona/Desarrollo**: Control granular mediante tabla `user_developments`
+- **Verificación**: En cada endpoint se verifica:
+  1. Autenticación (JWT válido)
+  2. Permisos del rol
+  3. Acceso a zona/desarrollo específico
 
-### Opción 1: Vercel (Recomendado)
+### Permisos Específicos
 
-1. Conecta tu repositorio a Vercel
-2. Configura las variables de entorno
-3. Deploy automático en cada push
+- `can_upload`: Subir documentos
+- `can_query`: Consultar al agente
+- `can_view`: Ver documentos y logs
+- `can_manage_users`: Gestionar usuarios (solo admin/CEO)
+- `can_manage_config`: Cambiar configuración del agente
 
-### Opción 2: Docker
+## 📝 Notas Técnicas Importantes
 
-```bash
-# Construir imagen
-docker build -t agente-capital .
+### Pinecone
 
-# Ejecutar contenedor
-docker run -p 3000:3000 --env-file .env agente-capital
-```
+- **Dimensiones**: El índice debe tener **1024 dimensiones** (llama-text-embed-v2)
+- **Namespaces**: Organizados por zona (yucatan, puebla, etc.)
+- **Embeddings**: Generados con Pinecone Inference API (no HuggingFace)
+- **Modelo**: `llama-text-embed-v2` (configurado en el índice)
 
-### Opción 3: Servidor Propio
+### PostgreSQL
 
-```bash
-# Build de producción
-npm run build
+- **Conexiones Serverless**: Usar `postgres-serverless.ts` en Vercel
+- **Conexiones Pool**: Usar `postgres.ts` en servidores tradicionales
+- **Keyset Pagination**: Siempre preferir sobre OFFSET para mejor performance
+- **Índices**: Críticos para performance, ver migraciones 008 y 009
 
-# Iniciar servidor
-npm start
-```
+### Caché
 
-Para más detalles, consulta [DEPLOYMENT.md](./DEPLOYMENT.md)
+- **Caché en Memoria**: Se limpia automáticamente cada 15 minutos
+- **Caché RAG**: No se guarda si hay feedback negativo asociado
+- **Invalidación**: Manual con `memoryCache.invalidate(pattern)`
 
-## 🛠️ Scripts Disponibles
+### LLM Providers
 
-```bash
-# Desarrollo
-npm run dev              # Servidor de desarrollo
+- **Cambio Dinámico**: Se puede cambiar sin reiniciar (configuración en BD)
+- **Health Checks**: Se verifica disponibilidad antes de usar
+- **Fallback**: Si un proveedor falla, se puede cambiar manualmente
 
-# Producción
-npm run build            # Build de producción
-npm run start            # Servidor de producción
+### Procesamiento de Documentos
 
+- **Chunking**: Configurable (default: 500 tokens, overlap 50)
+- **Embeddings**: Batch de 96 textos por llamada
+- **Upsert**: Batch de 100 vectores por llamada a Pinecone
+
+## 🔍 Referencias Rápidas
+
+### Variables de Entorno Clave
+
+```env
 # Base de Datos
-npm run db:migrate:all   # Ejecutar todas las migraciones
-npm run db:seed          # Insertar datos de prueba
-npm run db:set-admin-password  # Configurar contraseña admin
+DATABASE_URL_DIRECT=postgresql://...  # Conexión directa (serverless)
+DATABASE_URL=postgresql://...         # Conexión manual
 
-# Utilidades
-npm run lint             # Linter
-npm run db:cleanup-logs  # Limpiar logs antiguos
+# Pinecone
+PINECONE_API_KEY=...
+PINECONE_INDEX_NAME=capitalplus-rag
+
+# LLM
+LMSTUDIO_BASE_URL=http://localhost:1234/v1
+OPENAI_API_KEY=...
+
+# Zoho CRM
+ZOHO_CLIENT_ID=...
+ZOHO_CLIENT_SECRET=...
+ZOHO_REFRESH_TOKEN=...
 ```
 
-## 🐛 Troubleshooting
+### Configuración del Agente (agent_config)
 
-### Error: "HUGGINGFACE_API_KEY no está configurado"
+- `temperature`: 0.0 - 1.0 (default: 0.7)
+- `top_k`: Número de chunks a recuperar (default: 5)
+- `chunk_size`: Tamaño de chunks en tokens (default: 500)
+- `chunk_overlap`: Overlap entre chunks (default: 50)
+- `max_tokens`: Límite de tokens en respuesta (default: 2000)
+- `llm_provider`: 'lmstudio' | 'openai' (default: 'lmstudio')
 
-Asegúrate de:
-1. Tener un archivo `.env` en la raíz
-2. Que contenga `HUGGINGFACE_API_KEY=hf_...`
-3. Reiniciar el servidor (`npm run dev`)
+### Queries SQL Útiles
 
-### Error: "dimensions mismatch en Pinecone"
+```sql
+-- Ver configuración del agente
+SELECT * FROM agent_config;
 
-Tu índice tiene dimensiones incorrectas. Elimínalo y recréalo con **384 dimensiones**.
+-- Ver estadísticas de chunks
+SELECT * FROM chunks_stats WHERE chunk_id = '...';
 
-### LM Studio no conecta
+-- Ver respuestas aprendidas
+SELECT * FROM learned_responses ORDER BY quality_score DESC;
 
-- Verifica que esté corriendo en `localhost:1234`
-- Revisa que el modelo esté cargado
-- Check firewall/antivirus
-
-### Error en migraciones
-
-```bash
-# Reset completo
-npm run db:migrate:all
+-- Limpiar caché expirado
+DELETE FROM query_cache WHERE expires_at < NOW();
 ```
 
-### Pinecone no conecta
 
-- Verifica API key en `.env`
-- Confirma que el índice existe
-- Check límites de plan
-
-## 📚 Documentación Adicional
-
-- [QUICKSTART_ES.md](./QUICKSTART_ES.md) - Guía de inicio rápido
-- [DEPLOYMENT.md](./DEPLOYMENT.md) - Guía de despliegue
-- [CONTRIBUTING.md](./CONTRIBUTING.md) - Guía para contribuir
-- [TODO.md](./TODO.md) - Roadmap y tareas pendientes
-- [ZOHO_CRM_SETUP.md](./ZOHO_CRM_SETUP.md) - Configuración Zoho CRM
-- [SINCRONIZACION_DOCUMENTOS.md](./SINCRONIZACION_DOCUMENTOS.md) - Sincronización de documentos
-
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas! Por favor:
-
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-Para más detalles, consulta [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 📄 Licencia
 
 Este proyecto es privado y propiedad de **Capital Plus**.
 
-## 👥 Autores
+##  Auto
 
 - **Rodrigo Navarro** - [GitHub](https://github.com/rodrigoNavarro-Mac)
 
-## 🙏 Agradecimientos
-
-- Next.js Team
-- Pinecone
-- HuggingFace
-- ShadCN UI
-- La comunidad de código abierto
-
----
 
 **Capital Plus** © 2024 - Sistema Interno de IA
 
