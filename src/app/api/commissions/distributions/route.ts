@@ -13,6 +13,7 @@ import {
   createCommissionDistributions,
   updateCommissionSaleCalculation,
   updateCommissionDistribution,
+  updateCommissionDistributionPaymentStatus,
   getCommissionConfig,
   getCommissionGlobalConfigs,
   getApplicableCommissionRules,
@@ -345,6 +346,78 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
       {
         success: false,
         error: error instanceof Error ? error.message : 'Error actualizando distribución',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/commissions/distributions
+ * Actualiza el estado de pago de una distribución de comisión
+ * Body: { distribution_id: number, payment_status: 'pending' | 'paid' }
+ */
+export async function PATCH(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
+  try {
+    // Verificar autenticación
+    const authHeader = request.headers.get('authorization');
+    const token = extractTokenFromHeader(authHeader);
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      return NextResponse.json(
+        { success: false, error: 'Token inválido o expirado' },
+        { status: 401 }
+      );
+    }
+
+    // Verificar permisos
+    if (!ALLOWED_ROLES.includes(payload.role || '')) {
+      return NextResponse.json(
+        { success: false, error: 'No tienes permisos para acceder a esta funcionalidad' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const { distribution_id, payment_status } = body;
+
+    if (!distribution_id || !payment_status) {
+      return NextResponse.json(
+        { success: false, error: 'distribution_id y payment_status son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    if (payment_status !== 'pending' && payment_status !== 'paid') {
+      return NextResponse.json(
+        { success: false, error: 'payment_status debe ser "pending" o "paid"' },
+        { status: 400 }
+      );
+    }
+
+    const distribution = await updateCommissionDistributionPaymentStatus(
+      distribution_id,
+      payment_status
+    );
+
+    return NextResponse.json({
+      success: true,
+      data: distribution,
+    });
+  } catch (error) {
+    logger.error('Error actualizando estado de pago de distribución', error, {}, 'commissions-distributions');
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Error actualizando estado de pago',
       },
       { status: 500 }
     );

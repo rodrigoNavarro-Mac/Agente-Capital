@@ -612,8 +612,8 @@ export async function createCommissionDistribution(
     const result = await query<CommissionDistribution>(
       `INSERT INTO commission_distributions (
         sale_id, role_type, person_name, person_id,
-        phase, percent_assigned, amount_calculated
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        phase, percent_assigned, amount_calculated, payment_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *`,
       [
         distribution.sale_id,
@@ -623,6 +623,7 @@ export async function createCommissionDistribution(
         distribution.phase,
         distribution.percent_assigned,
         distribution.amount_calculated,
+        distribution.payment_status || 'pending',
       ]
     );
     return result.rows[0];
@@ -703,6 +704,108 @@ export async function updateCommissionDistribution(
     return result.rows[0];
   } catch (error) {
     console.error('Error actualizando distribución de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Actualiza el estado de pago de una distribución de comisión
+ */
+export async function updateCommissionDistributionPaymentStatus(
+  distributionId: number,
+  paymentStatus: 'pending' | 'paid'
+): Promise<CommissionDistribution> {
+  try {
+    const result = await query<CommissionDistribution>(
+      `UPDATE commission_distributions
+       SET payment_status = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [paymentStatus, distributionId]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Distribución no encontrada: ${distributionId}`);
+    }
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error actualizando estado de pago de distribución:', error);
+    throw error;
+  }
+}
+
+/**
+ * Obtiene todas las distribuciones con información de la venta
+ * Útil para mostrar listado de comisiones a pagar
+ */
+export async function getCommissionDistributionsWithSaleInfo(
+  filters?: {
+    desarrollo?: string;
+    year?: number;
+    payment_status?: 'pending' | 'paid';
+  }
+): Promise<Array<CommissionDistribution & {
+  producto: string | null;
+  fecha_firma: string;
+  cliente_nombre: string;
+  desarrollo: string;
+}>> {
+  try {
+    const whereConditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // Solo obtener distribuciones de ventas con comisiones calculadas
+    whereConditions.push('cs.commission_calculated = true');
+    
+    // Excluir reglas y utilidades (solo mostrar comisiones reales a pagar)
+    whereConditions.push("cd.role_type != 'rule_bonus'");
+    whereConditions.push("cd.phase != 'utility'");
+
+    if (filters?.desarrollo) {
+      whereConditions.push(`cs.desarrollo = $${paramIndex}`);
+      params.push(filters.desarrollo);
+      paramIndex++;
+    }
+
+    if (filters?.year) {
+      whereConditions.push(`EXTRACT(YEAR FROM cs.fecha_firma) = $${paramIndex}`);
+      params.push(filters.year);
+      paramIndex++;
+    }
+
+    if (filters?.payment_status) {
+      whereConditions.push(`cd.payment_status = $${paramIndex}`);
+      params.push(filters.payment_status);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
+
+    const result = await query<CommissionDistribution & {
+      producto: string | null;
+      fecha_firma: string;
+      cliente_nombre: string;
+      desarrollo: string;
+    }>(
+      `SELECT 
+        cd.*,
+        cs.producto,
+        cs.fecha_firma,
+        cs.cliente_nombre,
+        cs.desarrollo
+       FROM commission_distributions cd
+       INNER JOIN commission_sales cs ON cd.sale_id = cs.id
+       ${whereClause}
+       ORDER BY cs.fecha_firma DESC, cd.payment_status, cd.phase, cd.role_type`,
+      params
+    );
+
+    return result.rows;
+  } catch (error) {
+    console.error('Error obteniendo distribuciones con información de venta:', error);
     throw error;
   }
 }

@@ -24,6 +24,8 @@ export type CommissionRoleType =
   | 'bonds'
   | 'rule_bonus';
 
+export type PaymentStatus = 'pending' | 'paid';
+
 export type AdjustmentType = 'percent_change' | 'amount_change' | 'role_change';
 
 // =====================================================
@@ -177,6 +179,8 @@ export interface CommissionDistribution {
   phase: CommissionPhase;
   percent_assigned: number;
   amount_calculated: number;
+  payment_status: PaymentStatus;
+  invoice_pdf_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -189,6 +193,7 @@ export interface CommissionDistributionInput {
   phase: CommissionPhase;
   percent_assigned: number;
   amount_calculated: number;
+  payment_status?: PaymentStatus;
 }
 
 // =====================================================
@@ -251,6 +256,8 @@ export interface CommissionMonthlyStats {
   month: number; // 1-12
   month_name: string;
   commission_total: number;
+  commission_paid: number;
+  commission_pending: number;
   commission_by_owner: Record<string, number>; // owner_name -> amount
   total_by_advisor: Record<string, number>; // advisor_name -> total
 }
@@ -260,6 +267,8 @@ export interface CommissionDevelopmentDashboard {
   year: number;
   monthly_stats: CommissionMonthlyStats[];
   total_annual: number;
+  total_paid: number;
+  total_pending: number;
   total_by_owner: Record<string, number>;
   total_by_advisor: Record<string, number>;
 }

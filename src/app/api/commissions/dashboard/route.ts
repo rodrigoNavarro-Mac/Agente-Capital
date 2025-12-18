@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/postgres';
 import { logger } from '@/lib/logger';
-import { getCommissionBillingTargets } from '@/lib/commission-db';
+import { getCommissionBillingTargets, getCommissionDistributionsWithSaleInfo } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type {
   CommissionDevelopmentDashboard,
@@ -58,6 +58,21 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const { searchParams } = new URL(request.url);
     const desarrollo = searchParams.get('desarrollo');
     const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString(), 10);
+    const list = searchParams.get('list'); // Si es 'distributions', devolver lista de comisiones
+
+    // Si se solicita la lista de distribuciones
+    if (list === 'distributions') {
+      const paymentStatus = searchParams.get('payment_status') as 'pending' | 'paid' | null;
+      const distributions = await getCommissionDistributionsWithSaleInfo({
+        desarrollo: desarrollo || undefined,
+        year,
+        payment_status: paymentStatus || undefined,
+      });
+      return NextResponse.json({
+        success: true,
+        data: distributions,
+      });
+    }
 
     if (desarrollo) {
       // Dashboard por desarrollo
@@ -117,15 +132,16 @@ async function getDevelopmentDashboard(
 
   const sales = salesResult.rows;
 
-  // Obtener distribuciones
+  // Obtener distribuciones con estado de pago
   const distributionsResult = await query<{
     sale_id: number;
     role_type: string;
     person_name: string;
     phase: string;
     amount_calculated: number;
+    payment_status: string;
   }>(
-    `SELECT cd.sale_id, cd.role_type, cd.person_name, cd.phase, cd.amount_calculated
+    `SELECT cd.sale_id, cd.role_type, cd.person_name, cd.phase, cd.amount_calculated, cd.payment_status
      FROM commission_distributions cd
      INNER JOIN commission_sales cs ON cd.sale_id = cs.id
      WHERE cs.desarrollo = $1
@@ -133,7 +149,7 @@ async function getDevelopmentDashboard(
     [desarrollo, year]
   );
 
-  const _distributions = distributionsResult.rows;
+  const distributions = distributionsResult.rows;
 
   // Agrupar por mes
   const monthlyStats = Array.from({ length: 12 }, (_, i) => {
@@ -143,7 +159,16 @@ async function getDevelopmentDashboard(
       return saleDate.getMonth() + 1 === month;
     });
 
+    const monthSaleIds = monthSales.map(s => s.id);
+    const monthDistributions = distributions.filter(d => monthSaleIds.includes(d.sale_id));
+    
     const commissionTotal = monthSales.reduce((sum, s) => sum + Number(s.commission_total || 0), 0);
+    const commissionPaid = monthDistributions
+      .filter(d => d.payment_status === 'paid')
+      .reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
+    const commissionPending = monthDistributions
+      .filter(d => d.payment_status === 'pending')
+      .reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
     
     // Comisión por propietario del deal
     const commissionByOwner: Record<string, number> = {};
@@ -169,6 +194,8 @@ async function getDevelopmentDashboard(
       month,
       month_name: monthNames[i],
       commission_total: Number(commissionTotal.toFixed(2)),
+      commission_paid: Number(commissionPaid.toFixed(2)),
+      commission_pending: Number(commissionPending.toFixed(2)),
       commission_by_owner: commissionByOwner,
       total_by_advisor: totalByAdvisor,
     };
@@ -176,6 +203,12 @@ async function getDevelopmentDashboard(
 
   // Totales anuales
   const totalAnnual = sales.reduce((sum, s) => sum + Number(s.commission_total || 0), 0);
+  const totalPaid = distributions
+    .filter(d => d.payment_status === 'paid')
+    .reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
+  const totalPending = distributions
+    .filter(d => d.payment_status === 'pending')
+    .reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
   const totalByOwner: Record<string, number> = {};
   const totalByAdvisor: Record<string, number> = {};
 
@@ -197,6 +230,8 @@ async function getDevelopmentDashboard(
     year,
     monthly_stats: monthlyStats,
     total_annual: Number(totalAnnual.toFixed(2)),
+    total_paid: Number(totalPaid.toFixed(2)),
+    total_pending: Number(totalPending.toFixed(2)),
     total_by_owner: totalByOwner,
     total_by_advisor: totalByAdvisor,
   };

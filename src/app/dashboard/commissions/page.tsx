@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2 } from 'lucide-react';
+import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { decodeAccessToken } from '@/lib/auth';
 import { DEVELOPMENTS } from '@/lib/constants';
@@ -1964,6 +1964,51 @@ function DistributionTab({
     }
   };
 
+  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid') => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/distributions', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          distribution_id: distributionId,
+          payment_status: newStatus,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Actualizar el estado local
+        setSaleDistributions(prev => 
+          prev.map(dist => 
+            dist.id === distributionId 
+              ? { ...dist, payment_status: newStatus }
+              : dist
+          )
+        );
+        toast({
+          title: 'Estado actualizado',
+          description: `La comisión ha sido marcada como ${newStatus === 'paid' ? 'pagada' : 'pendiente'}`,
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al actualizar estado de pago',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error actualizando estado de pago:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar estado de pago',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const selectedSale = filteredSales.find(s => s.id === selectedSaleId);
 
   if (loading) {
@@ -2260,6 +2305,7 @@ function DistributionTab({
                               <TableHead>Persona</TableHead>
                               <TableHead>%</TableHead>
                               <TableHead>Monto</TableHead>
+                              <TableHead>Estado de Pago</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -2281,12 +2327,50 @@ function DistributionTab({
                                       maximumFractionDigits: 2 
                                     })}
                                   </TableCell>
+                                  <TableCell>
+                                    <Select
+                                      value={dist.payment_status || 'pending'}
+                                      onValueChange={(value: 'pending' | 'paid') => 
+                                        handlePaymentStatusChange(dist.id, value)
+                                      }
+                                    >
+                                      <SelectTrigger className="w-[140px]">
+                                        <SelectValue>
+                                          {dist.payment_status === 'paid' ? (
+                                            <div className="flex items-center gap-2">
+                                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                              <span>Pagada</span>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-2">
+                                              <Clock className="h-4 w-4 text-yellow-600" />
+                                              <span>Pendiente</span>
+                                            </div>
+                                          )}
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="pending">
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-yellow-600" />
+                                            Pendiente
+                                          </div>
+                                        </SelectItem>
+                                        <SelectItem value="paid">
+                                          <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                            Pagada
+                                          </div>
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
                                 </TableRow>
                               );
                             })}
                             {saleDistributions.filter(d => d.phase === 'sale').length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground">
                                   No hay distribuciones en fase venta
                                 </TableCell>
                               </TableRow>
@@ -2304,6 +2388,7 @@ function DistributionTab({
                               <TableHead>Persona</TableHead>
                               <TableHead>%</TableHead>
                               <TableHead>Monto</TableHead>
+                              <TableHead>Estado de Pago</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -2325,12 +2410,50 @@ function DistributionTab({
                                       maximumFractionDigits: 2 
                                     })}
                                   </TableCell>
+                                  <TableCell>
+                                    <Select
+                                      value={dist.payment_status || 'pending'}
+                                      onValueChange={(value: 'pending' | 'paid') => 
+                                        handlePaymentStatusChange(dist.id, value)
+                                      }
+                                    >
+                                      <SelectTrigger className="w-[140px]">
+                                        <SelectValue>
+                                          {dist.payment_status === 'paid' ? (
+                                            <div className="flex items-center gap-2">
+                                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                              <span>Pagada</span>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-2">
+                                              <Clock className="h-4 w-4 text-yellow-600" />
+                                              <span>Pendiente</span>
+                                            </div>
+                                          )}
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="pending">
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-yellow-600" />
+                                            Pendiente
+                                          </div>
+                                        </SelectItem>
+                                        <SelectItem value="paid">
+                                          <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                            Pagada
+                                          </div>
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
                                 </TableRow>
                               );
                             })}
                             {saleDistributions.filter(d => d.phase === 'post_sale').length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground">
                                   No hay distribuciones en fase postventa
                                 </TableCell>
                               </TableRow>
@@ -2476,6 +2599,16 @@ function DashboardTab({
   onYearChange: (year: number) => void;
   loading: boolean;
 }) {
+  const [distributions, setDistributions] = useState<Array<CommissionDistribution & {
+    producto: string | null;
+    fecha_firma: string;
+    cliente_nombre: string;
+    desarrollo: string;
+  }>>([]);
+  const [loadingDistributions, setLoadingDistributions] = useState(false);
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  const { toast } = useToast();
+
   /**
    * Determina el color del semáforo según el porcentaje de cumplimiento
    * Verde: >= 100% (meta alcanzada o superada)
@@ -2487,6 +2620,216 @@ function DashboardTab({
     if (porcentaje >= 100) return 'text-green-600 font-bold';
     if (porcentaje >= 80) return 'text-yellow-600 font-semibold';
     return 'text-red-600 font-semibold';
+  };
+
+  // Cargar distribuciones
+  const loadDistributions = useCallback(async () => {
+    setLoadingDistributions(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const params = new URLSearchParams();
+      params.append('list', 'distributions');
+      params.append('year', selectedYear.toString());
+      if (selectedDesarrollo !== 'all') {
+        params.append('desarrollo', selectedDesarrollo);
+      }
+      if (paymentStatusFilter !== 'all') {
+        params.append('payment_status', paymentStatusFilter);
+      }
+      
+      const response = await fetch(`/api/commissions/dashboard?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setDistributions(data.data || []);
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al cargar distribuciones',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error cargando distribuciones:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar distribuciones',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingDistributions(false);
+    }
+  }, [selectedDesarrollo, selectedYear, paymentStatusFilter, toast]);
+
+  // Cargar distribuciones cuando cambian los filtros
+  useEffect(() => {
+    loadDistributions();
+  }, [loadDistributions]);
+
+  // Estados para manejo de facturas
+  const [uploadingInvoice, setUploadingInvoice] = useState<number | null>(null);
+
+  // Manejar subida de factura
+  const handleUploadInvoice = async (distributionId: number, file: File) => {
+    setUploadingInvoice(distributionId);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('distribution_id', distributionId.toString());
+
+      const response = await fetch('/api/commissions/invoices', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Factura subida',
+          description: 'La factura se ha subido correctamente',
+        });
+        // Recargar distribuciones para actualizar el estado
+        await loadDistributions();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al subir factura',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error subiendo factura:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al subir factura',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingInvoice(null);
+    }
+  };
+
+  // Manejar visualización de factura
+  const handleViewInvoice = async (distributionId: number) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/invoices?distribution_id=${distributionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        // Limpiar el objeto URL después de un tiempo
+        setTimeout(() => window.URL.revokeObjectURL(url), 100);
+      } else {
+        const data = await response.json();
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al visualizar factura',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error visualizando factura:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al visualizar factura',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Manejar descarga de factura
+  const handleDownloadInvoice = async (distributionId: number) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/invoices?distribution_id=${distributionId}&download=true`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `factura_${distributionId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast({
+          title: 'Descarga iniciada',
+          description: 'La factura se está descargando',
+        });
+      } else {
+        const data = await response.json();
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al descargar factura',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error descargando factura:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al descargar factura',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Manejar eliminación de factura
+  const handleDeleteInvoice = async (distributionId: number) => {
+    if (!confirm('¿Estás seguro de que deseas eliminar esta factura?')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/invoices?distribution_id=${distributionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Factura eliminada',
+          description: 'La factura se ha eliminado correctamente',
+        });
+        // Recargar distribuciones para actualizar el estado
+        await loadDistributions();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al eliminar factura',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error eliminando factura:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al eliminar factura',
+        variant: 'destructive',
+      });
+    }
   };
 
   if (loading) {
@@ -2539,13 +2882,95 @@ function DashboardTab({
         <CardContent>
           {selectedDesarrollo !== 'all' && developmentDashboard ? (
             <div className="space-y-4">
-              <div className="text-2xl font-bold">
-                Total Anual: ${developmentDashboard.total_annual.toLocaleString('es-MX', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Total Anual</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      ${developmentDashboard.total_annual.toLocaleString('es-MX', { 
+                        minimumFractionDigits: 2, 
+                        maximumFractionDigits: 2 
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      Pagadas
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-600">
+                      ${(developmentDashboard.total_paid || 0).toLocaleString('es-MX', { 
+                        minimumFractionDigits: 2, 
+                        maximumFractionDigits: 2 
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-yellow-600" />
+                      Pendientes
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-yellow-600">
+                      ${(developmentDashboard.total_pending || 0).toLocaleString('es-MX', { 
+                        minimumFractionDigits: 2, 
+                        maximumFractionDigits: 2 
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              {/* Aquí se pueden agregar gráficas y tablas detalladas */}
+              
+              {/* Tabla mensual con estado de pago */}
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">Comisiones por Mes</h3>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Mes</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Pagadas</TableHead>
+                        <TableHead className="text-right">Pendientes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {developmentDashboard.monthly_stats.map((month) => (
+                        <TableRow key={month.month}>
+                          <TableCell className="font-medium">{month.month_name}</TableCell>
+                          <TableCell className="text-right">
+                            ${month.commission_total.toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right text-green-600">
+                            ${(month.commission_paid || 0).toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right text-yellow-600">
+                            ${(month.commission_pending || 0).toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </div>
           ) : generalDashboard ? (
             <div className="space-y-6">
@@ -2736,6 +3161,167 @@ function DashboardTab({
           ) : (
             <p className="text-muted-foreground">No hay datos disponibles</p>
           )}
+
+          {/* Tabla de Comisiones a Pagar */}
+          <Card className="mt-6">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Comisiones a Pagar</CardTitle>
+                  <CardDescription>
+                    Lista detallada de todas las comisiones con su estado de pago
+                  </CardDescription>
+                </div>
+                <Select
+                  value={paymentStatusFilter}
+                  onValueChange={(value: 'all' | 'pending' | 'paid') => setPaymentStatusFilter(value)}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="pending">Pendientes</SelectItem>
+                    <SelectItem value="paid">Pagadas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingDistributions ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : distributions.length === 0 ? (
+                <div className="text-center text-muted-foreground p-8">
+                  No hay comisiones disponibles
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Producto</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Desarrollo</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Persona</TableHead>
+                        <TableHead>Rol</TableHead>
+                        <TableHead>Fase</TableHead>
+                        <TableHead className="text-right">Monto de Comisión</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Factura</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {distributions.map((dist) => (
+                        <TableRow key={dist.id}>
+                          <TableCell className="font-medium">
+                            {dist.producto || '-'}
+                          </TableCell>
+                          <TableCell>{dist.cliente_nombre}</TableCell>
+                          <TableCell>{dist.desarrollo}</TableCell>
+                          <TableCell>
+                            {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
+                          </TableCell>
+                          <TableCell>{dist.person_name}</TableCell>
+                          <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            {dist.payment_status === 'paid' ? (
+                              <Badge className="bg-green-600">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Pagada
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-yellow-600 text-yellow-600">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pendiente
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {dist.invoice_pdf_path ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleViewInvoice(dist.id)}
+                                    title="Ver factura"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDownloadInvoice(dist.id)}
+                                    title="Descargar factura"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteInvoice(dist.id)}
+                                    title="Eliminar factura"
+                                  >
+                                    <X className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,application/pdf"
+                                    className="hidden"
+                                    id={`invoice-upload-${dist.id}`}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        handleUploadInvoice(dist.id, file);
+                                      }
+                                    }}
+                                    disabled={uploadingInvoice === dist.id}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={uploadingInvoice === dist.id}
+                                    title="Subir factura PDF"
+                                    onClick={() => {
+                                      const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
+                                      input?.click();
+                                    }}
+                                  >
+                                    {uploadingInvoice === dist.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Upload className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </CardContent>
       </Card>
     </div>
