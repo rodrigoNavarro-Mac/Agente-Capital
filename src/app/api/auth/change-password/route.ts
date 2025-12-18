@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserById, updateUserPassword } from '@/lib/postgres';
 import { verifyPassword, hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { logger } from '@/lib/logger';
+import { validateRequest, changePasswordRequestSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -39,18 +41,20 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-    const { currentPassword, newPassword } = body;
-
-    if (!currentPassword || !newPassword) {
+    const rawBody = await request.json();
+    const validation = validateRequest(changePasswordRequestSchema, rawBody, 'auth-change-password');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Contraseña actual y nueva contraseña son requeridas',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
+    
+    const { currentPassword, newPassword } = validation.data;
 
     // Validar fortaleza de nueva contraseña
     const passwordValidation = validatePasswordStrength(newPassword);
@@ -124,7 +128,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en change-password:', error);
+    logger.error('Error en change-password', error, {}, 'auth-change-password');
 
     return NextResponse.json(
       {

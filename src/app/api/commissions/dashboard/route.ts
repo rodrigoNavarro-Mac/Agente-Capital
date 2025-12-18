@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 import type {
   CommissionDevelopmentDashboard,
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       });
     }
   } catch (error) {
-    console.error('Error obteniendo dashboard de comisiones:', error);
+    logger.error('Error obteniendo dashboard de comisiones', error, {}, 'commissions-dashboard');
     return NextResponse.json(
       {
         success: false,
@@ -131,7 +132,7 @@ async function getDevelopmentDashboard(
     [desarrollo, year]
   );
 
-  const distributions = distributionsResult.rows;
+  const _distributions = distributionsResult.rows;
 
   // Agrupar por mes
   const monthlyStats = Array.from({ length: 12 }, (_, i) => {
@@ -238,12 +239,9 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
     const unidadesVendidas = monthSales.length; // Asumiendo 1 unidad por venta
     const facturacionVentas = monthSales.reduce((sum, s) => sum + Number(s.valor_total || 0), 0);
     
-    // Mediana de ticket de venta
-    const tickets = monthSales.map(s => Number(s.valor_total || 0)).sort((a, b) => a - b);
-    const medianaTicket = tickets.length > 0
-      ? tickets.length % 2 === 0
-        ? (tickets[tickets.length / 2 - 1] + tickets[tickets.length / 2]) / 2
-        : tickets[Math.floor(tickets.length / 2)]
+    // Promedio de ticket de venta
+    const ticketPromedio = ventasTotales > 0
+      ? facturacionVentas / ventasTotales
       : 0;
 
     // Meta de facturación (por ahora null, se puede configurar después)
@@ -258,31 +256,94 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
       ventas_totales: ventasTotales,
       unidades_vendidas: unidadesVendidas,
       facturacion_ventas: Number(facturacionVentas.toFixed(2)),
-      mediana_ticket_venta: Number(medianaTicket.toFixed(2)),
+      ticket_promedio_venta: Number(ticketPromedio.toFixed(2)),
       meta_facturacion: metaFacturacion,
       porcentaje_cumplimiento: porcentajeCumplimiento,
     };
   });
 
   // Totales anuales
+  const totalFacturacion = sales.reduce((sum, s) => sum + Number(s.valor_total || 0), 0);
   const totalAnnual = {
     ventas_totales: sales.length,
     unidades_vendidas: sales.length,
-    facturacion_ventas: Number(sales.reduce((sum, s) => sum + Number(s.valor_total || 0), 0).toFixed(2)),
-    mediana_ticket_venta: (() => {
-      const tickets = sales.map(s => Number(s.valor_total || 0)).sort((a, b) => a - b);
-      return tickets.length > 0
-        ? tickets.length % 2 === 0
-          ? (tickets[tickets.length / 2 - 1] + tickets[tickets.length / 2]) / 2
-          : tickets[Math.floor(tickets.length / 2)]
-        : 0;
-    })(),
+    facturacion_ventas: Number(totalFacturacion.toFixed(2)),
+    ticket_promedio_venta: sales.length > 0
+      ? Number((totalFacturacion / sales.length).toFixed(2))
+      : 0,
   };
+
+  // Obtener comisiones por desarrollo (agrupadas por mes)
+  const commissionByDevelopmentResult = await query<{
+    desarrollo: string;
+    fecha_firma: string;
+    commission_total: number;
+  }>(
+    `SELECT desarrollo, fecha_firma, commission_total
+     FROM commission_sales
+     WHERE EXTRACT(YEAR FROM fecha_firma) = $1
+       AND commission_calculated = true
+     ORDER BY desarrollo, fecha_firma`,
+    [year]
+  );
+
+  const salesByDevelopment = commissionByDevelopmentResult.rows;
+
+  // Agrupar comisiones por desarrollo y mes
+  const commissionByDevelopment: Record<string, Record<number, number>> = {};
+  salesByDevelopment.forEach(sale => {
+    const desarrollo = sale.desarrollo;
+    const month = new Date(sale.fecha_firma).getMonth() + 1;
+    
+    if (!commissionByDevelopment[desarrollo]) {
+      commissionByDevelopment[desarrollo] = {};
+    }
+    if (!commissionByDevelopment[desarrollo][month]) {
+      commissionByDevelopment[desarrollo][month] = 0;
+    }
+    commissionByDevelopment[desarrollo][month] += Number(sale.commission_total || 0);
+  });
+
+  // Obtener comisiones por vendedor (agrupadas por mes)
+  // Los vendedores son los propietarios del deal (deal_owner)
+  const commissionBySalespersonResult = await query<{
+    propietario_deal: string;
+    fecha_firma: string;
+    amount_calculated: number;
+  }>(
+    `SELECT cs.propietario_deal, cs.fecha_firma, cd.amount_calculated
+     FROM commission_distributions cd
+     INNER JOIN commission_sales cs ON cd.sale_id = cs.id
+     WHERE EXTRACT(YEAR FROM cs.fecha_firma) = $1
+       AND cs.commission_calculated = true
+       AND cd.role_type = 'deal_owner'
+     ORDER BY cs.propietario_deal, cs.fecha_firma`,
+    [year]
+  );
+
+  const distributionsBySalesperson = commissionBySalespersonResult.rows;
+
+  // Agrupar comisiones por vendedor y mes
+  const commissionBySalesperson: Record<string, Record<number, number>> = {};
+  distributionsBySalesperson.forEach(dist => {
+    const salesperson = dist.propietario_deal;
+    const month = new Date(dist.fecha_firma).getMonth() + 1;
+    
+    if (!commissionBySalesperson[salesperson]) {
+      commissionBySalesperson[salesperson] = {};
+    }
+    if (!commissionBySalesperson[salesperson][month]) {
+      commissionBySalesperson[salesperson][month] = 0;
+    }
+    commissionBySalesperson[salesperson][month] += Number(dist.amount_calculated || 0);
+  });
 
   return {
     year,
     monthly_metrics: monthlyMetrics,
     total_annual: totalAnnual,
+    commission_by_development: commissionByDevelopment,
+    commission_by_salesperson: commissionBySalesperson,
   };
 }
 

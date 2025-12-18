@@ -10,6 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserById, updateUser, deactivateUser, getUserByEmail } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
+import { validateRequest, updateUserRequestSchema } from '@/lib/validation';
 import type { User, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -51,7 +53,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo usuario:', error);
+    logger.error('Error obteniendo usuario', error, {}, 'users');
 
     return NextResponse.json(
       {
@@ -84,8 +86,20 @@ export async function PUT(
       );
     }
 
-    const body = await request.json();
-    const { email, name, role_id, is_active } = body;
+    const rawBody = await request.json();
+    const validation = validateRequest(updateUserRequestSchema, rawBody, 'users');
+    
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: validation.error,
+        },
+        { status: validation.status }
+      );
+    }
+    
+    const { email, name, role_id, is_active } = validation.data;
 
     // Validar que el usuario existe
     const existingUser = await getUserById(userId);
@@ -99,20 +113,8 @@ export async function PUT(
       );
     }
 
-    // Validar formato de email si se proporciona
+    // Verificar si el email ya está en uso por otro usuario
     if (email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'El formato del email no es válido',
-          },
-          { status: 400 }
-        );
-      }
-
-      // Verificar si el email ya está en uso por otro usuario
       const userWithEmail = await getUserByEmail(email);
       if (userWithEmail && userWithEmail.id !== userId) {
         return NextResponse.json(
@@ -157,7 +159,7 @@ export async function PUT(
     });
 
   } catch (error) {
-    console.error('❌ Error actualizando usuario:', error);
+    logger.error('Error actualizando usuario', error, {}, 'users');
 
     return NextResponse.json(
       {
@@ -232,7 +234,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('❌ Error desactivando usuario:', error);
+    logger.error('Error desactivando usuario', error, {}, 'users');
 
     return NextResponse.json(
       {

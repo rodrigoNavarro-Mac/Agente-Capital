@@ -13,9 +13,15 @@ import {
   createCommissionDistributions,
   updateCommissionSaleCalculation,
   updateCommissionDistribution,
+  getCommissionConfig,
+  getCommissionGlobalConfigs,
+  getApplicableCommissionRules,
+  getCommissionRules,
+  deleteCommissionDistributions,
 } from '@/lib/commission-db';
-import { getCommissionConfig } from '@/lib/commission-db';
 import { calculateCommission } from '@/lib/commission-calculator';
+import { logger } from '@/lib/logger';
+import { validateRequest, updateCommissionDistributionSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -74,7 +80,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       data: distributions,
     });
   } catch (error) {
-    console.error('Error obteniendo distribuciones:', error);
+    logger.error('Error obteniendo distribuciones', error, {}, 'commissions-distributions');
     return NextResponse.json(
       {
         success: false,
@@ -119,14 +125,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const body = await request.json();
-    const { sale_id, commission_percent } = body;
-
-    if (!sale_id) {
+    const rawBody = await request.json();
+    const validation = validateRequest(updateCommissionDistributionSchema, rawBody, 'commissions-distributions');
+    
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'sale_id es requerido' },
-        { status: 400 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
+    }
+    
+    const { sale_id, commission_percent, recalculate } = validation.data;
+    
+    // Si se solicita recalcular, eliminar distribuciones existentes primero
+    if (recalculate) {
+      await deleteCommissionDistributions(sale_id);
     }
 
     // Obtener venta
@@ -147,8 +160,29 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
+    // Obtener configuración global
+    const globalConfigs = await getCommissionGlobalConfigs();
+
+    // Obtener reglas aplicables (si se cumplen las condiciones)
+    // Nota: unidades_vendidas se calcula como 1 por defecto (cada venta es 1 unidad)
+    const applicableRules = await getApplicableCommissionRules(
+      sale.desarrollo,
+      sale.fecha_firma,
+      1 // unidades_vendidas = 1 por venta
+    );
+    
+    // Obtener todas las reglas del desarrollo (para mostrar cuáles no se cumplieron)
+    const allRules = await getCommissionRules(sale.desarrollo);
+
     // Calcular comisiones
-    const calculation = calculateCommission(config, sale, commission_percent || 100);
+    const calculation = calculateCommission(
+      config,
+      sale,
+      globalConfigs,
+      applicableRules,
+      allRules,
+      commission_percent || 100
+    );
 
     // Guardar distribuciones
     const distributions = await createCommissionDistributions(calculation.distributions);
@@ -169,11 +203,73 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       },
     });
   } catch (error) {
-    console.error('Error calculando comisiones:', error);
+    logger.error('Error calculando comisiones', error, {}, 'commissions-distributions');
     return NextResponse.json(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Error calculando comisiones',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/commissions/distributions
+ * Elimina todas las distribuciones de comisión para una venta y resetea el estado
+ * Query params: ?sale_id=xxx
+ */
+export async function DELETE(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
+  try {
+    // Verificar autenticación
+    const authHeader = request.headers.get('authorization');
+    const token = extractTokenFromHeader(authHeader);
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      return NextResponse.json(
+        { success: false, error: 'Token inválido o expirado' },
+        { status: 401 }
+      );
+    }
+
+    // Verificar permisos
+    if (!ALLOWED_ROLES.includes(payload.role || '')) {
+      return NextResponse.json(
+        { success: false, error: 'No tienes permisos para acceder a esta funcionalidad' },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const saleId = searchParams.get('sale_id');
+
+    if (!saleId) {
+      return NextResponse.json(
+        { success: false, error: 'sale_id es requerido' },
+        { status: 400 }
+      );
+    }
+
+    await deleteCommissionDistributions(parseInt(saleId, 10));
+
+    return NextResponse.json({
+      success: true,
+      data: { message: 'Distribuciones eliminadas correctamente' },
+    });
+  } catch (error) {
+    logger.error('Error eliminando distribuciones', error, {}, 'commissions-distributions');
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Error eliminando distribuciones',
       },
       { status: 500 }
     );
@@ -235,7 +331,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
       data: distribution,
     });
   } catch (error) {
-    console.error('Error actualizando distribución:', error);
+    logger.error('Error actualizando distribución', error, {}, 'commissions-distributions');
     return NextResponse.json(
       {
         success: false,

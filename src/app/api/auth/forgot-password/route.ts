@@ -7,7 +7,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserByEmail, createPasswordResetToken } from '@/lib/postgres';
-import { generateResetToken, getResetTokenExpiry, validateEmail } from '@/lib/auth';
+import { generateResetToken, getResetTokenExpiry } from '@/lib/auth';
+import { logger } from '@/lib/logger';
+import { validateRequest, forgotPasswordRequestSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 
 // TODO: Configurar nodemailer para enviar emails
@@ -17,28 +19,20 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<{ message: string }>>> {
   try {
-    const body = await request.json();
-    const { email } = body;
-
-    if (!email) {
+    const rawBody = await request.json();
+    const validation = validateRequest(forgotPasswordRequestSchema, rawBody, 'auth-forgot-password');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'El email es requerido',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
-
-    if (!validateEmail(email)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'El formato del email no es válido',
-        },
-        { status: 400 }
-      );
-    }
+    
+    const { email } = validation.data;
 
     // Buscar usuario
     const user = await getUserByEmail(email);
@@ -73,7 +67,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('Error en forgot-password:', error);
+    logger.error('Error en forgot-password', error, {}, 'auth-forgot-password');
 
     return NextResponse.json(
       {

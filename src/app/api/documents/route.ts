@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDocuments } from '@/lib/postgres';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
 import type { DocumentMetadata, APIResponse, Zone, DocumentContentType } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
@@ -28,7 +29,7 @@ export async function GET(
     
     if (invalidateCache) {
       memoryCache.invalidate('documents*');
-      console.log('🔄 Caché de documentos invalidado');
+      logger.info('Caché de documentos invalidado', {}, 'documents');
     }
     
     // Validar y convertir los parámetros a los tipos correctos
@@ -64,7 +65,7 @@ export async function GET(
     );
 
     // Log para debugging
-    console.log(`📄 Documentos obtenidos: ${documents.length}`);
+    logger.debug('Documentos obtenidos', { count: documents.length }, 'documents');
 
     // Configurar headers de caché HTTP para Next.js
     const response = NextResponse.json({
@@ -78,7 +79,7 @@ export async function GET(
     return response;
 
   } catch (error) {
-    console.error('❌ Error obteniendo documentos:', error);
+    logger.error('Error obteniendo documentos', error, {}, 'documents');
 
     return NextResponse.json(
       {

@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDevelopmentsByZone, getStaticDevelopments } from '@/lib/postgres';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
+import { validateRequest, developmentRequestSchema } from '@/lib/validation';
 
 import type { DevelopmentsByZone, APIResponse } from '@/types/documents';
 
@@ -66,7 +68,7 @@ export async function GET(
     return response;
 
   } catch (error) {
-    console.error('❌ Error obteniendo desarrollos:', error);
+    logger.error('Error obteniendo desarrollos', error, {}, 'developments');
 
     // En caso de error, retornar al menos los estáticos
     return NextResponse.json({
@@ -120,22 +122,23 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<{ zone: string; development: string }>>> {
   try {
-    const body = await request.json();
-    const { zone, development, userId } = body;
-
-    // Validar campos
-    if (!zone || !development) {
+    const rawBody = await request.json();
+    const validation = validateRequest(developmentRequestSchema, rawBody, 'developments');
+    
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'Se requiere zone y development' },
-        { status: 400 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
+    
+    const { zone, development, userId } = validation.data;
 
     // TODO: Verificar que el usuario es admin
     // const isAdmin = await hasPermission(userId, 'manage_developments');
 
     // Por ahora, solo registrar la intención
-    console.log(`📍 Solicitud de agregar desarrollo: ${zone}/${development} por usuario ${userId}`);
+    logger.info('Solicitud de agregar desarrollo', { zone, development, userId }, 'developments');
 
     // En una implementación completa, aquí se guardaría en una tabla de desarrollos
     // Por ahora, los desarrollos se registran automáticamente al subir documentos
@@ -147,7 +150,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error agregando desarrollo:', error);
+    logger.error('Error agregando desarrollo', error, {}, 'developments');
 
     return NextResponse.json(
       { 

@@ -12,8 +12,10 @@ import {
   getCommissionSale,
   upsertCommissionSale,
 } from '@/lib/commission-db';
+import { logger } from '@/lib/logger';
+import { validateRequest, commissionSaleInputSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
-import type { CommissionSaleInput, CommissionSalesFilters } from '@/types/commissions';
+import type { CommissionSalesFilters, CommissionSaleInput } from '@/types/commissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       data: result,
     });
   } catch (error) {
-    console.error('Error obteniendo ventas comisionables:', error);
+    logger.error('Error obteniendo ventas comisionables', error, {}, 'commissions-sales');
     return NextResponse.json(
       {
         success: false,
@@ -136,40 +138,37 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const body = await request.json();
-    const saleInput: CommissionSaleInput = body;
-
-    // Validar campos requeridos
-    if (!saleInput.zoho_deal_id || !saleInput.cliente_nombre || !saleInput.desarrollo ||
-        !saleInput.propietario_deal || !saleInput.metros_cuadrados || !saleInput.valor_total ||
-        !saleInput.fecha_firma) {
+    const rawBody = await request.json();
+    const validation = validateRequest(commissionSaleInputSchema, rawBody, 'commissions-sales');
+    
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'Faltan campos requeridos' },
-        { status: 400 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
-
-    // Validar que metros cuadrados y valor total sean positivos
-    if (saleInput.metros_cuadrados <= 0 || saleInput.valor_total <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'Metros cuadrados y valor total deben ser mayores a 0' },
-        { status: 400 }
-      );
-    }
+    
+    const saleInput = validation.data;
 
     // Calcular precio por m² si no se proporciona
-    if (!saleInput.precio_por_m2 || saleInput.precio_por_m2 === 0) {
-      saleInput.precio_por_m2 = Number((saleInput.valor_total / saleInput.metros_cuadrados).toFixed(2));
-    }
+    const precioPorM2 = saleInput.precio_por_m2 && saleInput.precio_por_m2 > 0
+      ? saleInput.precio_por_m2
+      : Number((saleInput.valor_total / saleInput.metros_cuadrados).toFixed(2));
 
-    const sale = await upsertCommissionSale(saleInput);
+    // Crear objeto con el tipo correcto (precio_por_m2 siempre presente)
+    const saleInputWithPrice: CommissionSaleInput = {
+      ...saleInput,
+      precio_por_m2: precioPorM2,
+    };
+
+    const sale = await upsertCommissionSale(saleInputWithPrice);
 
     return NextResponse.json({
       success: true,
       data: sale,
     });
   } catch (error) {
-    console.error('Error guardando venta comisionable:', error);
+    logger.error('Error guardando venta comisionable', error, {}, 'commissions-sales');
     return NextResponse.json(
       {
         success: false,

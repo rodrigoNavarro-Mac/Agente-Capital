@@ -12,6 +12,7 @@ import type {
   LMStudioResponse 
 } from '@/types/documents';
 import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
+import { fetchWithTimeout, TIMEOUTS } from '@/lib/timeout';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -58,13 +59,18 @@ export async function runLLM(
   try {
     console.log(`🤖 Enviando consulta a LM Studio (modelo: ${model})...`);
     
-    const response = await fetch(`${LMSTUDIO_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    // Aplicar timeout a la llamada a LM Studio
+    const response = await fetchWithTimeout(
+      `${LMSTUDIO_BASE_URL}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
       },
-      body: JSON.stringify(requestBody),
-    });
+      TIMEOUTS.LLM_REQUEST
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -303,13 +309,18 @@ export async function runLLMStream(
   };
 
   try {
-    const response = await fetch(`${LMSTUDIO_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    // Aplicar timeout a la llamada streaming a LM Studio
+    const response = await fetchWithTimeout(
+      `${LMSTUDIO_BASE_URL}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
       },
-      body: JSON.stringify(requestBody),
-    });
+      TIMEOUTS.LLM_STREAM
+    );
 
     if (!response.ok) {
       throw new Error(`LM Studio error: ${response.status}`);

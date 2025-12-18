@@ -13,6 +13,8 @@ import {
   getCommissionDistribution,
   updateCommissionDistribution,
 } from '@/lib/commission-db';
+import { logger } from '@/lib/logger';
+import { validateRequest, commissionAdjustmentInputSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionAdjustmentInput } from '@/types/commissions';
 
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       data: adjustments,
     });
   } catch (error) {
-    console.error('Error obteniendo ajustes:', error);
+    logger.error('Error obteniendo ajustes', error, {}, 'commissions-adjustments');
     return NextResponse.json(
       {
         success: false,
@@ -117,18 +119,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const body = await request.json();
-    const adjustmentInput: CommissionAdjustmentInput = body;
-
-    // Validar campos requeridos
-    if (!adjustmentInput.distribution_id || !adjustmentInput.sale_id ||
-        !adjustmentInput.adjustment_type || adjustmentInput.new_value === undefined ||
-        adjustmentInput.amount_impact === undefined) {
+    const rawBody = await request.json();
+    const validation = validateRequest(commissionAdjustmentInputSchema, rawBody, 'commissions-adjustments');
+    
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'Faltan campos requeridos' },
-        { status: 400 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
+    
+    const adjustmentInput = validation.data as CommissionAdjustmentInput;
 
     // Obtener distribución actual para obtener valores anteriores
     const distribution = await getCommissionDistribution(adjustmentInput.distribution_id);
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       data: adjustment,
     });
   } catch (error) {
-    console.error('Error creando ajuste:', error);
+    logger.error('Error creando ajuste', error, {}, 'commissions-adjustments');
     return NextResponse.json(
       {
         success: false,

@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { deleteUserSession } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -31,7 +32,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en logout:', error);
+    logger.error('Error en logout', error, {}, 'auth-logout');
 
     return NextResponse.json(
       {

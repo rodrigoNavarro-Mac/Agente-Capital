@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { hasPermission } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { Permission } from '@/types/documents';
+
+// Marcar la ruta como dinámica porque usa request.headers y request.url
+export const dynamic = 'force-dynamic';
 
 /**
  * Endpoint para verificar si un usuario tiene un permiso específico
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       hasPermission: hasAccess,
     });
   } catch (error) {
-    console.error('Error verificando permiso:', error);
+    logger.error('Error verificando permiso', error, {}, 'permissions-check');
     return NextResponse.json(
       { success: false, error: 'Error al verificar permiso' },
       { status: 500 }

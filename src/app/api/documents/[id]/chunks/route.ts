@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDocumentById, getUserById } from '@/lib/postgres';
 import { getDocumentChunks } from '@/lib/pinecone';
+import { logger } from '@/lib/logger';
 import type { APIResponse, PineconeMatch } from '@/types/documents';
 
 // =====================================================
@@ -76,7 +77,7 @@ export async function GET(
       }, { status: 404 });
     }
 
-    console.log(`🔍 Obteniendo chunks del documento: ${document.filename} (ID: ${documentId})`);
+    logger.debug('Obteniendo chunks del documento', { documentId, filename: document.filename }, 'documents-chunks');
 
     // 5. Obtener chunks desde Pinecone
     if (!document.pinecone_namespace || !document.filename) {
@@ -93,7 +94,7 @@ export async function GET(
       .map(chunk => chunk.metadata.text || '')
       .join('\n\n');
 
-    console.log(`✅ Obtenidos ${chunks.length} chunks del documento`);
+    logger.debug('Obtenidos chunks del documento', { count: chunks.length }, 'documents-chunks');
 
     return NextResponse.json({
       success: true,
@@ -104,7 +105,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo chunks del documento:', error);
+    logger.error('Error obteniendo chunks del documento', error, {}, 'documents-chunks');
 
     return NextResponse.json({
       success: false,

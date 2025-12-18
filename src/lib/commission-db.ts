@@ -17,6 +17,8 @@ import type {
   CommissionAdjustment,
   CommissionAdjustmentInput,
   CommissionSalesFilters,
+  CommissionRule,
+  CommissionRuleInput,
 } from '@/types/commissions';
 
 // =====================================================
@@ -74,27 +76,23 @@ export async function upsertCommissionConfig(
     const result = await query<CommissionConfig>(
       `INSERT INTO commission_configs (
         desarrollo, phase_sale_percent, phase_post_sale_percent,
-        sale_pool_total_percent, sale_manager_percent, deal_owner_percent,
-        external_advisor_percent, operations_coordinator_percent, marketing_percent,
-        legal_manager_percent, post_sale_coordinator_percent,
+        sale_manager_percent, deal_owner_percent, external_advisor_percent,
+        pool_enabled, sale_pool_total_percent,
         customer_service_enabled, customer_service_percent,
         deliveries_enabled, deliveries_percent,
         bonds_enabled, bonds_percent,
         created_by, updated_by
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
       )
       ON CONFLICT (desarrollo) DO UPDATE SET
         phase_sale_percent = EXCLUDED.phase_sale_percent,
         phase_post_sale_percent = EXCLUDED.phase_post_sale_percent,
-        sale_pool_total_percent = EXCLUDED.sale_pool_total_percent,
         sale_manager_percent = EXCLUDED.sale_manager_percent,
         deal_owner_percent = EXCLUDED.deal_owner_percent,
         external_advisor_percent = EXCLUDED.external_advisor_percent,
-        operations_coordinator_percent = EXCLUDED.operations_coordinator_percent,
-        marketing_percent = EXCLUDED.marketing_percent,
-        legal_manager_percent = EXCLUDED.legal_manager_percent,
-        post_sale_coordinator_percent = EXCLUDED.post_sale_coordinator_percent,
+        pool_enabled = EXCLUDED.pool_enabled,
+        sale_pool_total_percent = EXCLUDED.sale_pool_total_percent,
         customer_service_enabled = EXCLUDED.customer_service_enabled,
         customer_service_percent = EXCLUDED.customer_service_percent,
         deliveries_enabled = EXCLUDED.deliveries_enabled,
@@ -108,14 +106,11 @@ export async function upsertCommissionConfig(
         normalizedDesarrollo,
         config.phase_sale_percent,
         config.phase_post_sale_percent,
-        config.sale_pool_total_percent,
         config.sale_manager_percent,
         config.deal_owner_percent,
         config.external_advisor_percent || null,
-        config.operations_coordinator_percent || 0,
-        config.marketing_percent || 0,
-        config.legal_manager_percent,
-        config.post_sale_coordinator_percent,
+        config.pool_enabled || false,
+        config.sale_pool_total_percent || 0,
         config.customer_service_enabled || false,
         config.customer_service_percent || null,
         config.deliveries_enabled || false,
@@ -152,7 +147,7 @@ export async function getCommissionGlobalConfigs(): Promise<CommissionGlobalConf
  * Actualiza la configuración global de roles indirectos
  */
 export async function updateCommissionGlobalConfig(
-  configKey: 'operations_coordinator_percent' | 'marketing_percent',
+  configKey: 'operations_coordinator_percent' | 'marketing_percent' | 'legal_manager_percent' | 'post_sale_coordinator_percent',
   configValue: number,
   userId: number
 ): Promise<CommissionGlobalConfig> {
@@ -710,6 +705,34 @@ export async function updateCommissionDistribution(
   }
 }
 
+/**
+ * Elimina todas las distribuciones de comisión para una venta y resetea el estado de cálculo
+ */
+export async function deleteCommissionDistributions(saleId: number): Promise<void> {
+  try {
+    // Eliminar distribuciones
+    await query(
+      `DELETE FROM commission_distributions WHERE sale_id = $1`,
+      [saleId]
+    );
+    
+    // Resetear estado de cálculo de la venta
+    await query(
+      `UPDATE commission_sales
+       SET commission_calculated = false,
+           commission_total = 0,
+           commission_sale_phase = 0,
+           commission_post_sale_phase = 0,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [saleId]
+    );
+  } catch (error) {
+    console.error('Error eliminando distribuciones de comisión:', error);
+    throw error;
+  }
+}
+
 // =====================================================
 // AJUSTES
 // =====================================================
@@ -768,6 +791,245 @@ export async function getCommissionAdjustments(
     return result.rows;
   } catch (error) {
     console.error('Error obteniendo ajustes de comisión:', error);
+    throw error;
+  }
+}
+
+// =====================================================
+// REGLAS DE COMISIÓN
+// =====================================================
+
+/**
+ * Obtiene todas las reglas de comisión para un desarrollo
+ */
+export async function getCommissionRules(desarrollo?: string): Promise<CommissionRule[]> {
+  try {
+    let sqlQuery = 'SELECT * FROM commission_rules';
+    const params: any[] = [];
+    
+    if (desarrollo) {
+      sqlQuery += ' WHERE LOWER(TRIM(desarrollo)) = LOWER(TRIM($1))';
+      params.push(desarrollo);
+    }
+    
+    sqlQuery += ' ORDER BY prioridad DESC, periodo_value DESC, created_at DESC';
+    
+    const result = await query<CommissionRule>(sqlQuery, params);
+    return result.rows;
+  } catch (error) {
+    console.error('Error obteniendo reglas de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Obtiene una regla de comisión por ID
+ */
+export async function getCommissionRule(id: number): Promise<CommissionRule | null> {
+  try {
+    const result = await query<CommissionRule>(
+      'SELECT * FROM commission_rules WHERE id = $1',
+      [id]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('Error obteniendo regla de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Crea una nueva regla de comisión
+ */
+export async function createCommissionRule(
+  rule: CommissionRuleInput,
+  userId: number
+): Promise<CommissionRule> {
+  try {
+    const normalizedDesarrollo = rule.desarrollo.trim().toLowerCase();
+    
+    const result = await query<CommissionRule>(
+      `INSERT INTO commission_rules (
+        desarrollo, rule_name, periodo_type, periodo_value,
+        operador, unidades_vendidas, porcentaje_comision, porcentaje_iva,
+        activo, prioridad, created_by, updated_by
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+      ) RETURNING *`,
+      [
+        normalizedDesarrollo,
+        rule.rule_name,
+        rule.periodo_type,
+        rule.periodo_value,
+        rule.operador,
+        rule.unidades_vendidas,
+        rule.porcentaje_comision,
+        rule.porcentaje_iva || 0,
+        rule.activo !== undefined ? rule.activo : true,
+        rule.prioridad || 0,
+        userId,
+        userId,
+      ]
+    );
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error creando regla de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Actualiza una regla de comisión existente
+ */
+export async function updateCommissionRule(
+  id: number,
+  rule: Partial<CommissionRuleInput>,
+  userId: number
+): Promise<CommissionRule> {
+  try {
+    const updates: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (rule.desarrollo !== undefined) {
+      updates.push(`desarrollo = LOWER(TRIM($${paramIndex}))`);
+      params.push(rule.desarrollo);
+      paramIndex++;
+    }
+    if (rule.rule_name !== undefined) {
+      updates.push(`rule_name = $${paramIndex}`);
+      params.push(rule.rule_name);
+      paramIndex++;
+    }
+    if (rule.periodo_type !== undefined) {
+      updates.push(`periodo_type = $${paramIndex}`);
+      params.push(rule.periodo_type);
+      paramIndex++;
+    }
+    if (rule.periodo_value !== undefined) {
+      updates.push(`periodo_value = $${paramIndex}`);
+      params.push(rule.periodo_value);
+      paramIndex++;
+    }
+    if (rule.operador !== undefined) {
+      updates.push(`operador = $${paramIndex}`);
+      params.push(rule.operador);
+      paramIndex++;
+    }
+    if (rule.unidades_vendidas !== undefined) {
+      updates.push(`unidades_vendidas = $${paramIndex}`);
+      params.push(rule.unidades_vendidas);
+      paramIndex++;
+    }
+    if (rule.porcentaje_comision !== undefined) {
+      updates.push(`porcentaje_comision = $${paramIndex}`);
+      params.push(rule.porcentaje_comision);
+      paramIndex++;
+    }
+    if (rule.porcentaje_iva !== undefined) {
+      updates.push(`porcentaje_iva = $${paramIndex}`);
+      params.push(rule.porcentaje_iva);
+      paramIndex++;
+    }
+    if (rule.activo !== undefined) {
+      updates.push(`activo = $${paramIndex}`);
+      params.push(rule.activo);
+      paramIndex++;
+    }
+    if (rule.prioridad !== undefined) {
+      updates.push(`prioridad = $${paramIndex}`);
+      params.push(rule.prioridad);
+      paramIndex++;
+    }
+
+    if (updates.length === 0) {
+      throw new Error('No hay campos para actualizar');
+    }
+
+    updates.push(`updated_by = $${paramIndex}`);
+    params.push(userId);
+    paramIndex++;
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+
+    params.push(id);
+
+    const result = await query<CommissionRule>(
+      `UPDATE commission_rules 
+       SET ${updates.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Regla de comisión no encontrada');
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error actualizando regla de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Elimina una regla de comisión
+ */
+export async function deleteCommissionRule(id: number): Promise<boolean> {
+  try {
+    const result = await query<{ count: string }>(
+      'DELETE FROM commission_rules WHERE id = $1 RETURNING id',
+      [id]
+    );
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error('Error eliminando regla de comisión:', error);
+    throw error;
+  }
+}
+
+/**
+ * Obtiene TODAS las reglas de comisión aplicables para una venta
+ * Basada en: desarrollo, período (calculado desde fecha de firma), y unidades vendidas
+ * IMPORTANTE: Se aplican TODAS las reglas que cumplan las condiciones, no solo una
+ */
+export async function getApplicableCommissionRules(
+  desarrollo: string,
+  fechaFirma: string,
+  unidadesVendidas: number
+): Promise<CommissionRule[]> {
+  try {
+    const normalizedDesarrollo = desarrollo.trim().toLowerCase();
+    const fecha = new Date(fechaFirma);
+    const año = fecha.getFullYear();
+    const mes = fecha.getMonth() + 1; // 1-12
+    const trimestre = Math.ceil(mes / 3); // 1-4
+    
+    // Generar posibles valores de período para la fecha
+    const periodoValues = [
+      `${año}`, // Anual
+      `${año}-${String(mes).padStart(2, '0')}`, // Mensual
+      `${año}-Q${trimestre}`, // Trimestral
+    ];
+    
+    const result = await query<CommissionRule>(
+      `SELECT * FROM commission_rules
+       WHERE LOWER(TRIM(desarrollo)) = $1
+         AND activo = TRUE
+         AND periodo_value = ANY($2::text[])
+         AND (
+           (operador = '=' AND unidades_vendidas = $3)
+           OR (operador = '>=' AND unidades_vendidas <= $3)
+           OR (operador = '<=' AND unidades_vendidas >= $3)
+         )
+       ORDER BY unidades_vendidas DESC, created_at DESC`,
+      [normalizedDesarrollo, periodoValues, unidadesVendidas]
+    );
+    
+    return result.rows;
+  } catch (error) {
+    console.error('Error obteniendo reglas aplicables de comisión:', error);
     throw error;
   }
 }

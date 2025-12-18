@@ -10,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllUsers, createUser, getUserByEmail } from '@/lib/postgres';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth';
+import { logger } from '@/lib/logger';
+import { validateRequest, createUserWithRoleIdRequestSchema } from '@/lib/validation';
 import type { User, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -26,7 +28,7 @@ export async function GET(): Promise<NextResponse<APIResponse<User[]>>> {
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo usuarios:', error);
+    logger.error('Error obteniendo usuarios', error, {}, 'users');
 
     return NextResponse.json(
       {
@@ -46,31 +48,20 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<User>>> {
   try {
-    const body = await request.json();
-    const { email, name, role_id, password } = body;
-
-    // Validar campos requeridos
-    if (!email || !name || !role_id) {
+    const rawBody = await request.json();
+    const validation = validateRequest(createUserWithRoleIdRequestSchema, rawBody, 'users');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Los campos email, name y role_id son requeridos',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
-
-    // Validar formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'El formato del email no es válido',
-        },
-        { status: 400 }
-      );
-    }
+    
+    const { email, name, role_id, password } = validation.data;
 
     // Verificar si el email ya existe
     const existingUser = await getUserByEmail(email);
@@ -116,7 +107,7 @@ export async function POST(
     );
 
   } catch (error) {
-    console.error('❌ Error creando usuario:', error);
+    logger.error('Error creando usuario', error, {}, 'users');
 
     return NextResponse.json(
       {

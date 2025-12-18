@@ -23,10 +23,38 @@ import type {
 } from '@/types/documents';
 import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
 import { logger } from '@/lib/logger';
+import { withCircuitBreaker, recordFailure, recordSuccess } from '@/lib/circuit-breaker';
 
 // =====================================================
 // CONFIGURACIÓN
 // =====================================================
+
+/**
+ * Detecta si estamos en un entorno serverless
+ */
+function isServerlessEnvironment(): boolean {
+  // Vercel siempre tiene VERCEL env var
+  if (process.env.VERCEL) {
+    return true;
+  }
+  
+  // AWS Lambda
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return true;
+  }
+  
+  // Google Cloud Functions
+  if (process.env.FUNCTION_NAME || process.env.K_SERVICE) {
+    return true;
+  }
+  
+  // Azure Functions
+  if (process.env.AZURE_FUNCTIONS_ENVIRONMENT) {
+    return true;
+  }
+  
+  return false;
+}
 
 /**
  * Configuración del pool de conexiones PostgreSQL.
@@ -45,8 +73,27 @@ import { logger } from '@/lib/logger';
  * 
  * Para obtener la cadena correcta:
  * Supabase Dashboard > Settings > Database > Connection String > "Direct connection"
+ * 
+ * OPTIMIZACIONES PARA SERVERLESS:
+ * - Max connections reducido (5 en lugar de 20) para evitar agotamiento
+ * - Timeouts aumentados (20s connection, 30s idle) para cold starts
+ * - Circuit breaker integrado para prevenir reconexiones fallidas
  */
 function getPoolConfig() {
+  const isServerless = isServerlessEnvironment();
+  
+  // Configuración adaptativa según el entorno
+  const maxConnections = isServerless 
+    ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10) // Reducido para serverless
+    : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20', 10); // Normal para desarrollo
+  
+  const connectionTimeout = isServerless
+    ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '20000', 10) // 20s para cold starts
+    : parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '15000', 10); // 15s para desarrollo
+  
+  const idleTimeout = isServerless
+    ? parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10) // 30s para serverless
+    : parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10); // 30s para desarrollo
   // Intentar obtener la cadena de conexión en orden de prioridad
   // IMPORTANTE: DATABASE_URL (manual) tiene MÁS prioridad que las variables automáticas
   // porque la integración de Vercel a veces configura incorrectamente POSTGRES_URL_NON_POOLING
@@ -93,9 +140,9 @@ function getPoolConfig() {
           user: username,
           password: password,
           database: database,
-          max: 20,
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
+          max: maxConnections,
+          idleTimeoutMillis: idleTimeout,
+          connectionTimeoutMillis: connectionTimeout,
           // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
           family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
           ssl: {
@@ -121,9 +168,9 @@ function getPoolConfig() {
     
     return {
       connectionString: connectionString,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      max: maxConnections,
+      idleTimeoutMillis: idleTimeout,
+      connectionTimeoutMillis: connectionTimeout,
       family: 4,  // Forzar IPv4 (Vercel NO soporta IPv6)
       ssl: sslConfig,
     };
@@ -155,9 +202,9 @@ function getPoolConfig() {
     user,
     password,
     database,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000, // Aumentado para desarrollo local
+    max: maxConnections,
+    idleTimeoutMillis: idleTimeout,
+    connectionTimeoutMillis: connectionTimeout,
     family: 4,  // Forzar IPv4 para consistencia
   };
 }
@@ -166,17 +213,18 @@ const pool = new Pool(getPoolConfig());
 
 // Manejar errores del pool
 pool.on('error', (err: Error & { code?: string }) => {
-  console.error('Error inesperado en el pool de PostgreSQL:', err);
+  logger.error('Error inesperado en el pool de PostgreSQL', err, {}, 'postgres-pool');
+  
+  // Registrar fallo en circuit breaker
+  recordFailure(err);
   
   // Detectar errores específicos de terminación de conexión
   if (err.code === 'XX000' || 
       (err.message && (err.message.includes('shutdown') || err.message.includes('db_termination')))) {
-    console.error('⚠️ DIAGNÓSTICO: La base de datos cerró la conexión inesperadamente.');
-    console.error('   Esto puede ocurrir por:');
-    console.error('   1. Timeout de conexión (común en serverless)');
-    console.error('   2. Reinicio o mantenimiento de la base de datos');
-    console.error('   3. Límite de conexiones alcanzado');
-    console.error('   El pool intentará reconectar automáticamente en la próxima query.');
+    logger.warn('La base de datos cerró la conexión inesperadamente', {
+      code: err.code,
+      message: err.message?.substring(0, 100)
+    }, 'postgres-pool');
     return; // No es un error crítico, el pool manejará la reconexión
   }
   
@@ -218,15 +266,19 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   params?: unknown[],
   retries: number = 1
 ): Promise<QueryResult<T>> {
-  const _start = Date.now();
-  let lastError: unknown;
-  
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const result = await pool.query<T>(text, params);
-      return result;
+  return withCircuitBreaker(
+    async () => {
+      const _start = Date.now();
+      let lastError: unknown;
+      
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const result = await pool.query<T>(text, params);
+          recordSuccess(); // Registrar éxito después de la query
+          return result;
     } catch (error) {
       lastError = error;
+      recordFailure(error); // Registrar fallo
       
       // Verificar si es un error de conexión que puede recuperarse
       const isConnectionError = error instanceof Error && (
@@ -305,14 +357,29 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   
   // Esto no debería ejecutarse, pero TypeScript lo requiere
   throw lastError;
+    },
+    'database query'
+  );
 }
 
 /**
  * Obtiene un cliente del pool para transacciones
  */
 export async function getClient(): Promise<PoolClient> {
-  const client = await pool.connect();
-  return client;
+  return withCircuitBreaker(
+    async () => {
+      try {
+        const client = await pool.connect();
+        recordSuccess();
+        return client;
+      } catch (error) {
+        recordFailure(error);
+        logger.error('Error obteniendo cliente del pool', error, {}, 'postgres');
+        throw error;
+      }
+    },
+    'get database client'
+  );
 }
 
 /**
@@ -713,7 +780,7 @@ export async function saveQueryLog(log: Omit<QueryLog, 'id' | 'created_at'>): Pr
  */
 export async function getQueryLogs(options: {
   userId?: number;
-  zone?: Zone;
+  zone?: string;
   development?: string;
   limit?: number;
   offset?: number;
@@ -754,7 +821,7 @@ export async function getQueryLogs(options: {
  */
 export async function deleteQueryLogs(options: {
   userId: number;
-  zone?: Zone;
+  zone?: string;
   development?: string;
 }): Promise<number> {
   const { userId, zone, development } = options;

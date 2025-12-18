@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDocumentById, deleteDocument, hasPermission, checkUserAccess, saveActionLog } from '@/lib/postgres';
 import { deleteDocumentChunks } from '@/lib/pinecone';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -67,7 +68,7 @@ export async function DELETE(
       }, { status: 404 });
     }
 
-    console.log(`🔍 Documento encontrado: ${document.filename} (ID: ${documentId})`);
+    logger.debug('Documento encontrado', { documentId, filename: document.filename }, 'documents');
 
     // 4. Verificar permisos del usuario
     // El usuario necesita tener permiso de eliminar documentos
@@ -101,19 +102,20 @@ export async function DELETE(
       // Los chunks del documento se identifican por sourceFileName
       // dentro del namespace de la zona
       if (document.pinecone_namespace && document.filename) {
-        console.log(`🗑️ Eliminando chunks de Pinecone...`);
-        console.log(`   Namespace: ${document.pinecone_namespace}`);
-        console.log(`   Archivo: ${document.filename}`);
+        logger.debug('Eliminando chunks de Pinecone', { 
+          namespace: document.pinecone_namespace, 
+          filename: document.filename 
+        }, 'documents');
         
         // Elimina solo los chunks de este documento específico
         // usando el filtro de sourceFileName
         await deleteDocumentChunks(document.pinecone_namespace, document.filename);
-        console.log(`✅ Chunks eliminados de Pinecone`);
+        logger.debug('Chunks eliminados de Pinecone', {}, 'documents');
       } else {
-        console.warn(`⚠️ Documento sin namespace o filename registrado`);
+        logger.warn('Documento sin namespace o filename registrado', { documentId }, 'documents');
       }
     } catch (pineconeError) {
-      console.error('❌ Error eliminando de Pinecone:', pineconeError);
+      logger.error('Error eliminando de Pinecone', pineconeError, {}, 'documents');
       // Continuamos para eliminar de PostgreSQL aunque falle Pinecone
       // para evitar datos huérfanos en la DB
     }
@@ -132,7 +134,7 @@ export async function DELETE(
     memoryCache.invalidate('documents*');
     memoryCache.invalidate('developments*');
     memoryCache.invalidate('stats*');
-    console.log('🔄 Caché invalidado después de eliminar documento');
+    logger.debug('Caché invalidado después de eliminar documento', {}, 'documents');
 
     // 9. Registrar acción en logs
     const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
@@ -155,7 +157,7 @@ export async function DELETE(
       user_agent: userAgent,
     });
 
-    console.log(`✅ Documento ${documentId} eliminado exitosamente`);
+    logger.info('Documento eliminado exitosamente', { documentId, filename: document.filename }, 'documents');
 
     return NextResponse.json({
       success: true,
@@ -164,7 +166,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('❌ Error eliminando documento:', error);
+    logger.error('Error eliminando documento', error, {}, 'documents');
 
     return NextResponse.json({
       success: false,
@@ -210,7 +212,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo documento:', error);
+    logger.error('Error obteniendo documento', error, {}, 'documents');
 
     return NextResponse.json({
       success: false,

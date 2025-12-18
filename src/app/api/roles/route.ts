@@ -7,6 +7,7 @@
 
 import {  NextResponse } from 'next/server';
 import { getRoles } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { Role, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -23,7 +24,7 @@ export async function GET(): Promise<NextResponse<APIResponse<Role[]>>> {
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo roles:', error);
+    logger.error('Error obteniendo roles', error, {}, 'roles');
 
     return NextResponse.json(
       {

@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { getDashboardStats } from '@/lib/postgres';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -36,7 +37,7 @@ export async function GET(): Promise<NextResponse<APIResponse<{
     return response;
 
   } catch (error) {
-    console.error('❌ Error obteniendo estadísticas:', error);
+    logger.error('Error obteniendo estadísticas', error, {}, 'stats');
 
     return NextResponse.json(
       {

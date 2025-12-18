@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserById, updateUserPassword } from '@/lib/postgres';
 import { hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { hasPermission } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
+import { validateRequest, adminChangePasswordRequestSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -41,10 +43,6 @@ export async function POST(
       );
     }
 
-    // Parsear el body primero
-    const body = await request.json();
-    const { password } = body;
-
     // Validar ID del usuario objetivo
     const targetUserId = parseInt(params.id);
     if (isNaN(targetUserId)) {
@@ -56,6 +54,22 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Parsear y validar el body
+    const rawBody = await request.json();
+    const validation = validateRequest(adminChangePasswordRequestSchema, rawBody, 'users-change-password');
+    
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: validation.error,
+        },
+        { status: validation.status }
+      );
+    }
+    
+    const { password } = validation.data;
 
     // Verificar permisos (solo admin puede cambiar contraseñas de otros)
     // Primero verificar si es admin por rol
@@ -137,7 +151,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error cambiando contraseña:', error);
+    logger.error('Error cambiando contraseña', error, {}, 'users-change-password');
 
     return NextResponse.json(
       {

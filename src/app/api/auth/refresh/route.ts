@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRefreshToken, generateAccessToken } from '@/lib/auth';
 import { getUserById, getUserSession } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -77,7 +78,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en refresh:', error);
+    logger.error('Error en refresh', error, {}, 'auth-refresh');
 
     return NextResponse.json(
       {

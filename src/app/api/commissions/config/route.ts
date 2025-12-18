@@ -15,6 +15,8 @@ import {
   updateCommissionGlobalConfig,
 } from '@/lib/commission-db';
 import { validateCommissionConfig } from '@/lib/commission-calculator';
+import { logger } from '@/lib/logger';
+import { validateRequest, commissionConfigInputSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionConfigInput } from '@/types/commissions';
 
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       });
     }
   } catch (error) {
-    console.error('Error obteniendo configuración de comisiones:', error);
+    logger.error('Error obteniendo configuración de comisiones', error, {}, 'commissions-config');
     return NextResponse.json(
       {
         success: false,
@@ -125,16 +127,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const body = await request.json();
-    const configInput: CommissionConfigInput = body;
+    const rawBody = await request.json();
+    const zodValidation = validateRequest(commissionConfigInputSchema, rawBody, 'commissions-config');
+    
+    if (!zodValidation.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: zodValidation.error,
+        },
+        { status: zodValidation.status }
+      );
+    }
+    
+    const configInput = zodValidation.data;
 
     // Log para debugging
-    console.log('Configuración recibida:', JSON.stringify(configInput, null, 2));
+    logger.debug('Configuración recibida', { configInput }, 'commissions-config');
 
-    // Validar configuración
-    const validation = validateCommissionConfig(configInput);
+    // Validar configuración (validación de negocio adicional)
+    // El schema de Zod usa .passthrough() que permite campos adicionales,
+    // pero TypeScript no los tipa. Hacemos un cast a unknown primero y luego al tipo esperado.
+    const validation = validateCommissionConfig(configInput as unknown as CommissionConfigInput);
     if (!validation.valid) {
-      console.error('Errores de validación:', validation.errors);
+      logger.warn('Errores de validación en configuración de comisiones', { errors: validation.errors }, 'commissions-config');
       return NextResponse.json(
         {
           success: false,
@@ -145,27 +161,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    // Obtener configuración global para roles indirectos
-    const globalConfigs = await getCommissionGlobalConfigs();
-    const operationsPercent = globalConfigs.find(c => c.config_key === 'operations_coordinator_percent')?.config_value || 0;
-    const marketingPercent = globalConfigs.find(c => c.config_key === 'marketing_percent')?.config_value || 0;
-
-    // Agregar porcentajes globales a la configuración
-    const configWithGlobals: CommissionConfigInput = {
-      ...configInput,
-      operations_coordinator_percent: operationsPercent,
-      marketing_percent: marketingPercent,
-    };
+    // Los porcentajes globales ya no se almacenan en commission_configs
+    // Se obtienen de commission_global_configs cuando se calculan las comisiones
 
     // Guardar configuración
-    const config = await upsertCommissionConfig(configWithGlobals, payload.userId);
+    const config = await upsertCommissionConfig(configInput as unknown as CommissionConfigInput, payload.userId);
 
     return NextResponse.json({
       success: true,
       data: config,
     });
   } catch (error) {
-    console.error('Error guardando configuración de comisiones:', error);
+    logger.error('Error guardando configuración de comisiones', error, {}, 'commissions-config');
     return NextResponse.json(
       {
         success: false,
@@ -219,7 +226,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    if (configKey !== 'operations_coordinator_percent' && configKey !== 'marketing_percent') {
+    const validKeys = ['operations_coordinator_percent', 'marketing_percent', 'legal_manager_percent', 'post_sale_coordinator_percent'];
+    if (!validKeys.includes(configKey)) {
       return NextResponse.json(
         { success: false, error: 'configKey inválido' },
         { status: 400 }
@@ -244,7 +252,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
       data: globalConfig,
     });
   } catch (error) {
-    console.error('Error actualizando configuración global:', error);
+    logger.error('Error actualizando configuración global', error, {}, 'commissions-config');
     return NextResponse.json(
       {
         success: false,

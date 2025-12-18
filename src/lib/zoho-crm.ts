@@ -8,6 +8,7 @@
  */
 
 import { logger } from '@/lib/logger';
+import { fetchWithTimeout, TIMEOUTS } from '@/lib/timeout';
 
 // =====================================================
 // TIPOS Y INTERFACES
@@ -239,18 +240,23 @@ async function getAccessToken(): Promise<string> {
   }, 'zoho-token');
 
   try {
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+    // Aplicar timeout a la obtención del token de acceso
+    const response = await fetchWithTimeout(
+      tokenUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          refresh_token: ZOHO_REFRESH_TOKEN,
+          client_id: ZOHO_CLIENT_ID,
+          client_secret: ZOHO_CLIENT_SECRET,
+          grant_type: 'refresh_token',
+        }).toString(),
       },
-      body: new URLSearchParams({
-        refresh_token: ZOHO_REFRESH_TOKEN,
-        client_id: ZOHO_CLIENT_ID,
-        client_secret: ZOHO_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-      }),
-    });
+      TIMEOUTS.ZOHO_REQUEST
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -321,14 +327,19 @@ async function zohoRequest<T>(
 ): Promise<T> {
   const accessToken = await getAccessToken();
 
-  const response = await fetch(`${ZOHO_CRM_API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${accessToken}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
+  // Aplicar timeout a la llamada a Zoho API
+  const response = await fetchWithTimeout(
+    `${ZOHO_CRM_API_URL}${endpoint}`,
+    {
+      ...options,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
     },
-  });
+    TIMEOUTS.ZOHO_REQUEST
+  );
 
   if (!response.ok) {
     const errorText = await response.text();

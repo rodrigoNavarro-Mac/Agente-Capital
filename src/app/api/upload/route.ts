@@ -360,7 +360,7 @@ async function saveTemporaryFile(file: File): Promise<string> {
     } catch (error) {
       // Guardar el error pero continuar con el siguiente directorio
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`⚠️ No se pudo usar el directorio ${dir}, intentando siguiente opción...`, lastError.message);
+      logger.warn('No se pudo usar el directorio, intentando siguiente opción', { dir, error: lastError.message }, 'upload');
       
       // Si este era el último directorio a intentar, lanzar el error
       if (dir === dirsToTry[dirsToTry.length - 1]) {
@@ -417,7 +417,7 @@ async function extractPDFText(filepath: string): Promise<string> {
     } catch (ocrError) {
       // Si OCR falla, lanzar error claro para el usuario
       const errorMessage = ocrError instanceof Error ? ocrError.message : String(ocrError);
-      console.error('❌ Error en OCR:', errorMessage);
+      logger.error('Error en OCR', ocrError, { errorMessage }, 'upload');
       
       // Si el error menciona que está deshabilitado, lanzar error específico
       if (errorMessage.includes('temporalmente deshabilitado')) {
@@ -523,7 +523,7 @@ async function cleanupTempFile(filepath: string): Promise<void> {
       logger.debug('Temp file deleted', { filepath }, 'upload');
     }
   } catch (error) {
-    console.warn('⚠️ No se pudo eliminar archivo temporal:', error);
+    logger.warn('No se pudo eliminar archivo temporal', { error, filepath }, 'upload');
   }
 }
 

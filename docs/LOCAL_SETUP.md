@@ -123,6 +123,15 @@ ZOHO_CLIENT_SECRET=tu-zoho-client-secret
 ZOHO_REFRESH_TOKEN=tu-zoho-refresh-token
 
 # =====================================================
+# RATE LIMITING (Opcional - Recomendado para producción)
+# =====================================================
+# Upstash Redis para rate limiting en producción
+# Obtén las credenciales en: https://console.upstash.com/
+# En desarrollo, puedes omitir estas variables (se usará fallback en memoria)
+# UPSTASH_REDIS_REST_URL=https://tu-redis.upstash.io
+# UPSTASH_REDIS_REST_TOKEN=tu-token-aqui
+
+# =====================================================
 # CONFIGURACIÓN DE LA APLICACIÓN
 # =====================================================
 NODE_ENV=development

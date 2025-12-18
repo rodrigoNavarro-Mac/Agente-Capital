@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getZohoDeals } from '@/lib/zoho-crm';
 import { getUserDevelopments, getZohoDealsFromDB } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
@@ -166,12 +167,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     
     if (effectiveForceSync || !effectiveUseLocal) {
       // Forzar sincronización desde Zoho
-      console.log(`🔄 Forzando sincronización desde Zoho (forceSync: ${effectiveForceSync}, useLocal: ${effectiveUseLocal})`);
+      logger.debug('Forzando sincronización desde Zoho', { forceSync: effectiveForceSync, useLocal: effectiveUseLocal }, 'zoho-deals');
       dealsResponse = await getZohoDeals(page, perPage);
     } else {
       // SIEMPRE usar BD local cuando useLocal es true
       try {
-        console.log(`📊 Intentando obtener deals desde BD local (page: ${page}, perPage: ${perPage})`);
+        logger.debug('Intentando obtener deals desde BD local', { page, perPage }, 'zoho-deals');
         const localData = await getZohoDealsFromDB(page, perPage, dbFilters);
         // Usar datos de BD local incluso si está vacío (retornar array vacío)
         dealsResponse = {
@@ -183,10 +184,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
             more_records: (page * perPage) < localData.total,
           },
         };
-        console.log(`✅ Deals obtenidos de BD local: ${localData.deals.length} deals, total: ${localData.total}`);
+        logger.debug('Deals obtenidos de BD local', { count: localData.deals.length, total: localData.total }, 'zoho-deals');
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho como fallback
-        console.warn('⚠️ Error obteniendo deals desde BD local, usando Zoho:', error);
+        logger.warn('Error obteniendo deals desde BD local, usando Zoho', { error }, 'zoho-deals');
         dealsResponse = await getZohoDeals(page, perPage);
       }
     }
@@ -197,7 +198,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo deals de ZOHO:', error);
+    logger.error('Error obteniendo deals de ZOHO', error, {}, 'zoho-deals');
     
     return NextResponse.json(
       {

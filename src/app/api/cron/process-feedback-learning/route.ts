@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentFeedback, upsertLearnedResponse } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       new URL(request.url).searchParams.get('secret');
 
     if (!cronSecret || cronSecret !== CRON_SECRET) {
-      console.error('❌ Intento de acceso no autorizado al endpoint de cron');
+      logger.error('Intento de acceso no autorizado al endpoint de cron', undefined, {}, 'cron-process-feedback');
       return NextResponse.json(
         { 
           success: false, 
@@ -65,15 +66,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    console.log('🔄 Iniciando procesamiento de feedback para aprendizaje...');
+    logger.info('Iniciando procesamiento de feedback para aprendizaje', {}, 'cron-process-feedback');
     
     // 2. Obtener feedback de las últimas 24 horas
     const feedbackData = await getRecentFeedback(24);
     
-    console.log(`📊 Encontrados ${feedbackData.length} registros con feedback`);
+    logger.info('Encontrados registros con feedback', { count: feedbackData.length }, 'cron-process-feedback');
     
     if (feedbackData.length === 0) {
-      console.log('✅ No hay feedback nuevo para procesar');
+      logger.info('No hay feedback nuevo para procesar', {}, 'cron-process-feedback');
       return NextResponse.json({
         success: true,
         message: 'No hay feedback nuevo para procesar',
@@ -108,17 +109,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
         errors.push(`Error procesando feedback ${row.id}: ${errorMsg}`);
-        console.error(`❌ Error procesando feedback ${row.id}:`, error);
+        logger.error('Error procesando feedback', error, { feedbackId: row.id }, 'cron-process-feedback');
       }
     }
     
-    console.log(`✅ Procesamiento completado:`);
-    console.log(`   - Total procesados: ${processed}`);
-    console.log(`   - Respuestas actualizadas: ${updated}`);
-    console.log(`   - Respuestas nuevas: ${created}`);
+    logger.info('Procesamiento completado', { 
+      processed, 
+      updated, 
+      created 
+    }, 'cron-process-feedback');
     
     if (errors.length > 0) {
-      console.warn(`⚠️ Se encontraron ${errors.length} errores durante el procesamiento`);
+      logger.warn('Se encontraron errores durante el procesamiento', { errorCount: errors.length }, 'cron-process-feedback');
     }
     
     return NextResponse.json({
@@ -131,7 +133,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
   } catch (error) {
-    console.error('❌ Error en procesamiento de feedback:', error);
+    logger.error('Error en procesamiento de feedback', error, {}, 'cron-process-feedback');
     
     return NextResponse.json(
       { 

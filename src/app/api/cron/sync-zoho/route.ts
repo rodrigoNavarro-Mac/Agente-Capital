@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllZohoLeads, getAllZohoDeals } from '@/lib/zoho-crm';
 import { syncZohoLead, syncZohoDeal, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                           new URL(request.url).searchParams.get('secret');
 
     if (providedSecret !== CRON_SECRET) {
-      console.error('❌ [ZohoSyncCron] Secret key inválida');
+      logger.error('[ZohoSyncCron] Secret key inválida', undefined, {}, 'cron-sync-zoho');
       return NextResponse.json(
         { error: 'No autorizado' },
         { status: 401 }
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       syncType = typeParam;
     }
 
-    console.log(`🔄 [ZohoSyncCron] Iniciando sincronización automática: ${syncType}`);
+    logger.info('[ZohoSyncCron] Iniciando sincronización automática', { syncType }, 'cron-sync-zoho');
 
     // 3. Sincronizar datos
     let zohoLeadIds: string[] = [];
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     
     if (syncType === 'leads' || syncType === 'full') {
       try {
-        console.log('🔄 [ZohoSyncCron] Sincronizando leads...');
+        logger.info('[ZohoSyncCron] Sincronizando leads', {}, 'cron-sync-zoho');
         const leads = await getAllZohoLeads();
         zohoLeadIds = leads.map(lead => lead.id);
         
@@ -78,31 +79,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`❌ [ZohoSyncCron] Error sincronizando lead ${lead.id}:`, error);
+            logger.error(`[ZohoSyncCron] Error sincronizando lead`, error, { leadId: lead.id }, 'cron-sync-zoho');
           }
         }
-        console.log(`✅ [ZohoSyncCron] Sincronizados ${recordsSynced} leads`);
+        logger.info('[ZohoSyncCron] Sincronizados leads', { count: recordsSynced }, 'cron-sync-zoho');
         
         // Eliminar leads que ya no existen en Zoho
         try {
-          console.log('🗑️ [ZohoSyncCron] Verificando leads eliminados en Zoho...');
+          logger.debug('[ZohoSyncCron] Verificando leads eliminados en Zoho', {}, 'cron-sync-zoho');
           const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
           recordsDeleted += deletedCount;
           if (deletedCount > 0) {
-            console.log(`✅ [ZohoSyncCron] Eliminados ${deletedCount} leads que ya no existen en Zoho`);
+            logger.info('[ZohoSyncCron] Eliminados leads que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
           }
         } catch (deleteError) {
-          console.warn('⚠️ [ZohoSyncCron] Error eliminando leads eliminados en Zoho:', deleteError);
+          logger.warn('[ZohoSyncCron] Error eliminando leads eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
         }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
-        console.error('❌ [ZohoSyncCron]', errorMessage);
+        logger.error('[ZohoSyncCron] Error sincronizando leads', error, {}, 'cron-sync-zoho');
       }
     }
 
     if (syncType === 'deals' || syncType === 'full') {
       try {
-        console.log('🔄 [ZohoSyncCron] Sincronizando deals...');
+        logger.info('[ZohoSyncCron] Sincronizando deals', {}, 'cron-sync-zoho');
         const deals = await getAllZohoDeals();
         zohoDealIds = deals.map(deal => deal.id);
         
@@ -117,27 +118,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           } catch (error) {
             recordsFailed++;
-            console.error(`❌ [ZohoSyncCron] Error sincronizando deal ${deal.id}:`, error);
+            logger.error('[ZohoSyncCron] Error sincronizando deal', error, { dealId: deal.id }, 'cron-sync-zoho');
           }
         }
-        console.log(`✅ [ZohoSyncCron] Sincronizados ${recordsSynced} deals`);
+        logger.info('[ZohoSyncCron] Sincronizados deals', { count: recordsSynced }, 'cron-sync-zoho');
         
         // Eliminar deals que ya no existen en Zoho
         try {
-          console.log('🗑️ [ZohoSyncCron] Verificando deals eliminados en Zoho...');
+          logger.debug('[ZohoSyncCron] Verificando deals eliminados en Zoho', {}, 'cron-sync-zoho');
           const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
           recordsDeleted += deletedCount;
           if (deletedCount > 0) {
-            console.log(`✅ [ZohoSyncCron] Eliminados ${deletedCount} deals que ya no existen en Zoho`);
+            logger.info('[ZohoSyncCron] Eliminados deals que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
           }
         } catch (deleteError) {
-          console.warn('⚠️ [ZohoSyncCron] Error eliminando deals eliminados en Zoho:', deleteError);
+
+          logger.warn('[ZohoSyncCron] Error eliminando deals eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
         }
       } catch (error) {
         errorMessage = errorMessage 
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
           : `Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`;
-        console.error('❌ [ZohoSyncCron]', errorMessage);
+        logger.error('[ZohoSyncCron] Error sincronizando deals', error, {}, 'cron-sync-zoho');
       }
     }
 
@@ -155,7 +157,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       durationMs,
     });
 
-    console.log(`✅ [ZohoSyncCron] Sincronización completada: ${status} (${recordsSynced} registros sincronizados, ${recordsDeleted} eliminados en ${durationMs}ms)`);
+    logger.info('[ZohoSyncCron] Sincronización completada', { 
+      status, 
+      recordsSynced, 
+      recordsDeleted, 
+      durationMs 
+    }, 'cron-sync-zoho');
 
     return NextResponse.json({
       success: true,
@@ -184,7 +191,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       durationMs,
     });
 
-    console.error('❌ [ZohoSyncCron] Error fatal:', errorMsg);
+    logger.error('[ZohoSyncCron] Error fatal', undefined, { errorMsg }, 'cron-sync-zoho');
 
     return NextResponse.json(
       {

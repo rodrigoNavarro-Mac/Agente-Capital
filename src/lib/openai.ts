@@ -7,7 +7,9 @@
  */
 
 import OpenAI from 'openai';
+import { withTimeout, TIMEOUTS } from '@/lib/timeout';
 import type { LMStudioMessage } from '@/types/documents';
+import { logger } from './logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -59,7 +61,7 @@ export async function runLLM(
   } = options;
 
   try {
-    console.log(`🤖 Enviando consulta a OpenAI (modelo: ${model})...`);
+    logger.debug(`Enviando consulta a OpenAI (modelo: ${model})...`, {}, 'openai');
     
     const client = getOpenAIClient();
     
@@ -69,34 +71,39 @@ export async function runLLM(
       content: msg.content,
     }));
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: openaiMessages,
-      temperature,
-      max_tokens,
-    });
+    // Aplicar timeout a la llamada a OpenAI
+    const response = await withTimeout(
+      client.chat.completions.create({
+        model,
+        messages: openaiMessages,
+        temperature,
+        max_tokens,
+      }),
+      TIMEOUTS.LLM_REQUEST,
+      `Llamada a OpenAI (modelo: ${model}) excedió el tiempo límite`
+    );
 
     // Extraer el contenido de la respuesta
     const content = response.choices[0]?.message?.content;
     
     if (!content) {
-      console.error('❌ La respuesta no tiene contenido. Estructura recibida:', {
+      logger.error('La respuesta no tiene contenido. Estructura recibida', undefined, {
         hasChoices: !!response.choices,
         choicesLength: response.choices?.length,
         firstChoice: response.choices?.[0],
-      });
+      }, 'openai');
       throw new Error('La respuesta de OpenAI no contiene contenido');
     }
 
     // Log de tokens utilizados si está disponible
     if (response.usage) {
-      console.log(`📊 Tokens: prompt=${response.usage.prompt_tokens}, completion=${response.usage.completion_tokens}, total=${response.usage.total_tokens}`);
+      logger.debug('Tokens utilizados', { prompt: response.usage.prompt_tokens, completion: response.usage.completion_tokens, total: response.usage.total_tokens }, 'openai');
     }
 
-    console.log('✅ Respuesta de OpenAI recibida');
+    logger.debug('Respuesta de OpenAI recibida', { content, usage: response.usage ?? undefined }, 'openai');
     return content;
   } catch (error) {
-    console.error('❌ Error en runLLM (OpenAI):', error);
+    logger.error('Error en runLLM (OpenAI)', error, {}, 'openai');
     throw error;
   }
 }
@@ -108,7 +115,7 @@ export async function runLLM(
 export async function checkOpenAIHealth(): Promise<boolean> {
   try {
     if (!OPENAI_API_KEY) {
-      console.warn('⚠️ OPENAI_API_KEY no está configurada');
+      logger.warn('OPENAI_API_KEY no está configurada', {}, 'openai');
       return false;
     }
 
@@ -117,10 +124,10 @@ export async function checkOpenAIHealth(): Promise<boolean> {
     // Hacer una llamada simple para verificar que la API funciona
     await client.models.list();
     
-    console.log('✅ OpenAI está disponible.');
+    logger.debug('OpenAI está disponible.', {}, 'openai');
     return true;
   } catch (error) {
-    console.error('❌ OpenAI no está disponible:', error);
+    logger.error('OpenAI no está disponible', error, {}, 'openai');
     return false;
   }
 }
@@ -141,7 +148,7 @@ export async function getAvailableModels(): Promise<string[]> {
     
     return chatModels;
   } catch (error) {
-    console.error('❌ Error obteniendo modelos de OpenAI:', error);
+    logger.error('Error obteniendo modelos de OpenAI', error, {}, 'openai');
     throw error;
   }
 }

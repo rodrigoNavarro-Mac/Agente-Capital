@@ -7,8 +7,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserByEmail, updateLastLogin, incrementFailedLoginAttempts, lockUserAccount } from '@/lib/postgres';
-import { verifyPassword, generateAccessToken, generateRefreshToken, validateEmail } from '@/lib/auth';
+import { verifyPassword, generateAccessToken, generateRefreshToken } from '@/lib/auth';
+import { validateRequest, loginRequestSchema } from '@/lib/validation';
 import { createUserSession } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -27,30 +29,20 @@ export async function POST(
   refreshToken: string;
 }>>> {
   try {
-    const body = await request.json();
-    const { email, password } = body;
-
-    // Validar campos requeridos
-    if (!email || !password) {
+    const rawBody = await request.json();
+    const validation = validateRequest(loginRequestSchema, rawBody, 'auth-login');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Email y contraseña son requeridos',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
-
-    // Validar formato de email
-    if (!validateEmail(email)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'El formato del email no es válido',
-        },
-        { status: 400 }
-      );
-    }
+    
+    const { email, password } = validation.data;
 
     // Buscar usuario
     const user = await getUserByEmail(email);
@@ -103,7 +95,7 @@ export async function POST(
 
     // Verificar contraseña
     if (!user.password_hash) {
-      console.log(`Usuario ${email} no tiene contraseña configurada`);
+      logger.warn('Usuario no tiene contraseña configurada', { email }, 'auth-login');
       return NextResponse.json(
         {
           success: false,
@@ -116,7 +108,7 @@ export async function POST(
     const passwordValid = await verifyPassword(password, user.password_hash);
 
     if (!passwordValid) {
-      console.log(`Contraseña inválida para usuario: ${email}`);
+      logger.warn('Contraseña inválida para usuario', { email }, 'auth-login');
       // Incrementar intentos fallidos
       await incrementFailedLoginAttempts(user.id);
 
@@ -192,7 +184,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en login:', error);
+    logger.error('Error en login', error, {}, 'auth-login');
 
     return NextResponse.json(
       {

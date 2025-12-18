@@ -17,6 +17,9 @@ import {
   removeUserDevelopment,
   getUserById 
 } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
+import { validateRequest, userDevelopmentRequestSchema } from '@/lib/validation';
+import { z } from 'zod';
 import type { UserDevelopment, APIResponse, Zone } from '@/types/documents';
 
 // =====================================================
@@ -60,7 +63,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo desarrollos del usuario:', error);
+    logger.error('Error obteniendo desarrollos del usuario', error, {}, 'users-developments');
 
     return NextResponse.json(
       {
@@ -105,19 +108,20 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-    const { zone, development, can_upload, can_query } = body;
-
-    // Validar campos requeridos
-    if (!zone || !development) {
+    const rawBody = await request.json();
+    const validation = validateRequest(userDevelopmentRequestSchema, rawBody, 'users-developments');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Los campos zone y development son requeridos',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
+    
+    const { zone, development, can_upload, can_query } = validation.data;
 
     // Asignar desarrollo
     const userDevelopment = await assignUserDevelopment(
@@ -137,7 +141,7 @@ export async function POST(
     );
 
   } catch (error) {
-    console.error('❌ Error asignando desarrollo:', error);
+    logger.error('Error asignando desarrollo', error, {}, 'users-developments');
 
     return NextResponse.json(
       {
@@ -170,19 +174,23 @@ export async function PUT(
       );
     }
 
-    const body = await request.json();
-    const { zone, development, can_upload, can_query } = body;
-
-    // Validar campos requeridos
-    if (!zone || !development || can_upload === undefined || can_query === undefined) {
+    const rawBody = await request.json();
+    const validation = validateRequest(userDevelopmentRequestSchema.extend({
+      can_upload: z.boolean(),
+      can_query: z.boolean(),
+    }), rawBody, 'users-developments');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Los campos zone, development, can_upload y can_query son requeridos',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
+    
+    const { zone, development, can_upload, can_query } = validation.data;
 
     // Actualizar permisos
     const updated = await updateUserDevelopment(
@@ -209,7 +217,7 @@ export async function PUT(
     });
 
   } catch (error) {
-    console.error('❌ Error actualizando permisos de desarrollo:', error);
+    logger.error('Error actualizando permisos de desarrollo', error, {}, 'users-developments');
 
     return NextResponse.json(
       {
@@ -279,7 +287,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('❌ Error removiendo desarrollo:', error);
+    logger.error('Error removiendo desarrollo', error, {}, 'users-developments');
 
     return NextResponse.json(
       {

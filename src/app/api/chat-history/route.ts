@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getQueryLogs, deleteQueryLogs, getUserById } from '@/lib/postgres';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { logger } from '@/lib/logger';
+import { validateRequest, chatHistoryDeleteSchema } from '@/lib/validation';
 import type { QueryLog, APIResponse, Zone } from '@/types/documents';
 
 // =====================================================
@@ -118,7 +120,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo historial de chat:', error);
+    logger.error('Error obteniendo historial de chat', error, {}, 'chat-history');
 
     return NextResponse.json(
       {
@@ -165,23 +167,25 @@ export async function DELETE(
 
     const { searchParams } = new URL(request.url);
     
-    // Parámetros requeridos
-    const userIdParam = searchParams.get('userId');
-    const zone = searchParams.get('zone') as Zone | null;
-    const development = searchParams.get('development');
-
-    // Validar parámetros requeridos
-    if (!userIdParam) {
+    // Validar parámetros con Zod
+    const params: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+    
+    const validation = validateRequest(chatHistoryDeleteSchema, params, 'chat-history');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'El parámetro userId es requerido',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
-
-    const requestedUserId = parseInt(userIdParam);
+    
+    const { userId: requestedUserId, zone, development } = validation.data;
 
     // Verificar si el usuario actual es admin o ceo
     const currentUser = await getUserById(payload.userId);
@@ -214,7 +218,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('❌ Error eliminando historial de chat:', error);
+    logger.error('Error eliminando historial de chat', error, {}, 'chat-history');
 
     // Si el error es sobre admin, retornar 403
     if (error instanceof Error && error.message.includes('administradores no pueden')) {

@@ -26,6 +26,7 @@ import type {
 import { getMultipleChunkStats } from './postgres';
 import { processQuery, generateQueryVariants } from './queryProcessing';
 import { logger } from '@/lib/logger';
+import { withTimeout, TIMEOUTS } from '@/lib/timeout';
 // Pinecone Inference lo hace automáticamente
 
 // =====================================================
@@ -129,10 +130,15 @@ export async function upsertChunks(
         batchSize: textBatch.length,
       }, 'pinecone');
       
-      const embeddings = await client.inference.embed(
-        'llama-text-embed-v2',     // Modelo configurado en tu índice
-        textBatch,                  // Array de textos a convertir
-        { inputType: 'passage' }    // 'passage' para documentos, 'query' para búsquedas
+      // Aplicar timeout a la generación de embeddings
+      const embeddings = await withTimeout(
+        client.inference.embed(
+          'llama-text-embed-v2',     // Modelo configurado en tu índice
+          textBatch,                  // Array de textos a convertir
+          { inputType: 'passage' }    // 'passage' para documentos, 'query' para búsquedas
+        ),
+        TIMEOUTS.PINECONE_EMBED,
+        `Generación de embeddings para batch ${Math.floor(i / INFERENCE_BATCH_SIZE) + 1} excedió el tiempo límite`
       );
       
       // Validar que los embeddings tienen valores
@@ -176,7 +182,12 @@ export async function upsertChunks(
 
     for (let i = 0; i < records.length; i += UPSERT_BATCH_SIZE) {
       const batch = records.slice(i, i + UPSERT_BATCH_SIZE);
-      await ns.upsert(batch);
+      // Aplicar timeout al upsert
+      await withTimeout(
+        ns.upsert(batch),
+        TIMEOUTS.PINECONE_UPSERT,
+        `Upsert de batch ${Math.floor(i / UPSERT_BATCH_SIZE) + 1} excedió el tiempo límite`
+      );
       totalUpserted += batch.length;
       logger.debug('Upserted batch', {
         batch: Math.floor(i / UPSERT_BATCH_SIZE) + 1,
@@ -211,7 +222,12 @@ export async function upsertChunksWithVectors(
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
       // Cast to any to satisfy TypeScript - Pinecone accepts our metadata structure
-      await ns.upsert(batch as any);
+      // Aplicar timeout al upsert
+      await withTimeout(
+        ns.upsert(batch as any),
+        TIMEOUTS.PINECONE_UPSERT,
+        `Upsert de batch ${Math.floor(i / BATCH_SIZE) + 1} excedió el tiempo límite`
+      );
       totalUpserted += batch.length;
     }
 
@@ -265,10 +281,15 @@ export async function queryChunks(
     const client = await initPinecone();
     logger.debug('Generating query embedding (llama-text-embed-v2)', undefined, 'pinecone');
     
-    const embeddings = await client.inference.embed(
-      'llama-text-embed-v2',
-      [processedQuery],           // ✅ Usar el query procesado (corregido y expandido)
-      { inputType: 'query' }      // ✅ 'query' para búsquedas (no 'passage')
+    // Aplicar timeout a la generación del embedding del query
+    const embeddings = await withTimeout(
+      client.inference.embed(
+        'llama-text-embed-v2',
+        [processedQuery],           // ✅ Usar el query procesado (corregido y expandido)
+        { inputType: 'query' }      // ✅ 'query' para búsquedas (no 'passage')
+      ),
+      TIMEOUTS.PINECONE_EMBED,
+      'Generación de embedding del query excedió el tiempo límite'
     );
     
     // Validar que el embedding tiene valores
@@ -293,12 +314,17 @@ export async function queryChunks(
       pineconeFilter.type = { $eq: filter.type };
     }
 
-    const response = await ns.query({
-      vector: queryVector,        // ✅ Usamos el vector generado
-      topK: topK * 2,             // Buscar más resultados para re-ranking
-      filter: pineconeFilter,
-      includeMetadata: true,
-    });
+    // Aplicar timeout a la query de Pinecone
+    const response = await withTimeout(
+      ns.query({
+        vector: queryVector,        // ✅ Usamos el vector generado
+        topK: topK * 2,             // Buscar más resultados para re-ranking
+        filter: pineconeFilter,
+        includeMetadata: true,
+      }),
+      TIMEOUTS.PINECONE_QUERY,
+      'Query a Pinecone excedió el tiempo límite'
+    );
 
     // Mapear matches iniciales
     const initialMatches: PineconeMatch[] = (response.matches || []).map((match) => {
@@ -372,20 +398,30 @@ export async function queryChunks(
           
           for (const variant of topVariants) {
             try {
-              const variantEmbeddings = await client.inference.embed(
-                'llama-text-embed-v2',
-                [variant],
-                { inputType: 'query' }
+              // Aplicar timeout a la generación de embeddings de variantes
+              const variantEmbeddings = await withTimeout(
+                client.inference.embed(
+                  'llama-text-embed-v2',
+                  [variant],
+                  { inputType: 'query' }
+                ),
+                TIMEOUTS.PINECONE_EMBED,
+                `Generación de embedding de variante "${variant.substring(0, 50)}..." excedió el tiempo límite`
               );
               
               if (variantEmbeddings[0]?.values) {
                 const variantVector = variantEmbeddings[0].values;
-                const variantResponse = await ns.query({
-                  vector: variantVector,
-                  topK: Math.min(topK, 3), // Buscar menos resultados por variante
-                  filter: pineconeFilter,
-                  includeMetadata: true,
-                });
+                // Aplicar timeout a la query de variante
+                const variantResponse = await withTimeout(
+                  ns.query({
+                    vector: variantVector,
+                    topK: Math.min(topK, 3), // Buscar menos resultados por variante
+                    filter: pineconeFilter,
+                    includeMetadata: true,
+                  }),
+                  TIMEOUTS.PINECONE_QUERY,
+                  `Query de variante "${variant.substring(0, 50)}..." excedió el tiempo límite`
+                );
                 
                 // Agregar matches de la variante que no estén ya en la lista
                 (variantResponse.matches || []).forEach(match => {
@@ -466,12 +502,17 @@ export async function queryChunksWithVector(
       pineconeFilter.type = { $eq: filter.type };
     }
 
-    const response = await ns.query({
-      vector: queryVector,
-      topK,
-      filter: pineconeFilter,
-      includeMetadata: true,
-    });
+    // Aplicar timeout a la query
+    const response = await withTimeout(
+      ns.query({
+        vector: queryVector,
+        topK,
+        filter: pineconeFilter,
+        includeMetadata: true,
+      }),
+      TIMEOUTS.PINECONE_QUERY,
+      'Query a Pinecone con vector excedió el tiempo límite'
+    );
 
     const matches: PineconeMatch[] = (response.matches || []).map((match) => ({
       id: match.id,
@@ -581,14 +622,19 @@ export async function getDocumentChunks(
     
     // Hacer una query con topK alto para obtener todos los chunks
     // Usamos un topK de 10000 que debería ser suficiente para la mayoría de documentos
-    const response = await ns.query({
-      vector: dummyVector,
-      topK: 10000, // Número alto para obtener todos los chunks
-      filter: {
-        sourceFileName: { $eq: sourceFileName }
-      },
-      includeMetadata: true,
-    });
+    // Aplicar timeout a la query (puede tomar más tiempo con topK alto)
+    const response = await withTimeout(
+      ns.query({
+        vector: dummyVector,
+        topK: 10000, // Número alto para obtener todos los chunks
+        filter: {
+          sourceFileName: { $eq: sourceFileName }
+        },
+        includeMetadata: true,
+      }),
+      TIMEOUTS.PINECONE_QUERY * 2, // Doble tiempo para queries con topK alto
+      `Query de chunks del documento "${sourceFileName}" excedió el tiempo límite`
+    );
     
     // Mapear los resultados a PineconeMatch
     const chunks: PineconeMatch[] = (response.matches || []).map((match) => {

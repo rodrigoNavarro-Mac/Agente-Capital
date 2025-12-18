@@ -13,24 +13,28 @@ import {
   getUserById 
 } from '@/lib/postgres';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth';
+import { logger } from '@/lib/logger';
+import { validateRequest, resetPasswordRequestSchema } from '@/lib/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<{ message: string }>>> {
   try {
-    const body = await request.json();
-    const { token, password } = body;
-
-    if (!token || !password) {
+    const rawBody = await request.json();
+    const validation = validateRequest(resetPasswordRequestSchema, rawBody, 'auth-reset-password');
+    
+    if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Token y contraseña son requeridos',
+          error: validation.error,
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
+    
+    const { token, password } = validation.data;
 
     // Validar fortaleza de contraseña
     const passwordValidation = validatePasswordStrength(password);
@@ -106,7 +110,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error en reset-password:', error);
+    logger.error('Error en reset-password', error, {}, 'auth-reset-password');
 
     return NextResponse.json(
       {

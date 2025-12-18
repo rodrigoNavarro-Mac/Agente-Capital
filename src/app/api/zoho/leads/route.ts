@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getZohoLeads } from '@/lib/zoho-crm';
 import { getZohoLeadsFromDB } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers y request.url que son dinámicos)
@@ -106,12 +107,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     
     if (forceSync || !useLocal) {
       // Forzar sincronización desde Zoho
-      console.log(`🔄 Forzando sincronización desde Zoho (forceSync: ${forceSync}, useLocal: ${useLocal})`);
+      logger.debug('Forzando sincronización desde Zoho', { forceSync, useLocal }, 'zoho-leads');
       leadsResponse = await getZohoLeads(page, perPage);
     } else {
       // SIEMPRE usar BD local cuando useLocal es true
       try {
-        console.log(`📊 Intentando obtener leads desde BD local (page: ${page}, perPage: ${perPage})`);
+        logger.debug('Intentando obtener leads desde BD local', { page, perPage }, 'zoho-leads');
         const localData = await getZohoLeadsFromDB(page, perPage);
         // Usar datos de BD local incluso si está vacío (retornar array vacío)
         leadsResponse = {
@@ -123,10 +124,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
             more_records: (page * perPage) < localData.total,
           },
         };
-        console.log(`Leads obtenidos de BD local: ${localData.leads.length} leads, total: ${localData.total}`);
+        logger.debug('Leads obtenidos de BD local', { count: localData.leads.length, total: localData.total }, 'zoho-leads');
       } catch (error) {
         // Si falla la BD local, obtener desde Zoho como fallback
-        console.warn(' Error obteniendo leads desde BD local, usando Zoho:', error);
+        logger.warn('Error obteniendo leads desde BD local, usando Zoho', { error }, 'zoho-leads');
         leadsResponse = await getZohoLeads(page, perPage);
       }
     }
@@ -137,7 +138,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     });
 
   } catch (error) {
-    console.error(' Error obteniendo leads de ZOHO:', error);
+    logger.error('Error obteniendo leads de ZOHO', error, {}, 'zoho-leads');
     
     return NextResponse.json(
       {

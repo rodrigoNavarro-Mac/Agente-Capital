@@ -20,11 +20,12 @@ import {
   saveActionLog
 } from '@/lib/postgres';
 import { memoryCache } from '@/lib/memory-cache';
+import { logger } from '@/lib/logger';
+import { validateRequest, agentConfigUpdateWithMetaSchema, agentConfigBulkUpdateSchema, type AgentConfigUpdateWithMeta } from '@/lib/validation';
 
 import type { 
   APIResponse, 
-  AgentSettings,
-  AgentConfigUpdateRequest 
+  AgentSettings
 } from '@/types/documents';
 
 // =====================================================
@@ -112,7 +113,7 @@ export async function GET(
     return response;
 
   } catch (error) {
-    console.error('❌ Error obteniendo configuración:', error);
+    logger.error('Error obteniendo configuración', error, {}, 'agent-config');
 
     return NextResponse.json({
       success: false,
@@ -129,16 +130,17 @@ export async function POST(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<{ key: string; value: string }>>> {
   try {
-    const body: AgentConfigUpdateRequest & { description?: string } = await request.json();
-    const { key, value, updated_by, description } = body;
-
-    // Validar campos requeridos
-    if (!key || value === undefined || !updated_by) {
+    const rawBody = await request.json();
+    const validation = validateRequest(agentConfigUpdateWithMetaSchema, rawBody, 'agent-config');
+    
+    if (!validation.success) {
       return NextResponse.json({
         success: false,
-        error: 'Se requiere key, value y updated_by',
-      }, { status: 400 });
+        error: validation.error,
+      }, { status: validation.status });
     }
+    
+    const { key, value, updated_by, description } = validation.data as AgentConfigUpdateWithMeta;
 
     // Verificar permisos
     const canManageConfig = await hasPermission(updated_by, 'manage_config');
@@ -147,15 +149,6 @@ export async function POST(
         success: false,
         error: 'No tienes permisos para modificar la configuración',
       }, { status: 403 });
-    }
-
-    // Validar valor según la key
-    const validationError = validateConfigValue(key, value);
-    if (validationError) {
-      return NextResponse.json({
-        success: false,
-        error: validationError,
-      }, { status: 400 });
     }
 
     // Guardar configuración
@@ -183,7 +176,7 @@ export async function POST(
       user_agent: userAgent,
     });
 
-    console.log(`⚙️ Configuración actualizada: ${key} = ${stringValue.substring(0, 50)}...`);
+    logger.info('Configuración actualizada', { key, value: stringValue.substring(0, 50) }, 'agent-config');
 
     return NextResponse.json({
       success: true,
@@ -192,7 +185,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('❌ Error actualizando configuración:', error);
+    logger.error('Error actualizando configuración', error, {}, 'agent-config');
 
     return NextResponse.json({
       success: false,
@@ -209,19 +202,17 @@ export async function PUT(
   request: NextRequest
 ): Promise<NextResponse<APIResponse<{ updated: string[] }>>> {
   try {
-    const body = await request.json();
-    const { configs, updated_by } = body as { 
-      configs: Array<{ key: string; value: unknown; description?: string }>;
-      updated_by: number;
-    };
-
-    // Validar campos
-    if (!configs || !Array.isArray(configs) || !updated_by) {
+    const rawBody = await request.json();
+    const validation = validateRequest(agentConfigBulkUpdateSchema, rawBody, 'agent-config');
+    
+    if (!validation.success) {
       return NextResponse.json({
         success: false,
-        error: 'Se requiere configs (array) y updated_by',
-      }, { status: 400 });
+        error: validation.error,
+      }, { status: validation.status });
     }
+    
+    const { configs, updated_by } = validation.data;
 
     // Verificar permisos
     const canManageConfig = await hasPermission(updated_by, 'manage_config');
@@ -292,7 +283,7 @@ export async function PUT(
     });
 
   } catch (error) {
-    console.error('❌ Error actualizando configuraciones:', error);
+    logger.error('Error actualizando configuraciones', error, {}, 'agent-config');
 
     return NextResponse.json({
       success: false,
@@ -371,7 +362,7 @@ export async function DELETE(
       user_agent: userAgent,
     });
 
-    console.log(`🗑️ Configuración eliminada: ${key}`);
+    logger.info('Configuración eliminada', { key }, 'agent-config');
 
     return NextResponse.json({
       success: true,
@@ -380,7 +371,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('❌ Error eliminando configuración:', error);
+    logger.error('Error eliminando configuración', error, {}, 'agent-config');
 
     return NextResponse.json({
       success: false,

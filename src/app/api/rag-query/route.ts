@@ -19,12 +19,11 @@ import { generatePreview } from '@/lib/cleanText';
 import { findCachedResponse, saveToCache } from '@/lib/cache';
 import { processQuery } from '@/lib/queryProcessing';
 import { logger } from '@/lib/logger';
-
+import { validateRequest, ragQueryRequestSchema } from '@/lib/validation';
 
 import type { 
   Zone, 
   DocumentContentType, 
-  RAGQueryRequest, 
   RAGQueryResponse,
   SourceReference,
   PineconeMatch 
@@ -127,22 +126,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
       );
     }
 
-    // 2. Parsear el body
-    const body: RAGQueryRequest = await request.json();
-    const { query, zone, development, type, userId: bodyUserId } = body;
-
-    // 3. Validar campos requeridos
-    if (!query || !zone || !development) {
+    // 2. Parsear y validar el body con Zod
+    const rawBody = await request.json();
+    const validation = validateRequest(ragQueryRequestSchema, rawBody, logScope);
+    
+    if (!validation.success) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Campos requeridos: query, zone, development' 
+          error: validation.error 
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
+    
+    const { query, zone, development, type, userId: bodyUserId, skipCache } = validation.data;
 
-    // 4. Usar el userId del token autenticado, no del body (por seguridad)
+    // 3. Usar el userId del token autenticado, no del body (por seguridad)
     // Si el body tiene userId, solo se usa si el usuario es admin
     const currentUser = await getUserById(payload.userId);
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'ceo';
@@ -150,14 +150,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     // Usuarios normales siempre usan su propio userId
     // Administradores pueden usar el userId del body si se especifica
     const userId = (isAdmin && bodyUserId) ? bodyUserId : payload.userId;
-
-    // 5. Validar longitud de la consulta
-    if (query.trim().length < 3) {
-      return NextResponse.json(
-        { success: false, error: 'La consulta debe tener al menos 3 caracteres' },
-        { status: 400 }
-      );
-    }
 
     if (query.length > 2000) {
       return NextResponse.json(
@@ -197,13 +189,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     // 10. Buscar en caché primero (solo para consultas no simples y si no se solicita skipCache)
     // Usar el query procesado para el caché también
     const isSimple = isSimpleQuery(query);
-    const skipCache = body.skipCache === true; // Si se solicita, ignorar caché
+    const shouldSkipCache = skipCache === true; // Si se solicita, ignorar caché
     let answer: string = ''; // Inicializar con string vacío para evitar error de TypeScript
     let sources: SourceReference[] = [];
     let matches: PineconeMatch[] = [];
     let fromCache = false;
 
-    if (!isSimple && !skipCache) {
+    if (!isSimple && !shouldSkipCache) {
       // Buscar en caché antes de procesar (usar query procesado para mejor matching)
       const cachedResult = await findCachedResponse(
         processedQuery, // ✅ Usar query procesado para mejor matching en caché
@@ -235,13 +227,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
         
         fromCache = true;
       }
-    } else if (skipCache) {
+    } else if (shouldSkipCache) {
       logger.debug('Skipping cache (forced regeneration)', undefined, logScope);
     }
 
     // 10.5. Si no hay respuesta del caché, buscar respuestas aprendidas
     // Solo buscar si no se está forzando a ignorar el caché y no hay respuesta aún
-    if (!fromCache && !answer && !skipCache) {
+    if (!fromCache && !answer && !shouldSkipCache) {
       const learnedResponse = await getLearnedResponse(processedQuery);
       if (learnedResponse && learnedResponse.quality_score >= 0.7) {
         logger.debug('Using learned response', {
@@ -346,7 +338,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
 
     // Verificar que answer tenga un valor (seguridad)
     if (!answer || answer.trim() === '') {
-      console.error('Error: answer no fue asignado correctamente');
+      logger.error('Error: answer no fue asignado correctamente', undefined, {}, logScope);
       return NextResponse.json(
         {
           success: false,
@@ -369,7 +361,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     
     // Validar que el user_id guardado sea correcto
     if (queryLog.user_id !== userId) {
-      console.error('[ERROR CRÍTICO] El user_id guardado no coincide con el esperado');
+      logger.error('ERROR CRÍTICO: El user_id guardado no coincide con el esperado', undefined, { 
+        savedUserId: queryLog.user_id, 
+        expectedUserId: userId 
+      }, logScope);
     }
 
     // 14. Registrar chunks usados para tracking de desempeño
@@ -388,7 +383,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RAGQueryR
     });
 
   } catch (error) {
-    console.error('Error en RAG query:', error);
+    logger.error('Error en RAG query', error, {}, logScope);
 
     return NextResponse.json(
       { 

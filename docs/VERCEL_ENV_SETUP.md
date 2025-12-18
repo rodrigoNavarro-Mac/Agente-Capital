@@ -164,6 +164,11 @@ ZOHO_CLIENT_SECRET=tu-client-secret
 ZOHO_REFRESH_TOKEN=tu-refresh-token
 ZOHO_REDIRECT_URI=https://tu-dominio.com/oauth/callback
 
+# Rate Limiting (Recomendado para producción)
+# Obtén las credenciales en: https://console.upstash.com/
+UPSTASH_REDIS_REST_URL=https://tu-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=tu-token-aqui
+
 # Configuración de la aplicación
 NODE_ENV=production
 UPLOAD_DIR=./tmp

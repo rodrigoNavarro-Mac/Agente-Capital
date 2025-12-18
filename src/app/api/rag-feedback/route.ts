@@ -11,16 +11,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { saveFeedback, updateChunkStats, getQueryLogById, invalidateCacheByQuery } from '@/lib/postgres';
-
-// =====================================================
-// TIPOS
-// =====================================================
-
-interface FeedbackRequest {
-  query_log_id: number;
-  rating: number; // 1 a 5
-  comment?: string | null;
-}
+import { validateRequest, ragFeedbackRequestSchema } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // ENDPOINT POST - GUARDAR FEEDBACK
@@ -53,31 +45,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 2. Parsear el body
-    const body: FeedbackRequest = await request.json();
-    const { query_log_id, rating, comment } = body;
-
-    // 3. Validar campos requeridos
-    if (!query_log_id || !rating) {
+    // 2. Parsear y validar el body con Zod
+    const rawBody = await request.json();
+    const validation = validateRequest(ragFeedbackRequestSchema, rawBody, 'rag-feedback');
+    
+    if (!validation.success) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Campos requeridos: query_log_id, rating' 
+          error: validation.error 
         },
-        { status: 400 }
+        { status: validation.status }
       );
     }
-
-    // 4. Validar rango de rating
-    if (rating < 1 || rating > 5) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'El rating debe estar entre 1 y 5' 
-        },
-        { status: 400 }
-      );
-    }
+    
+    const { query_log_id, rating, comment } = validation.data;
 
     // 5. Guardar feedback en query_logs
     const feedback = await saveFeedback({
@@ -101,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           queryLog.development
         );
         if (invalidatedCount > 0) {
-          console.log(`🗑️ Invalidadas ${invalidatedCount} entradas del caché debido a feedback negativo`);
+          logger.info('Invalidadas entradas del caché debido a feedback negativo', { invalidatedCount }, 'rag-feedback');
         }
       }
     }
@@ -114,7 +96,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
   } catch (error) {
-    console.error('❌ Error en RAG feedback:', error);
+    logger.error('Error en RAG feedback', error, {}, 'rag-feedback');
 
     return NextResponse.json(
       { 

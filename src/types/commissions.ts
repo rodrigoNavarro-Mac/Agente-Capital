@@ -9,7 +9,7 @@
 // TIPOS BASE
 // =====================================================
 
-export type CommissionPhase = 'sale' | 'post_sale';
+export type CommissionPhase = 'sale' | 'post_sale' | 'utility';
 
 export type CommissionRoleType =
   | 'sale_manager'
@@ -21,7 +21,8 @@ export type CommissionRoleType =
   | 'post_sale_coordinator'
   | 'customer_service'
   | 'deliveries'
-  | 'bonds';
+  | 'bonds'
+  | 'rule_bonus';
 
 export type AdjustmentType = 'percent_change' | 'amount_change' | 'role_change';
 
@@ -33,26 +34,21 @@ export interface CommissionConfig {
   id: number;
   desarrollo: string;
   
-  // Porcentajes de fases
+  // Porcentajes de fases (solo como guía, el cálculo es sobre monto total)
   phase_sale_percent: number;
   phase_post_sale_percent: number;
   
-  // Fase Venta - Pool de ventas
+  // Fase Venta - Roles directos
+  sale_manager_percent: number; // Gerente de ventas del desarrollo
+  deal_owner_percent: number; // Asesor Interno (Propietario del Lead)
+  external_advisor_percent: number | null; // Asesor Externo (Opcional)
+  
+  // Fase Venta - Pool (Opcional, solo si cumplen reglas)
+  pool_enabled: boolean;
   sale_pool_total_percent: number;
-  sale_manager_percent: number;
-  deal_owner_percent: number;
-  external_advisor_percent: number | null;
-  
-  // Fase Venta - Roles indirectos (globales)
-  operations_coordinator_percent: number;
-  marketing_percent: number;
-  
-  // Fase Postventa - Roles base
-  legal_manager_percent: number;
-  post_sale_coordinator_percent: number;
   
   // Fase Postventa - Roles opcionales
-  customer_service_enabled: boolean;
+  customer_service_enabled: boolean; // Atención a clientes (Opcional)
   customer_service_percent: number | null;
   deliveries_enabled: boolean;
   deliveries_percent: number | null;
@@ -68,7 +64,11 @@ export interface CommissionConfig {
 
 export interface CommissionGlobalConfig {
   id: number;
-  config_key: 'operations_coordinator_percent' | 'marketing_percent';
+  config_key: 
+    | 'operations_coordinator_percent' // Fase Venta
+    | 'marketing_percent' // Fase Venta
+    | 'legal_manager_percent' // Fase Postventa
+    | 'post_sale_coordinator_percent'; // Fase Postventa
   config_value: number;
   description: string | null;
   updated_at: string;
@@ -79,12 +79,12 @@ export interface CommissionConfigInput {
   desarrollo: string;
   phase_sale_percent: number;
   phase_post_sale_percent: number;
-  sale_pool_total_percent: number;
   sale_manager_percent: number;
   deal_owner_percent: number;
   external_advisor_percent?: number | null;
-  legal_manager_percent: number;
-  post_sale_coordinator_percent: number;
+  pool_enabled?: boolean;
+  sale_pool_total_percent?: number;
+  // Fase Postventa - Roles opcionales
   customer_service_enabled?: boolean;
   customer_service_percent?: number | null;
   deliveries_enabled?: boolean;
@@ -219,8 +219,10 @@ export interface CommissionSaleWithDistributions extends CommissionSale {
 export interface CommissionCalculationResult {
   sale_id: number;
   commission_total: number;
-  commission_sale_phase: number;
-  commission_post_sale_phase: number;
+  commission_sale_phase: number; // Suma real de distribuciones de fase venta (pagado)
+  commission_post_sale_phase: number; // Suma real de distribuciones de fase postventa (pagado)
+  sale_phase_total: number; // Monto total asignado a fase venta (basado en porcentaje)
+  post_sale_phase_total: number; // Monto total asignado a fase postventa (basado en porcentaje)
   distributions: CommissionDistribution[];
 }
 
@@ -253,7 +255,7 @@ export interface CommissionGeneralDashboard {
     ventas_totales: number;
     unidades_vendidas: number;
     facturacion_ventas: number;
-    mediana_ticket_venta: number;
+    ticket_promedio_venta: number;
     meta_facturacion: number | null;
     porcentaje_cumplimiento: number | null;
   }[];
@@ -261,8 +263,10 @@ export interface CommissionGeneralDashboard {
     ventas_totales: number;
     unidades_vendidas: number;
     facturacion_ventas: number;
-    mediana_ticket_venta: number;
+    ticket_promedio_venta: number;
   };
+  commission_by_development: Record<string, Record<number, number>>; // desarrollo -> month -> amount
+  commission_by_salesperson: Record<string, Record<number, number>>; // salesperson -> month -> amount
 }
 
 // =====================================================
@@ -280,5 +284,44 @@ export interface CommissionSalesFilters {
 export interface CommissionDashboardFilters {
   desarrollo?: string;
   year: number;
+}
+
+// =====================================================
+// REGLAS DE COMISIÓN
+// =====================================================
+
+export type CommissionRuleOperator = '=' | '>=' | '<=';
+
+export type CommissionRulePeriodType = 'trimestre' | 'mensual' | 'anual';
+
+export interface CommissionRule {
+  id: number;
+  desarrollo: string;
+  rule_name: string;
+  periodo_type: CommissionRulePeriodType;
+  periodo_value: string; // Formato: "2025-Q1" (trimestre), "2025-01" (mensual), "2025" (anual)
+  operador: CommissionRuleOperator;
+  unidades_vendidas: number;
+  porcentaje_comision: number;
+  porcentaje_iva: number;
+  activo: boolean;
+  prioridad: number;
+  created_by: number;
+  updated_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommissionRuleInput {
+  desarrollo: string;
+  rule_name: string;
+  periodo_type: CommissionRulePeriodType;
+  periodo_value: string; // Formato: "2025-Q1" (trimestre), "2025-01" (mensual), "2025" (anual)
+  operador: CommissionRuleOperator;
+  unidades_vendidas: number;
+  porcentaje_comision: number;
+  porcentaje_iva?: number;
+  activo?: boolean;
+  prioridad?: number;
 }
 

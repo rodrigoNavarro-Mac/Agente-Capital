@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { getZohoStats, getZohoStatsLastMonth } from '@/lib/zoho-crm';
 import { getUserDevelopments } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers que es dinámico)
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     }
 
     if (debug) {
-      console.log('[zoho-stats][debug] request', {
+      logger.debug('zoho-stats request', {
         requestId,
         desarrollo: effectiveDesarrollo,
         desarrollosCount: effectiveDesarrollos?.length || 0,
@@ -155,7 +156,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
         startDate: startDate?.toISOString?.(),
         endDate: endDate?.toISOString?.(),
         serverTzOffsetMinutes: new Date().getTimezoneOffset(),
-      });
+      }, 'zoho-stats');
     }
 
     // 4. Obtener estadísticas de ZOHO CRM
@@ -186,7 +187,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     });
 
   } catch (error) {
-    console.error('❌ Error obteniendo estadísticas de ZOHO:', error);
+    logger.error('Error obteniendo estadísticas de ZOHO', error, {}, 'zoho-stats');
     
     return NextResponse.json(
       {

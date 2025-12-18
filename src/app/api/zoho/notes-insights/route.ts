@@ -12,6 +12,7 @@ import { runLLM } from '@/lib/llm';
 import { computeNotesCharts, computeNotesMetricsTrend } from '@/lib/zoho-notes-analytics';
 import { createHash } from 'crypto';
 import { getUserDevelopments, getZohoNotesAIInsightsByContextHash, upsertZohoNotesAIInsights } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 import type { APIResponse, LMStudioMessage } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -194,7 +195,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
 
     return NextResponse.json({ success: true, data: stored });
   } catch (error) {
-    console.error('❌ Error leyendo notes insights guardados:', error);
+    logger.error('Error leyendo notes insights guardados', error, {}, 'zoho-notes-insights');
     return NextResponse.json(
       {
         success: false,
@@ -425,7 +426,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 
     return NextResponse.json({ success: true, data: enriched });
   } catch (error) {
-    console.error('❌ Error generando notes insights:', error);
+    logger.error('Error generando notes insights', error, {}, 'zoho-notes-insights');
     return NextResponse.json(
       {
         success: false,

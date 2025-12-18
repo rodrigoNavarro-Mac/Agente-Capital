@@ -14,7 +14,133 @@ import type {
   CommissionCalculationResult,
   CommissionRoleType,
   CommissionPhase,
+  CommissionRule,
+  CommissionGlobalConfig,
 } from '@/types/commissions';
+
+// =====================================================
+// MAPEO DE ROLES A NOMBRES Y PERSONAS
+// =====================================================
+
+/**
+ * Mapeo de roles a nombres normalizados para mostrar en la UI
+ */
+const ROLE_DISPLAY_NAMES: Record<CommissionRoleType, string> = {
+  sale_manager: 'Gerente de Ventas',
+  deal_owner: 'Asesor Interno',
+  external_advisor: 'Asesor Externo',
+  operations_coordinator: 'Coordinador de Operaciones de Venta',
+  marketing: 'Gerente de Marketing',
+  legal_manager: 'Gerente Legal',
+  post_sale_coordinator: 'Coordinador Postventas',
+  customer_service: 'Atención a Clientes',
+  deliveries: 'Entregas',
+  bonds: 'Fianzas',
+  rule_bonus: 'Utilidad por Regla',
+};
+
+/**
+ * Mapeo de roles a nombres de personas específicas
+ */
+const ROLE_PERSON_NAMES: Record<CommissionRoleType, string | null> = {
+  sale_manager: null, // Se obtiene del desarrollo
+  deal_owner: null, // Se obtiene de la venta (propietario del deal)
+  external_advisor: null, // Se obtiene de la venta
+  operations_coordinator: 'Rodrigo Navarro Marquez de la Mora',
+  marketing: 'Alejandro Carmona',
+  legal_manager: 'Jose Luis Santos',
+  post_sale_coordinator: 'Montserrat Lopez',
+  customer_service: null, // Se configura por desarrollo
+  deliveries: null, // Se configura por desarrollo
+  bonds: null, // Se configura por desarrollo
+  rule_bonus: null, // Se obtiene del nombre de la regla
+};
+
+/**
+ * Obtiene el nombre del gerente de ventas para un desarrollo
+ * Por ahora retorna un nombre genérico, pero se puede extender para obtener de una tabla de configuración
+ */
+function getSaleManagerName(_desarrollo: string): string {
+  // TODO: Obtener de una tabla de configuración desarrollo -> gerente de ventas
+  // Por ahora retornamos un nombre genérico
+  return 'Gerente de Ventas del Desarrollo';
+}
+
+/**
+ * Obtiene el nombre normalizado para mostrar de un rol
+ */
+export function getRoleDisplayName(roleType: CommissionRoleType): string {
+  return ROLE_DISPLAY_NAMES[roleType] || roleType;
+}
+
+/**
+ * Normaliza el nombre de una persona basándose en el role_type
+ * Si el nombre guardado es genérico, lo reemplaza con el nombre específico
+ */
+export function normalizePersonName(roleType: CommissionRoleType, currentName: string, sale?: CommissionSale, desarrollo?: string): string {
+  // Si hay un nombre específico en el mapeo, usarlo siempre
+  if (ROLE_PERSON_NAMES[roleType]) {
+    return ROLE_PERSON_NAMES[roleType]!;
+  }
+  
+  // Casos especiales
+  if (roleType === 'sale_manager' && desarrollo) {
+    return getSaleManagerName(desarrollo);
+  }
+  
+  if (roleType === 'deal_owner' && sale) {
+    return sale.propietario_deal;
+  }
+  
+  if (roleType === 'external_advisor' && sale?.asesor_externo) {
+    return sale.asesor_externo;
+  }
+  
+  // Si el nombre actual es genérico, reemplazarlo con el nombre específico
+  const genericNames: Record<string, string[]> = {
+    marketing: ['Gerente de Marketing', 'Departamento de Marketing', 'Marketing'],
+    operations_coordinator: ['Coordinador de Operaciones de Venta', 'Coordinador de Operaciones de Ventas', 'Operaciones'],
+    legal_manager: ['Gerente Legal', 'Legal'],
+    post_sale_coordinator: ['Coordinador Postventas', 'Coordinador de Postventa', 'Postventa'],
+  };
+  
+  const genericNamesForRole = genericNames[roleType];
+  if (genericNamesForRole && genericNamesForRole.some(name => currentName.includes(name) || name.includes(currentName))) {
+    // Si el nombre actual es genérico, usar el nombre específico del mapeo
+    if (ROLE_PERSON_NAMES[roleType]) {
+      return ROLE_PERSON_NAMES[roleType]!;
+    }
+  }
+  
+  // Si no hay nombre específico y el actual no es genérico, mantener el actual
+  return currentName;
+}
+
+/**
+ * Obtiene el nombre de la persona para un rol
+ */
+function getRolePersonName(roleType: CommissionRoleType, sale?: CommissionSale, desarrollo?: string): string {
+  // Si hay un nombre específico en el mapeo, usarlo
+  if (ROLE_PERSON_NAMES[roleType]) {
+    return ROLE_PERSON_NAMES[roleType]!;
+  }
+  
+  // Casos especiales
+  if (roleType === 'sale_manager' && desarrollo) {
+    return getSaleManagerName(desarrollo);
+  }
+  
+  if (roleType === 'deal_owner' && sale) {
+    return sale.propietario_deal;
+  }
+  
+  if (roleType === 'external_advisor' && sale?.asesor_externo) {
+    return sale.asesor_externo;
+  }
+  
+  // Por defecto, usar el nombre del rol
+  return ROLE_DISPLAY_NAMES[roleType] || roleType;
+}
 
 // =====================================================
 // TIPOS INTERNOS
@@ -28,11 +154,7 @@ interface RoleDistribution {
   amount: number;
 }
 
-interface PhaseCalculation {
-  phase: CommissionPhase;
-  total_amount: number;
-  distributions: RoleDistribution[];
-}
+// PhaseCalculation interface removed - not used
 
 // =====================================================
 // FUNCIONES DE CÁLCULO
@@ -81,8 +203,8 @@ function redistributeExternalAdvisorPercent(
   const dealOwnerRatio = dealOwnerPercent / totalWithoutAdvisor;
 
   return {
-    saleManagerPercent: Number((saleManagerPercent + externalAdvisorPercent * saleManagerRatio).toFixed(2)),
-    dealOwnerPercent: Number((dealOwnerPercent + externalAdvisorPercent * dealOwnerRatio).toFixed(2)),
+    saleManagerPercent: Number((saleManagerPercent + externalAdvisorPercent * saleManagerRatio).toFixed(3)),
+    dealOwnerPercent: Number((dealOwnerPercent + externalAdvisorPercent * dealOwnerRatio).toFixed(3)),
   };
 }
 
@@ -92,7 +214,8 @@ function redistributeExternalAdvisorPercent(
 function calculateSalePhaseDistribution(
   config: CommissionConfig,
   sale: CommissionSale,
-  salePhaseAmount: number
+  salePhaseAmount: number,
+  globalConfigs: CommissionGlobalConfig[]
 ): RoleDistribution[] {
   const distributions: RoleDistribution[] = [];
 
@@ -114,31 +237,31 @@ function calculateSalePhaseDistribution(
     externalAdvisorPercent = 0;
   }
 
-  // Calcular montos basados en el pool total de ventas
-  const poolPercent = config.sale_pool_total_percent;
-  const poolAmount = (salePhaseAmount * poolPercent) / 100;
+  // Calcular montos basados en el pool total de ventas (solo si pool está habilitado)
+  const poolPercent = config.pool_enabled && config.sale_pool_total_percent ? config.sale_pool_total_percent : 0;
+  const poolAmount = poolPercent > 0 ? (salePhaseAmount * poolPercent) / 100 : salePhaseAmount;
 
   // Gerente de Ventas (obligatorio)
   if (saleManagerPercent > 0) {
     const amount = (poolAmount * saleManagerPercent) / 100;
     distributions.push({
       role_type: 'sale_manager',
-      person_name: 'Gerente de Ventas', // Se debe obtener del sistema
+      person_name: getRolePersonName('sale_manager', sale, sale.desarrollo),
       person_id: null,
       percent: saleManagerPercent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
 
-  // Propietario del Deal (obligatorio)
+  // Propietario del Deal / Asesor Interno (obligatorio)
   if (dealOwnerPercent > 0) {
     const amount = (poolAmount * dealOwnerPercent) / 100;
     distributions.push({
       role_type: 'deal_owner',
-      person_name: sale.propietario_deal,
+      person_name: getRolePersonName('deal_owner', sale),
       person_id: sale.propietario_deal_id || null,
       percent: dealOwnerPercent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
 
@@ -147,33 +270,36 @@ function calculateSalePhaseDistribution(
     const amount = (poolAmount * externalAdvisorPercent) / 100;
     distributions.push({
       role_type: 'external_advisor',
-      person_name: sale.asesor_externo!,
+      person_name: getRolePersonName('external_advisor', sale),
       person_id: sale.asesor_externo_id || null,
       percent: externalAdvisorPercent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
+
 
   // Roles indirectos (globales) - se aplican sobre el total de la fase venta
-  if (config.operations_coordinator_percent > 0) {
-    const amount = (salePhaseAmount * config.operations_coordinator_percent) / 100;
+  const operationsPercent = globalConfigs.find(c => c.config_key === 'operations_coordinator_percent')?.config_value || 0;
+  if (operationsPercent > 0) {
+    const amount = (salePhaseAmount * operationsPercent) / 100;
     distributions.push({
       role_type: 'operations_coordinator',
-      person_name: 'Coordinador de Operaciones de Ventas',
+      person_name: getRolePersonName('operations_coordinator'),
       person_id: null,
-      percent: config.operations_coordinator_percent,
-      amount: Number(amount.toFixed(2)),
+      percent: operationsPercent,
+      amount: Number(amount.toFixed(3)),
     });
   }
 
-  if (config.marketing_percent > 0) {
-    const amount = (salePhaseAmount * config.marketing_percent) / 100;
+  const marketingPercent = globalConfigs.find(c => c.config_key === 'marketing_percent')?.config_value || 0;
+  if (marketingPercent > 0) {
+    const amount = (salePhaseAmount * marketingPercent) / 100;
     distributions.push({
       role_type: 'marketing',
-      person_name: 'Departamento de Marketing',
+      person_name: getRolePersonName('marketing'),
       person_id: null,
-      percent: config.marketing_percent,
-      amount: Number(amount.toFixed(2)),
+      percent: marketingPercent,
+      amount: Number(amount.toFixed(3)),
     });
   }
 
@@ -185,42 +311,45 @@ function calculateSalePhaseDistribution(
  */
 function calculatePostSalePhaseDistribution(
   config: CommissionConfig,
-  postSalePhaseAmount: number
+  postSalePhaseAmount: number,
+  globalConfigs: CommissionGlobalConfig[]
 ): RoleDistribution[] {
   const distributions: RoleDistribution[] = [];
 
-  // Roles base (siempre activos)
-  if (config.legal_manager_percent > 0) {
-    const amount = (postSalePhaseAmount * config.legal_manager_percent) / 100;
+  // Roles base (globales) - se aplican sobre el total de la fase postventa
+  const legalPercent = globalConfigs.find(c => c.config_key === 'legal_manager_percent')?.config_value || 0;
+  if (legalPercent > 0) {
+    const amount = (postSalePhaseAmount * legalPercent) / 100;
     distributions.push({
       role_type: 'legal_manager',
-      person_name: 'Gerente Legal',
+      person_name: getRolePersonName('legal_manager'),
       person_id: null,
-      percent: config.legal_manager_percent,
-      amount: Number(amount.toFixed(2)),
+      percent: legalPercent,
+      amount: Number(amount.toFixed(3)),
     });
   }
 
-  if (config.post_sale_coordinator_percent > 0) {
-    const amount = (postSalePhaseAmount * config.post_sale_coordinator_percent) / 100;
+  const postSaleCoordinatorPercent = globalConfigs.find(c => c.config_key === 'post_sale_coordinator_percent')?.config_value || 0;
+  if (postSaleCoordinatorPercent > 0) {
+    const amount = (postSalePhaseAmount * postSaleCoordinatorPercent) / 100;
     distributions.push({
       role_type: 'post_sale_coordinator',
-      person_name: 'Coordinador de Postventa',
+      person_name: getRolePersonName('post_sale_coordinator'),
       person_id: null,
-      percent: config.post_sale_coordinator_percent,
-      amount: Number(amount.toFixed(2)),
+      percent: postSaleCoordinatorPercent,
+      amount: Number(amount.toFixed(3)),
     });
   }
 
-  // Roles opcionales (dependen del desarrollo)
+  // Roles opcionales (dependen del desarrollo) - Fase Postventa
   if (config.customer_service_enabled && config.customer_service_percent && config.customer_service_percent > 0) {
     const amount = (postSalePhaseAmount * config.customer_service_percent) / 100;
     distributions.push({
       role_type: 'customer_service',
-      person_name: 'Atención a Clientes',
+      person_name: getRolePersonName('customer_service'),
       person_id: null,
       percent: config.customer_service_percent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
 
@@ -228,10 +357,10 @@ function calculatePostSalePhaseDistribution(
     const amount = (postSalePhaseAmount * config.deliveries_percent) / 100;
     distributions.push({
       role_type: 'deliveries',
-      person_name: 'Entregas',
+      person_name: getRolePersonName('deliveries'),
       person_id: null,
       percent: config.deliveries_percent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
 
@@ -239,10 +368,10 @@ function calculatePostSalePhaseDistribution(
     const amount = (postSalePhaseAmount * config.bonds_percent) / 100;
     distributions.push({
       role_type: 'bonds',
-      person_name: 'Fianzas',
+      person_name: getRolePersonName('bonds'),
       person_id: null,
       percent: config.bonds_percent,
-      amount: Number(amount.toFixed(2)),
+      amount: Number(amount.toFixed(3)),
     });
   }
 
@@ -252,22 +381,130 @@ function calculatePostSalePhaseDistribution(
 /**
  * Calcula la comisión total y distribuciones para una venta
  * Esta es la función principal que orquesta todo el cálculo
+ * El cálculo se realiza sobre el monto total (valor_total)
+ * NOTA: Las reglas agregan utilidad que NO se distribuye en fases
  */
 export function calculateCommission(
   config: CommissionConfig,
   sale: CommissionSale,
+  globalConfigs: CommissionGlobalConfig[],
+  applicableRules: CommissionRule[] = [],
+  allRules: CommissionRule[] = [], // Todas las reglas del desarrollo para mostrar cuáles no se cumplieron
   commissionPercent: number = 100 // Porcentaje de comisión sobre el valor total (por defecto 100%)
 ): CommissionCalculationResult {
-  // Calcular comisión total (porcentaje sobre el valor total de la venta)
-  const commissionTotal = Number(((sale.valor_total * commissionPercent) / 100).toFixed(2));
+  // Calcular comisión base sobre el monto total (SIN incluir reglas)
+  const commissionBase = Number(((sale.valor_total * commissionPercent) / 100).toFixed(3));
 
-  // Calcular montos por fase
-  const salePhaseAmount = Number(((commissionTotal * config.phase_sale_percent) / 100).toFixed(2));
-  const postSalePhaseAmount = Number(((commissionTotal * config.phase_post_sale_percent) / 100).toFixed(2));
+  // Calcular utilidad por reglas aplicables (NO se distribuye en fases, solo se referencia)
+  let ruleUtilityAmount = 0;
+  const ruleDetails: { 
+    rule_name: string; 
+    percent: number; 
+    amount: number; 
+    fulfilled: boolean;
+    unidades_requeridas: number;
+    unidades_vendidas: number;
+    operador: string;
+  }[] = [];
+  
+  // Unidades vendidas = 1 por venta (cada deal es 1 unidad)
+  const unidadesVendidas = 1;
+  
+  // Agregar reglas cumplidas
+  if (applicableRules.length > 0) {
+    applicableRules.forEach((rule) => {
+      const ruleAmount = Number(((sale.valor_total * rule.porcentaje_comision) / 100).toFixed(3));
+      ruleUtilityAmount = Number((ruleUtilityAmount + ruleAmount).toFixed(3));
+      ruleDetails.push({
+        rule_name: rule.rule_name,
+        percent: rule.porcentaje_comision,
+        amount: ruleAmount,
+        fulfilled: true,
+        unidades_requeridas: rule.unidades_vendidas,
+        unidades_vendidas: unidadesVendidas,
+        operador: rule.operador,
+      });
+    });
+  }
+  
+  // Agregar reglas no cumplidas (solo para referencia visual)
+  if (allRules.length > 0) {
+    const applicableRuleIds = new Set(applicableRules.map(r => r.id));
+    allRules.forEach((rule) => {
+      if (!applicableRuleIds.has(rule.id) && rule.activo) {
+        ruleDetails.push({
+          rule_name: rule.rule_name,
+          percent: rule.porcentaje_comision,
+          amount: 0,
+          fulfilled: false,
+          unidades_requeridas: rule.unidades_vendidas,
+          unidades_vendidas: unidadesVendidas,
+          operador: rule.operador,
+        });
+      }
+    });
+  }
 
-  // Calcular distribuciones por fase
-  const saleDistributions = calculateSalePhaseDistribution(config, sale, salePhaseAmount);
-  const postSaleDistributions = calculatePostSalePhaseDistribution(config, postSalePhaseAmount);
+  // Calcular montos por fase (solo sobre la comisión base, NO incluye utilidad de reglas)
+  // Los porcentajes de fase solo sirven como guía
+  const salePhaseAmount = Number(((commissionBase * config.phase_sale_percent) / 100).toFixed(3));
+  const postSalePhaseAmount = Number(((commissionBase * config.phase_post_sale_percent) / 100).toFixed(3));
+
+  // Calcular distribuciones por fase (solo sobre comisión base)
+  const saleDistributions = calculateSalePhaseDistribution(config, sale, salePhaseAmount, globalConfigs);
+  const postSaleDistributions = calculatePostSalePhaseDistribution(config, postSalePhaseAmount, globalConfigs);
+
+  // Calcular suma real de distribuciones por fase
+  const salePhaseDistributed = saleDistributions.reduce((sum, dist) => sum + dist.amount, 0);
+  const postSalePhaseDistributed = postSaleDistributions.reduce((sum, dist) => sum + dist.amount, 0);
+  
+  // La comisión total es la suma de las fases distribuidas (NO incluye utilidad)
+  const commissionTotal = Number((salePhaseDistributed + postSalePhaseDistributed).toFixed(3));
+  
+  // Calcular totales de fase (montos asignados según porcentajes de configuración)
+  const totalCommissionsByPhase = salePhaseAmount + postSalePhaseAmount;
+  
+  // Calcular utilidad restante (Monto total comisiones por fase - Total de comisiones pagadas)
+  const remainingUtility = Number((totalCommissionsByPhase - commissionTotal).toFixed(3));
+  
+  // Agregar utilidad de reglas como distribución separada (referencia)
+  const utilityDistributions: RoleDistribution[] = [];
+  // Crear una distribución por cada regla (cumplida o no cumplida)
+  ruleDetails.forEach((ruleDetail) => {
+    // Codificar información de unidades en person_name: "Nombre|unidades_vendidas|unidades_requeridas|operador|fulfilled"
+    const personNameWithInfo = `${ruleDetail.rule_name}|${ruleDetail.unidades_vendidas}|${ruleDetail.unidades_requeridas}|${ruleDetail.operador}|${ruleDetail.fulfilled ? '1' : '0'}`;
+    
+    if (ruleDetail.fulfilled) {
+      // Regla cumplida: mostrar utilidad
+      utilityDistributions.push({
+        role_type: 'rule_bonus',
+        person_name: personNameWithInfo,
+        person_id: null,
+        percent: ruleDetail.percent,
+        amount: ruleDetail.amount,
+      });
+    } else {
+      // Regla no cumplida: solo referencia
+      utilityDistributions.push({
+        role_type: 'rule_bonus',
+        person_name: personNameWithInfo,
+        person_id: null,
+        percent: 0,
+        amount: 0,
+      });
+    }
+  });
+  
+  // Si hay utilidad restante (diferencia entre total de fases y lo distribuido), agregarla
+  if (remainingUtility > 0.01) { // Tolerancia de 0.01 para errores de redondeo
+    utilityDistributions.push({
+      role_type: 'rule_bonus',
+      person_name: 'Utilidad Restante',
+      person_id: null,
+      percent: Number(((remainingUtility / sale.valor_total) * 100).toFixed(3)),
+      amount: remainingUtility,
+    });
+  }
 
   // Convertir a formato CommissionDistribution
   const distributions: CommissionDistribution[] = [
@@ -295,13 +532,28 @@ export function calculateCommission(
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })),
+    // Agregar utilidad de reglas como referencia (no se distribuye en fases)
+    ...utilityDistributions.map((dist) => ({
+      id: 0, // Se asignará al guardar en BD
+      sale_id: sale.id,
+      role_type: dist.role_type,
+      person_name: dist.person_name,
+      person_id: dist.person_id,
+      phase: 'utility' as CommissionPhase,
+      percent_assigned: dist.percent,
+      amount_calculated: dist.amount,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
   ];
 
   return {
     sale_id: sale.id,
-    commission_total: commissionTotal,
-    commission_sale_phase: salePhaseAmount,
-    commission_post_sale_phase: postSalePhaseAmount,
+    commission_total: commissionTotal, // Solo suma de fases distribuidas (NO incluye utilidad)
+    commission_sale_phase: salePhaseDistributed, // Suma real de distribuciones de fase venta (pagado)
+    commission_post_sale_phase: postSalePhaseDistributed, // Suma real de distribuciones de fase postventa (pagado)
+    sale_phase_total: salePhaseAmount, // Monto total asignado a fase venta (basado en porcentaje)
+    post_sale_phase_total: postSalePhaseAmount, // Monto total asignado a fase postventa (basado en porcentaje)
     distributions,
   };
 }
@@ -324,9 +576,11 @@ export function validateCommissionConfig(config: CommissionConfigInput): {
     errors.push('El porcentaje de fase postventa debe estar entre 0 y 100');
   }
 
-  // Validar pool de ventas
-  if (config.sale_pool_total_percent < 0 || config.sale_pool_total_percent > 100) {
-    errors.push('El porcentaje total del pool de ventas debe estar entre 0 y 100');
+  // Validar pool de ventas (si está habilitado)
+  if (config.pool_enabled && config.sale_pool_total_percent !== undefined) {
+    if (config.sale_pool_total_percent < 0 || config.sale_pool_total_percent > 100) {
+      errors.push('El porcentaje total del pool de ventas debe estar entre 0 y 100');
+    }
   }
 
   // Validar que Gerente de Ventas y Propietario del Deal tengan porcentajes
@@ -338,14 +592,8 @@ export function validateCommissionConfig(config: CommissionConfigInput): {
     errors.push('El porcentaje de Propietario del Deal debe ser mayor a 0 (obligatorio)');
   }
 
-  // Validar porcentajes de postventa base
-  if (config.legal_manager_percent < 0 || config.legal_manager_percent > 100) {
-    errors.push('El porcentaje de Gerente Legal debe estar entre 0 y 100');
-  }
-
-  if (config.post_sale_coordinator_percent < 0 || config.post_sale_coordinator_percent > 100) {
-    errors.push('El porcentaje de Coordinador de Postventa debe estar entre 0 y 100');
-  }
+  // Los porcentajes de postventa base (legal_manager_percent, post_sale_coordinator_percent)
+  // ahora se configuran globalmente, no se validan aquí
 
   // Validar roles opcionales si están habilitados
   if (config.customer_service_enabled) {

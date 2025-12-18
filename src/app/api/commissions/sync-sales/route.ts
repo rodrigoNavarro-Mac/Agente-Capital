@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { processClosedWonDealsFromLocalDB } from '@/lib/commission-db';
+import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       },
     });
   } catch (error) {
-    console.error('Error procesando ventas comisionables desde BD local:', error);
+    logger.error('Error procesando ventas comisionables desde BD local', error, {}, 'commissions-sync-sales');
     return NextResponse.json(
       {
         success: false,
