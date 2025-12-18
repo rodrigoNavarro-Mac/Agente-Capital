@@ -337,8 +337,11 @@ export const commissionRuleInputSchema = z.object({
   porcentaje_comision: percentageSchema,
 }).refine((data) => {
   // Validar formato de periodo_value según periodo_type
+  // IMPORTANTE: Para trimestres, periodo_value es solo el año (ej: "2025")
+  // La regla se aplica a todos los trimestres de ese año
   if (data.periodo_type === 'trimestre') {
-    return /^\d{4}-Q[1-4]$/.test(data.periodo_value);
+    // Aceptar solo el año (ej: "2025")
+    return /^\d{4}$/.test(data.periodo_value);
   }
   if (data.periodo_type === 'mensual') {
     return /^\d{4}-\d{2}$/.test(data.periodo_value);
@@ -521,9 +524,12 @@ export const updateCommissionRuleSchema = z.object({
   porcentaje_comision: percentageSchema.optional(),
 }).refine((data) => {
   // Validar formato de periodo_value según periodo_type solo si ambos están presentes
+  // IMPORTANTE: Para trimestres, periodo_value es solo el año (ej: "2025")
+  // La regla se aplica a todos los trimestres de ese año
   if (data.periodo_type && data.periodo_value) {
     if (data.periodo_type === 'trimestre') {
-      return /^\d{4}-Q[1-4]$/.test(data.periodo_value);
+      // Aceptar solo el año (ej: "2025")
+      return /^\d{4}$/.test(data.periodo_value);
     }
     if (data.periodo_type === 'mensual') {
       return /^\d{4}-\d{2}$/.test(data.periodo_value);

@@ -75,6 +75,23 @@ export interface CommissionGlobalConfig {
   updated_by: number | null;
 }
 
+export interface CommissionBillingTarget {
+  id: number;
+  year: number;
+  month: number;
+  target_amount: number;
+  created_at: string;
+  updated_at: string;
+  created_by: number | null;
+  updated_by: number | null;
+}
+
+export interface CommissionBillingTargetInput {
+  year: number;
+  month: number;
+  target_amount: number;
+}
+
 export interface CommissionConfigInput {
   desarrollo: string;
   phase_sale_percent: number;
@@ -299,7 +316,7 @@ export interface CommissionRule {
   desarrollo: string;
   rule_name: string;
   periodo_type: CommissionRulePeriodType;
-  periodo_value: string; // Formato: "2025-Q1" (trimestre), "2025-01" (mensual), "2025" (anual)
+  periodo_value: string; // Formato: "2025" (trimestre - año completo, se aplica a todos los trimestres), "2025-01" (mensual), "2025" (anual)
   operador: CommissionRuleOperator;
   unidades_vendidas: number;
   porcentaje_comision: number;
@@ -316,7 +333,7 @@ export interface CommissionRuleInput {
   desarrollo: string;
   rule_name: string;
   periodo_type: CommissionRulePeriodType;
-  periodo_value: string; // Formato: "2025-Q1" (trimestre), "2025-01" (mensual), "2025" (anual)
+  periodo_value: string; // Formato: "2025" (trimestre - año completo, se aplica a todos los trimestres), "2025-01" (mensual), "2025" (anual)
   operador: CommissionRuleOperator;
   unidades_vendidas: number;
   porcentaje_comision: number;

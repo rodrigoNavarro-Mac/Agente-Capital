@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/postgres';
 import { logger } from '@/lib/logger';
+import { getCommissionBillingTargets } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type {
   CommissionDevelopmentDashboard,
@@ -227,6 +228,9 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
 
   const sales = salesResult.rows;
 
+  // Obtener todas las metas de facturación para el año (una sola consulta)
+  const billingTargets = await getCommissionBillingTargets(year);
+
   // Agrupar por mes
   const monthlyMetrics = Array.from({ length: 12 }, (_, i) => {
     const month = i + 1;
@@ -244,9 +248,10 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
       ? facturacionVentas / ventasTotales
       : 0;
 
-    // Meta de facturación (por ahora null, se puede configurar después)
-    const metaFacturacion: number | null = null;
-    const porcentajeCumplimiento: number | null = metaFacturacion
+    // Buscar meta de facturación para este mes (ya obtenida arriba)
+    const targetForMonth = billingTargets.find(t => t.month === month);
+    const metaFacturacion: number | null = targetForMonth ? Number(targetForMonth.target_amount) : null;
+    const porcentajeCumplimiento: number | null = metaFacturacion && metaFacturacion > 0
       ? Number(((facturacionVentas / metaFacturacion) * 100).toFixed(2))
       : null;
 

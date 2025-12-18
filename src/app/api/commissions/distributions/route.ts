@@ -18,6 +18,7 @@ import {
   getApplicableCommissionRules,
   getCommissionRules,
   deleteCommissionDistributions,
+  getRuleUnitsCountMap,
 } from '@/lib/commission-db';
 import { calculateCommission } from '@/lib/commission-calculator';
 import { logger } from '@/lib/logger';
@@ -164,15 +165,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     const globalConfigs = await getCommissionGlobalConfigs();
 
     // Obtener reglas aplicables (si se cumplen las condiciones)
-    // Nota: unidades_vendidas se calcula como 1 por defecto (cada venta es 1 unidad)
+    // El conteo de unidades vendidas se calcula automáticamente para cada regla
+    // basándose en el período de la regla (trimestre, mes, año)
     const applicableRules = await getApplicableCommissionRules(
       sale.desarrollo,
-      sale.fecha_firma,
-      1 // unidades_vendidas = 1 por venta
+      sale.fecha_firma
     );
     
     // Obtener todas las reglas del desarrollo (para mostrar cuáles no se cumplieron)
     const allRules = await getCommissionRules(sale.desarrollo);
+
+    // Obtener el conteo real de unidades vendidas en el período para todas las reglas
+    // Esto corrige el error donde se mostraba 1/3 en lugar de 2/3 cuando hay 2 ventas en el trimestre
+    const ruleUnitsCountMap = await getRuleUnitsCountMap(
+      sale.desarrollo,
+      sale.fecha_firma
+    );
 
     // Calcular comisiones
     const calculation = calculateCommission(
@@ -181,7 +189,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       globalConfigs,
       applicableRules,
       allRules,
-      commission_percent || 100
+      commission_percent || 100,
+      ruleUnitsCountMap
     );
 
     // Guardar distribuciones

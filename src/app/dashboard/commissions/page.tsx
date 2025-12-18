@@ -36,6 +36,7 @@ import type {
   CommissionRuleInput,
   CommissionRuleOperator,
   CommissionRulePeriodType,
+  CommissionBillingTarget,
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
 
@@ -319,6 +320,11 @@ function ConfigTab({
   const [editingRule, setEditingRule] = useState<CommissionRule | null>(null);
   const [ruleFormData, setRuleFormData] = useState<Partial<CommissionRuleInput>>({});
   const [savingRule, setSavingRule] = useState(false);
+  const [_billingTargets, setBillingTargets] = useState<CommissionBillingTarget[]>([]);
+  const [loadingBillingTargets, setLoadingBillingTargets] = useState(false);
+  const [billingTargetYear, setBillingTargetYear] = useState<number>(new Date().getFullYear());
+  const [billingTargetFormData, setBillingTargetFormData] = useState<Record<number, number>>({});
+  const [savingBillingTarget, setSavingBillingTarget] = useState(false);
   const { toast } = useToast();
 
   // Cargar valores globales cuando se cargan los datos
@@ -687,6 +693,96 @@ function ConfigTab({
     setShowRuleForm(true);
   };
 
+  // Funciones para metas de facturación
+  const loadBillingTargets = useCallback(async () => {
+    setLoadingBillingTargets(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/billing-targets?year=${billingTargetYear}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        const targets = data.data || [];
+        setBillingTargets(targets);
+        // Inicializar formulario con valores existentes
+        const formData: Record<number, number> = {};
+        targets.forEach((target: CommissionBillingTarget) => {
+          formData[target.month] = target.target_amount;
+        });
+        setBillingTargetFormData(formData);
+      }
+    } catch (error) {
+      console.error('Error cargando metas de facturación:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar las metas de facturación',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingBillingTargets(false);
+    }
+  }, [billingTargetYear, toast]);
+
+  useEffect(() => {
+    loadBillingTargets();
+  }, [loadBillingTargets]);
+
+  const handleSaveBillingTarget = async (month: number) => {
+    const targetAmount = billingTargetFormData[month];
+    if (targetAmount === undefined || targetAmount < 0) {
+      toast({
+        title: 'Error',
+        description: 'El monto objetivo debe ser mayor o igual a 0',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingBillingTarget(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/billing-targets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          year: billingTargetYear,
+          month,
+          target_amount: targetAmount,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Éxito',
+          description: 'Meta de facturación guardada correctamente',
+        });
+        await loadBillingTargets();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al guardar la meta de facturación',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error guardando meta de facturación:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al guardar la meta de facturación',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingBillingTarget(false);
+    }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -826,6 +922,102 @@ function ConfigTab({
                 </div>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Metas de Facturación */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Metas de Facturación</CardTitle>
+          <CardDescription>
+            Configura las metas de facturación mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <Label>Año:</Label>
+            <Select
+              value={billingTargetYear.toString()}
+              onValueChange={(value) => setBillingTargetYear(parseInt(value, 10))}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 5 }, (_, i) => {
+                  const year = new Date().getFullYear() - 2 + i;
+                  return (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => loadBillingTargets()}
+              disabled={loadingBillingTargets}
+            >
+              {loadingBillingTargets ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cargando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Actualizar
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { month: 1, name: 'Enero' },
+              { month: 2, name: 'Febrero' },
+              { month: 3, name: 'Marzo' },
+              { month: 4, name: 'Abril' },
+              { month: 5, name: 'Mayo' },
+              { month: 6, name: 'Junio' },
+              { month: 7, name: 'Julio' },
+              { month: 8, name: 'Agosto' },
+              { month: 9, name: 'Septiembre' },
+              { month: 10, name: 'Octubre' },
+              { month: 11, name: 'Noviembre' },
+              { month: 12, name: 'Diciembre' },
+            ].map(({ month, name }) => (
+              <div key={month} className="space-y-2">
+                <Label>{name}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={billingTargetFormData[month] !== undefined ? billingTargetFormData[month] : ''}
+                    onChange={(e) => setBillingTargetFormData({
+                      ...billingTargetFormData,
+                      [month]: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.00"
+                  />
+                  <Button
+                    onClick={() => handleSaveBillingTarget(month)}
+                    disabled={savingBillingTarget}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {savingBillingTarget ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -1197,15 +1389,16 @@ function ConfigTab({
                             const currentYear = new Date().getFullYear();
                             
                             // Generar valor por defecto según el tipo
+                            // IMPORTANTE: Para trimestres, periodo_value es solo el año (ej: "2025")
+                            // La regla se aplica a todos los trimestres de ese año
                             if (periodoType === 'anual') {
                               periodoValue = currentYear.toString();
                             } else if (periodoType === 'mensual') {
                               const currentMonth = new Date().getMonth() + 1;
                               periodoValue = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
                             } else if (periodoType === 'trimestre') {
-                              const currentMonth = new Date().getMonth() + 1;
-                              const trimestre = Math.ceil(currentMonth / 3);
-                              periodoValue = `${currentYear}-Q${trimestre}`;
+                              // Para trimestres, solo el año (la regla se aplica a todos los trimestres)
+                              periodoValue = currentYear.toString();
                             }
                             
                             setRuleFormData({ ...ruleFormData, periodo_type: periodoType, periodo_value: periodoValue });
@@ -2283,6 +2476,19 @@ function DashboardTab({
   onYearChange: (year: number) => void;
   loading: boolean;
 }) {
+  /**
+   * Determina el color del semáforo según el porcentaje de cumplimiento
+   * Verde: >= 100% (meta alcanzada o superada)
+   * Amarillo: >= 80% y < 100% (cerca de la meta)
+   * Rojo: < 80% (lejos de la meta)
+   */
+  const getCumplimientoColor = (porcentaje: number | null): string => {
+    if (porcentaje === null) return 'text-gray-500';
+    if (porcentaje >= 100) return 'text-green-600 font-bold';
+    if (porcentaje >= 80) return 'text-yellow-600 font-semibold';
+    return 'text-red-600 font-semibold';
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -2368,14 +2574,6 @@ function DashboardTab({
                         ))}
                       </TableRow>
                       <TableRow>
-                        <TableCell className="font-medium">Unidades vendidas</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
-                            {month.unidades_vendidas}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
                         <TableCell className="font-medium">Facturación Ventas</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
                           <TableCell key={month.month} className="text-center">
@@ -2414,9 +2612,13 @@ function DashboardTab({
                         <TableCell className="font-medium">% facturación alcanzado</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
                           <TableCell key={month.month} className="text-center">
-                            {month.porcentaje_cumplimiento !== null
-                              ? `${month.porcentaje_cumplimiento.toFixed(2)}%`
-                              : '-'}
+                            {month.porcentaje_cumplimiento !== null ? (
+                              <span className={getCumplimientoColor(month.porcentaje_cumplimiento)}>
+                                {month.porcentaje_cumplimiento.toFixed(2)}%
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
                           </TableCell>
                         ))}
                       </TableRow>
