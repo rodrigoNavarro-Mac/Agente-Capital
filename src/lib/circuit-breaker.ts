@@ -17,9 +17,13 @@ import { logger } from '@/lib/logger';
 // CONFIGURACIÓN
 // =====================================================
 
+// Detectar si estamos en desarrollo local
+const isLocalDev = process.env.NODE_ENV !== 'production' && !process.env.VERCEL;
+
 const CIRCUIT_BREAKER_CONFIG = {
   // Número de fallos consecutivos antes de abrir el circuito
-  FAILURE_THRESHOLD: 5,
+  // Más permisivo en desarrollo local para soportar navegación normal
+  FAILURE_THRESHOLD: isLocalDev ? 15 : 5,
   
   // Tiempo en ms que el circuito permanece abierto antes de intentar half-open
   TIMEOUT: 30000, // 30 segundos
@@ -135,8 +139,41 @@ export function recordFailure(error: unknown): void {
     (error as Error & { code?: string }).code === 'ECONNREFUSED'
   );
   
-  if (!isConnectionError) {
-    // Si no es error de conexión, no afectar el circuit breaker
+  // Verificar si es un error de límite de conexiones (menos crítico)
+  const isMaxConnectionsError = error instanceof Error && (
+    error.message.includes('MaxClientsInSessionMode') ||
+    error.message.includes('max clients reached') ||
+    error.message.includes('max client connections')
+  );
+  
+  // En desarrollo local, los errores de límite de conexiones son menos críticos
+  // No deberían abrir el circuit breaker tan rápido
+  if (isMaxConnectionsError && isLocalDev) {
+    // Solo incrementar el contador cada 3 errores de límite de conexiones
+    // Esto hace que el circuit breaker sea más tolerante a estos errores en desarrollo
+    const maxConnectionErrorCount = (postgresCircuitBreaker as any).maxConnectionErrorCount || 0;
+    (postgresCircuitBreaker as any).maxConnectionErrorCount = maxConnectionErrorCount + 1;
+    
+    if (maxConnectionErrorCount % 3 !== 0) {
+      // No incrementar el contador principal en los primeros 2 de cada 3 errores
+      logger.debug('Circuit breaker: Error de límite de conexiones (ignorado para evitar apertura prematura)', { 
+        failureCount: postgresCircuitBreaker.failureCount,
+        maxConnectionErrors: maxConnectionErrorCount,
+        state: postgresCircuitBreaker.state,
+      }, 'circuit-breaker');
+      return; // No contar este fallo
+    }
+    
+    // Cada 3 errores, incrementar el contador principal
+    logger.warn('Circuit breaker: Error de límite de conexiones (contado parcialmente en desarrollo)', { 
+      failureCount: postgresCircuitBreaker.failureCount,
+      maxConnectionErrors: maxConnectionErrorCount,
+      state: postgresCircuitBreaker.state,
+    }, 'circuit-breaker');
+  }
+  
+  if (!isConnectionError && !isMaxConnectionsError) {
+    // Si no es error de conexión ni de límite, no afectar el circuit breaker
     return;
   }
   

@@ -15,6 +15,7 @@ import {
   getZohoNotesInsightsAI,
   getZohoNotesInsightsStored,
   triggerZohoSync,
+  getUserDevelopments,
   type ZohoLead,
   type ZohoDeal,
   type ZohoStats,
@@ -50,6 +51,8 @@ export default function ZohoCRMPage() {
   const [leads, setLeads] = useState<ZohoLead[]>([]);
   const [deals, setDeals] = useState<ZohoDeal[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Desarrollos asignados al usuario (para sales_manager)
+  const [assignedDevelopments, setAssignedDevelopments] = useState<string[]>([]);
   
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
@@ -63,36 +66,99 @@ export default function ZohoCRMPage() {
   
   const { toast } = useToast();
 
-  // Verificar rol del usuario
+  // Verificar rol del usuario y obtener desarrollos asignados
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (token) {
       const payload = decodeAccessToken(token);
       if (payload) {
         setUserRole(payload.role as UserRole);
+        
+        // Si es sales_manager, obtener desarrollos asignados
+        if (payload.role === 'sales_manager' && payload.userId) {
+          getUserDevelopments(payload.userId)
+            .then((devs) => {
+              // Obtener solo los desarrollos con can_query=true y normalizar nombres
+              const normalizedDevs = devs
+                .filter((d) => d.can_query)
+                .map((d) => d.development)
+                .filter((d) => typeof d === 'string' && d.trim().length > 0)
+                .map((d) => d.trim());
+              setAssignedDevelopments(normalizedDevs);
+            })
+            .catch((err) => {
+              console.error('Error obteniendo desarrollos asignados:', err);
+            });
+        }
       }
     }
   }, []);
 
+  // Función para normalizar nombres de desarrollos para mostrar (capitalizar primera letra)
+  const normalizeDevelopmentDisplay = (name: string): string => {
+    if (!name || name.trim().length === 0) return name;
+    const trimmed = name.trim();
+    // Capitalizar primera letra y dejar el resto en minúsculas
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  };
+
+  // Función para comparar desarrollos de forma case-insensitive
+  const compareDevelopments = (dev1: string, dev2: string): boolean => {
+    if (!dev1 || !dev2) return false;
+    return normalizeDevelopmentDisplay(dev1) === normalizeDevelopmentDisplay(dev2);
+  };
+
   // Obtener lista de desarrollos únicos de los datos
+  // Para sales_manager, incluir también los desarrollos asignados (incluso si no hay datos)
+  // Normalizar nombres para evitar duplicados por diferencias de mayúsculas/minúsculas
   const availableDevelopments = useMemo(() => {
-    const developments = new Set<string>();
+    const developmentsMap = new Map<string, string>(); // Map<normalized, original>
+    
+    // Agregar desarrollos de los datos cargados
     leads.forEach(lead => {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
       const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
       if (leadDesarrollo) {
-        developments.add(leadDesarrollo);
+        const normalized = normalizeDevelopmentDisplay(leadDesarrollo);
+        // Si ya existe, mantener el original que tenga mejor formato (con mayúscula)
+        if (!developmentsMap.has(normalized) || 
+            (leadDesarrollo.charAt(0) === leadDesarrollo.charAt(0).toUpperCase() && 
+             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+          developmentsMap.set(normalized, leadDesarrollo);
+        }
       }
     });
     deals.forEach(deal => {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
       const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
       if (dealDesarrollo) {
-        developments.add(dealDesarrollo);
+        const normalized = normalizeDevelopmentDisplay(dealDesarrollo);
+        // Si ya existe, mantener el original que tenga mejor formato (con mayúscula)
+        if (!developmentsMap.has(normalized) || 
+            (dealDesarrollo.charAt(0) === dealDesarrollo.charAt(0).toUpperCase() && 
+             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+          developmentsMap.set(normalized, dealDesarrollo);
+        }
       }
     });
-    return Array.from(developments).sort();
-  }, [leads, deals]);
+    
+    // Para sales_manager, agregar también los desarrollos asignados
+    // Esto asegura que aparezcan en la lista incluso si no hay datos para algunos
+    if (userRole === 'sales_manager' && assignedDevelopments.length > 0) {
+      assignedDevelopments.forEach((dev) => {
+        const normalized = normalizeDevelopmentDisplay(dev);
+        // Si ya existe, mantener el original que tenga mejor formato
+        if (!developmentsMap.has(normalized) || 
+            (dev.charAt(0) === dev.charAt(0).toUpperCase() && 
+             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+          developmentsMap.set(normalized, dev);
+        }
+      });
+    }
+    
+    // Retornar los nombres normalizados ordenados
+    return Array.from(developmentsMap.keys()).sort();
+  }, [leads, deals, userRole, assignedDevelopments]);
 
   // Obtener lista de fuentes únicas
   const availableSources = useMemo(() => {
@@ -291,7 +357,7 @@ export default function ZohoCRMPage() {
 
       if (selectedDesarrollo !== 'all') {
         const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
-        if (leadDesarrollo !== selectedDesarrollo) return false;
+        if (!compareDevelopments(leadDesarrollo, selectedDesarrollo)) return false;
       }
       if (selectedSource !== 'all' && lead.Lead_Source !== selectedSource) return false;
       if (selectedOwner !== 'all' && lead.Owner?.name !== selectedOwner) return false;
@@ -307,7 +373,7 @@ export default function ZohoCRMPage() {
 
       if (selectedDesarrollo !== 'all') {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
-        if (dealDesarrollo !== selectedDesarrollo) return false;
+        if (!compareDevelopments(dealDesarrollo, selectedDesarrollo)) return false;
       }
       if (selectedSource !== 'all' && deal.Lead_Source !== selectedSource) return false;
       if (selectedOwner !== 'all' && deal.Owner?.name !== selectedOwner) return false;
@@ -610,7 +676,7 @@ export default function ZohoCRMPage() {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
       if (desarrollo && desarrollo !== 'all') {
         const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
-        if (leadDesarrollo !== desarrollo) return false;
+        if (!compareDevelopments(leadDesarrollo, desarrollo)) return false;
       }
 
       // Filtro de fuente
@@ -636,7 +702,7 @@ export default function ZohoCRMPage() {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
       if (desarrollo && desarrollo !== 'all') {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
-        if (dealDesarrollo !== desarrollo) return false;
+        if (!compareDevelopments(dealDesarrollo, desarrollo)) return false;
       }
 
       // Filtro de fuente
@@ -1348,7 +1414,7 @@ export default function ZohoCRMPage() {
 
       if (selectedDesarrollo !== 'all') {
         const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
-        if (leadDesarrollo !== selectedDesarrollo) return false;
+        if (!compareDevelopments(leadDesarrollo, selectedDesarrollo)) return false;
       }
       if (selectedSource !== 'all' && lead.Lead_Source !== selectedSource) return false;
       if (selectedOwner !== 'all' && lead.Owner?.name !== selectedOwner) return false;
@@ -1368,7 +1434,7 @@ export default function ZohoCRMPage() {
 
       if (selectedDesarrollo !== 'all') {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
-        if (dealDesarrollo !== selectedDesarrollo) return false;
+        if (!compareDevelopments(dealDesarrollo, selectedDesarrollo)) return false;
       }
       if (selectedSource !== 'all' && deal.Lead_Source !== selectedSource) return false;
       if (selectedOwner !== 'all' && deal.Owner?.name !== selectedOwner) return false;

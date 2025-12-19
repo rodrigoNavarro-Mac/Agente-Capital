@@ -528,7 +528,7 @@ export default function ProfilePage() {
                             <XCircle className="h-3 w-3" />
                           )}
                           <MessageSquare className="h-3 w-3" />
-                          <span className="text-xs">Consultar</span>
+                          <span className={`text-xs ${dev.can_query ? 'text-capital-gold' : ''}`}>Consultar</span>
                         </Badge>
                         <Badge 
                           variant={dev.can_upload ? 'default' : 'secondary'} 
@@ -540,7 +540,7 @@ export default function ProfilePage() {
                             <XCircle className="h-3 w-3" />
                           )}
                           <UploadIcon className="h-3 w-3" />
-                          <span className="text-xs">Subir</span>
+                          <span className={`text-xs ${dev.can_upload ? 'text-capital-gold' : ''}`}>Subir</span>
                         </Badge>
                       </div>
                     </div>

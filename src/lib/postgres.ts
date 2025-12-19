@@ -83,9 +83,10 @@ function getPoolConfig() {
   const isServerless = isServerlessEnvironment();
   
   // Configuración adaptativa según el entorno
+  // Aumentado para desarrollo local para soportar navegación normal sin agotar conexiones
   const maxConnections = isServerless 
     ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10) // Reducido para serverless
-    : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20', 10); // Normal para desarrollo
+    : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '50', 10); // Aumentado para desarrollo (20 -> 50)
   
   const connectionTimeout = isServerless
     ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '20000', 10) // 20s para cold starts
