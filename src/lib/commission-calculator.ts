@@ -219,14 +219,24 @@ function calculateSalePhaseDistribution(
 ): RoleDistribution[] {
   const distributions: RoleDistribution[] = [];
 
+  // Verificar si el propietario del deal es "Asesor Externo" literal
+  const isDealOwnerExternalAdvisor = sale.propietario_deal && 
+    sale.propietario_deal.trim().toLowerCase() === 'asesor externo';
+
   // Obtener porcentajes redistribuidos si no hay asesor externo
   const hasExternalAdvisor = sale.asesor_externo && sale.asesor_externo.trim() !== '';
   let saleManagerPercent = config.sale_manager_percent;
   let dealOwnerPercent = config.deal_owner_percent;
   let externalAdvisorPercent = config.external_advisor_percent || 0;
 
-  if (!hasExternalAdvisor && externalAdvisorPercent > 0) {
-    // Redistribuir el porcentaje del asesor externo
+  // Si el propietario del deal es "Asesor Externo" literal, usar el porcentaje de asesor externo
+  if (isDealOwnerExternalAdvisor && externalAdvisorPercent > 0) {
+    // El propietario del deal es asesor externo, usar su porcentaje configurado
+    dealOwnerPercent = 0; // No usar el porcentaje de deal_owner
+    // externalAdvisorPercent ya está configurado, se usará más abajo
+  } else if (!hasExternalAdvisor && externalAdvisorPercent > 0) {
+    // Redistribuir el porcentaje del asesor externo solo si no hay asesor externo
+    // y el propietario del deal NO es "Asesor Externo"
     const redistributed = redistributeExternalAdvisorPercent(
       saleManagerPercent,
       dealOwnerPercent,
@@ -256,8 +266,9 @@ function calculateSalePhaseDistribution(
   }
 
   // Propietario del Deal / Asesor Interno (obligatorio)
+  // Si el propietario es "Asesor Externo" literal, NO crear distribución aquí
   // El porcentaje se calcula sobre el monto total, no sobre el valor de la fase
-  if (dealOwnerPercent > 0) {
+  if (!isDealOwnerExternalAdvisor && dealOwnerPercent > 0) {
     const amount = (poolAmount * dealOwnerPercent) / 100;
     distributions.push({
       role_type: 'deal_owner',
@@ -269,13 +280,18 @@ function calculateSalePhaseDistribution(
   }
 
   // Asesor Externo (opcional)
+  // Si el propietario del deal es "Asesor Externo" literal, usar el porcentaje configurado
   // El porcentaje se calcula sobre el monto total, no sobre el valor de la fase
-  if (hasExternalAdvisor && externalAdvisorPercent > 0) {
+  if ((hasExternalAdvisor || isDealOwnerExternalAdvisor) && externalAdvisorPercent > 0) {
     const amount = (poolAmount * externalAdvisorPercent) / 100;
     distributions.push({
       role_type: 'external_advisor',
-      person_name: getRolePersonName('external_advisor', sale),
-      person_id: sale.asesor_externo_id || null,
+      person_name: isDealOwnerExternalAdvisor 
+        ? getRolePersonName('deal_owner', sale) 
+        : getRolePersonName('external_advisor', sale),
+      person_id: isDealOwnerExternalAdvisor 
+        ? (sale.propietario_deal_id || null)
+        : (sale.asesor_externo_id || null),
       percent: externalAdvisorPercent,
       amount: Number(amount.toFixed(3)),
     });

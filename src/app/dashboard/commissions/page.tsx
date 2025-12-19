@@ -927,102 +927,6 @@ function ConfigTab({
         </CardContent>
       </Card>
 
-      {/* Metas de Facturación */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Metas de Facturación</CardTitle>
-          <CardDescription>
-            Configura las metas de facturación mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Label>Año:</Label>
-            <Select
-              value={billingTargetYear.toString()}
-              onValueChange={(value) => setBillingTargetYear(parseInt(value, 10))}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: 5 }, (_, i) => {
-                  const year = new Date().getFullYear() - 2 + i;
-                  return (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              onClick={() => loadBillingTargets()}
-              disabled={loadingBillingTargets}
-            >
-              {loadingBillingTargets ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Cargando...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Actualizar
-                </>
-              )}
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { month: 1, name: 'Enero' },
-              { month: 2, name: 'Febrero' },
-              { month: 3, name: 'Marzo' },
-              { month: 4, name: 'Abril' },
-              { month: 5, name: 'Mayo' },
-              { month: 6, name: 'Junio' },
-              { month: 7, name: 'Julio' },
-              { month: 8, name: 'Agosto' },
-              { month: 9, name: 'Septiembre' },
-              { month: 10, name: 'Octubre' },
-              { month: 11, name: 'Noviembre' },
-              { month: 12, name: 'Diciembre' },
-            ].map(({ month, name }) => (
-              <div key={month} className="space-y-2">
-                <Label>{name}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={billingTargetFormData[month] !== undefined ? billingTargetFormData[month] : ''}
-                    onChange={(e) => setBillingTargetFormData({
-                      ...billingTargetFormData,
-                      [month]: parseFloat(e.target.value) || 0,
-                    })}
-                    placeholder="0.00"
-                  />
-                  <Button
-                    onClick={() => handleSaveBillingTarget(month)}
-                    disabled={savingBillingTarget}
-                    variant="outline"
-                    size="sm"
-                  >
-                    {savingBillingTarget ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Configuración por Desarrollo - Separada por Fases */}
       <Card>
         <CardHeader>
@@ -1466,19 +1370,19 @@ function ConfigTab({
                         <Label>% Comisión</Label>
                         <Input
                           type="number"
-                          step="0.01"
+                          step="0.001"
                           min="0"
                           max="100"
                           value={ruleFormData.porcentaje_comision !== undefined ? ruleFormData.porcentaje_comision : ''}
                           onChange={(e) => setRuleFormData({ ...ruleFormData, porcentaje_comision: parseFloat(e.target.value) || 0 })}
-                          placeholder="0.00"
+                          placeholder="0.000"
                         />
                       </div>
                       <div>
                         <Label>% IVA</Label>
                         <Input
                           type="number"
-                          step="0.01"
+                          step="0.001"
                           min="0"
                           max="100"
                           value={ruleFormData.porcentaje_iva !== undefined ? ruleFormData.porcentaje_iva : ''}
@@ -1621,6 +1525,102 @@ function ConfigTab({
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Metas de Facturación */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Metas de Facturación</CardTitle>
+          <CardDescription>
+            Configura las metas de facturación mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <Label>Año:</Label>
+            <Select
+              value={billingTargetYear.toString()}
+              onValueChange={(value) => setBillingTargetYear(parseInt(value, 10))}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 5 }, (_, i) => {
+                  const year = new Date().getFullYear() - 2 + i;
+                  return (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => loadBillingTargets()}
+              disabled={loadingBillingTargets}
+            >
+              {loadingBillingTargets ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cargando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Actualizar
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { month: 1, name: 'Enero' },
+              { month: 2, name: 'Febrero' },
+              { month: 3, name: 'Marzo' },
+              { month: 4, name: 'Abril' },
+              { month: 5, name: 'Mayo' },
+              { month: 6, name: 'Junio' },
+              { month: 7, name: 'Julio' },
+              { month: 8, name: 'Agosto' },
+              { month: 9, name: 'Septiembre' },
+              { month: 10, name: 'Octubre' },
+              { month: 11, name: 'Noviembre' },
+              { month: 12, name: 'Diciembre' },
+            ].map(({ month, name }) => (
+              <div key={month} className="space-y-2">
+                <Label>{name}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={billingTargetFormData[month] !== undefined ? billingTargetFormData[month] : ''}
+                    onChange={(e) => setBillingTargetFormData({
+                      ...billingTargetFormData,
+                      [month]: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveBillingTarget(month)}
+                    disabled={savingBillingTarget}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {savingBillingTarget ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
