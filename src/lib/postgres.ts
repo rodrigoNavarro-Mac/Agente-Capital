@@ -1649,6 +1649,307 @@ export async function unlockUserAccount(userId: number): Promise<void> {
 }
 
 // =====================================================
+// FUNCIONES DE PAGE VISITS (RASTREO DE VISITAS)
+// =====================================================
+
+/**
+ * Interfaz para una visita a página
+ */
+export interface PageVisit {
+  id: number;
+  user_id: number;
+  session_id?: number;
+  page_path: string;
+  page_name?: string;
+  module_name?: string;
+  ip_address?: string;
+  user_agent?: string;
+  visited_at: Date;
+  duration_seconds?: number;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Registra una visita a una página/módulo
+ */
+export async function recordPageVisit(visit: {
+  user_id: number;
+  session_id?: number;
+  page_path: string;
+  page_name?: string;
+  module_name?: string;
+  ip_address?: string;
+  user_agent?: string;
+  duration_seconds?: number;
+  metadata?: Record<string, unknown>;
+}): Promise<PageVisit | null> {
+  try {
+    const result = await query<PageVisit>(
+      `INSERT INTO page_visits 
+       (user_id, session_id, page_path, page_name, module_name, ip_address, user_agent, duration_seconds, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        visit.user_id,
+        visit.session_id || null,
+        visit.page_path,
+        visit.page_name || null,
+        visit.module_name || null,
+        visit.ip_address || null,
+        visit.user_agent || null,
+        visit.duration_seconds || null,
+        visit.metadata ? JSON.stringify(visit.metadata) : null,
+      ]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    // Si la tabla no existe, solo loguear y retornar null
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') || 
+      error.message.includes('does not exist')
+    )) {
+      logger.warn('Table page_visits does not exist. Visit was not recorded. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene visitas a páginas con filtros
+ */
+export async function getPageVisits(options: {
+  userId?: number;
+  sessionId?: number;
+  moduleName?: string;
+  pagePath?: string;
+  limit?: number;
+  offset?: number;
+  startDate?: Date;
+  endDate?: Date;
+}): Promise<PageVisit[]> {
+  try {
+    let queryText = 'SELECT * FROM page_visits WHERE 1=1';
+    const params: unknown[] = [];
+    let paramCount = 0;
+
+    if (options.userId) {
+      paramCount++;
+      queryText += ` AND user_id = $${paramCount}`;
+      params.push(options.userId);
+    }
+
+    if (options.sessionId) {
+      paramCount++;
+      queryText += ` AND session_id = $${paramCount}`;
+      params.push(options.sessionId);
+    }
+
+    if (options.moduleName) {
+      paramCount++;
+      queryText += ` AND module_name = $${paramCount}`;
+      params.push(options.moduleName);
+    }
+
+    if (options.pagePath) {
+      paramCount++;
+      queryText += ` AND page_path = $${paramCount}`;
+      params.push(options.pagePath);
+    }
+
+    if (options.startDate) {
+      paramCount++;
+      queryText += ` AND visited_at >= $${paramCount}`;
+      params.push(options.startDate);
+    }
+
+    if (options.endDate) {
+      paramCount++;
+      queryText += ` AND visited_at <= $${paramCount}`;
+      params.push(options.endDate);
+    }
+
+    queryText += ' ORDER BY visited_at DESC';
+
+    if (options.limit) {
+      paramCount++;
+      queryText += ` LIMIT $${paramCount}`;
+      params.push(options.limit);
+    }
+
+    if (options.offset) {
+      paramCount++;
+      queryText += ` OFFSET $${paramCount}`;
+      params.push(options.offset);
+    }
+
+    const result = await query<PageVisit>(queryText, params);
+    
+    // Parsear metadata JSON
+    return result.rows.map(row => ({
+      ...row,
+      metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined,
+    }));
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') || 
+      error.message.includes('does not exist')
+    )) {
+      logger.warn('Table page_visits does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene sesiones de usuario con información detallada
+ */
+export async function getUserSessionsWithInfo(options: {
+  userId?: number;
+  activeOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<Array<{
+  id: number;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+  session_token: string;
+  ip_address?: string;
+  user_agent?: string;
+  session_started_at: Date;
+  session_last_used: Date;
+  session_expires_at: Date;
+  session_status: 'active' | 'expired';
+  pages_visited_count: number;
+}>> {
+  try {
+    let queryText = 'SELECT * FROM user_sessions_with_info WHERE 1=1';
+    const params: unknown[] = [];
+    let paramCount = 0;
+
+    if (options.userId) {
+      paramCount++;
+      queryText += ` AND user_id = $${paramCount}`;
+      params.push(options.userId);
+    }
+
+    if (options.activeOnly) {
+      queryText += ` AND session_status = 'active'`;
+    }
+
+    queryText += ' ORDER BY session_started_at DESC';
+
+    if (options.limit) {
+      paramCount++;
+      queryText += ` LIMIT $${paramCount}`;
+      params.push(options.limit);
+    }
+
+    if (options.offset) {
+      paramCount++;
+      queryText += ` OFFSET $${paramCount}`;
+      params.push(options.offset);
+    }
+
+    const result = await query(queryText, params);
+    return result.rows;
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') || 
+      error.message.includes('does not exist')
+    )) {
+      logger.warn('View user_sessions_with_info does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene resumen de actividad por usuario
+ */
+export async function getUserActivitySummary(options: {
+  userId?: number;
+  role?: string;
+}): Promise<Array<{
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+  total_sessions: number;
+  total_page_visits: number;
+  modules_visited: number;
+  last_session_start: Date;
+  last_page_visit: Date;
+  modules_list: string;
+}>> {
+  try {
+    let queryText = 'SELECT * FROM user_activity_summary WHERE 1=1';
+    const params: unknown[] = [];
+    let paramCount = 0;
+
+    if (options.userId) {
+      paramCount++;
+      queryText += ` AND user_id = $${paramCount}`;
+      params.push(options.userId);
+    }
+
+    if (options.role) {
+      paramCount++;
+      queryText += ` AND user_role = $${paramCount}`;
+      params.push(options.role);
+    }
+
+    queryText += ' ORDER BY last_page_visit DESC NULLS LAST';
+
+    const result = await query(queryText, params);
+    return result.rows;
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') || 
+      error.message.includes('does not exist')
+    )) {
+      logger.warn('View user_activity_summary does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Obtiene la sesión activa de un usuario por token
+ */
+export async function getActiveSessionByToken(sessionToken: string): Promise<{
+  id: number;
+  user_id: number;
+  session_token: string;
+  ip_address?: string;
+  user_agent?: string;
+} | null> {
+  try {
+    const result = await query<{
+      id: number;
+      user_id: number;
+      session_token: string;
+      ip_address?: string;
+      user_agent?: string;
+    }>(
+      `SELECT id, user_id, session_token, ip_address, user_agent 
+       FROM user_sessions 
+       WHERE session_token = $1 AND expires_at > NOW()`,
+      [sessionToken]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    logger.error('Error getting active session by token', error);
+    return null;
+  }
+}
+
+// =====================================================
 // FUNCIONES DE FEEDBACK Y APRENDIZAJE
 // =====================================================
 

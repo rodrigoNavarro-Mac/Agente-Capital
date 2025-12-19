@@ -1121,3 +1121,114 @@ export async function checkPermission(permission: Permission): Promise<boolean> 
   }
 }
 
+// =====================================================
+// PAGE VISITS API
+// =====================================================
+
+/**
+ * Registra una visita a una página/módulo
+ */
+export async function recordPageVisit(data: {
+  page_path: string;
+  page_name?: string;
+  module_name?: string;
+}): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  if (!token) {
+    return;
+  }
+
+  try {
+    await fetcher<{ success: boolean }>(
+      '/api/page-visits',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      }
+    );
+  } catch (error) {
+    // No lanzar error, solo loguear silenciosamente
+    // para no interrumpir la experiencia del usuario
+    logger.warn('Error registrando visita a página', error, {}, 'api-client');
+  }
+}
+
+/**
+ * Obtiene sesiones y visitas de usuarios (solo para admins)
+ */
+export async function getAdminSessions(params?: {
+  userId?: number;
+  activeOnly?: boolean;
+  limit?: number;
+  offset?: number;
+  includeVisits?: boolean;
+}): Promise<{
+  sessions: Array<{
+    id: number;
+    user_id: number;
+    user_name: string;
+    user_email: string;
+    user_role: string;
+    ip_address?: string;
+    user_agent?: string;
+    session_started_at: Date;
+    session_last_used: Date;
+    session_expires_at: Date;
+    session_status: 'active' | 'expired';
+    pages_visited_count: number;
+  }>;
+  activitySummary: Array<{
+    user_id: number;
+    user_name: string;
+    user_email: string;
+    user_role: string;
+    total_sessions: number;
+    total_page_visits: number;
+    modules_visited: number;
+    last_session_start: Date;
+    last_page_visit: Date;
+    modules_list: string;
+  }>;
+  pageVisits: Array<{
+    id: number;
+    user_id: number;
+    session_id?: number;
+    page_path: string;
+    page_name?: string;
+    module_name?: string;
+    ip_address?: string;
+    user_agent?: string;
+    visited_at: Date;
+    duration_seconds?: number;
+  }>;
+}> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  
+  if (!token) {
+    throw new Error('No autorizado');
+  }
+
+  const queryParams = new URLSearchParams();
+  if (params?.userId) queryParams.append('userId', params.userId.toString());
+  if (params?.activeOnly) queryParams.append('activeOnly', 'true');
+  if (params?.limit) queryParams.append('limit', params.limit.toString());
+  if (params?.offset) queryParams.append('offset', params.offset.toString());
+  if (params?.includeVisits === false) queryParams.append('includeVisits', 'false');
+
+  const response = await fetcher<{ success: boolean; data: any }>(
+    `/api/admin/sessions?${queryParams.toString()}`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    }
+  );
+
+  return response.data;
+}
+

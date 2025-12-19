@@ -18,6 +18,7 @@ import {
   User,
   BookOpen,
   DollarSign,
+  Monitor,
 } from 'lucide-react';
 import type { UserRole } from '@/types/documents';
 import { useSidebar } from '@/contexts/sidebar-context';
@@ -88,6 +89,12 @@ const NAV_ITEMS: NavItem[] = [
     title: 'Logs', 
     href: '/dashboard/logs', 
     icon: Activity,
+    allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
+  },
+  { 
+    title: 'Sesiones y Actividad', 
+    href: '/dashboard/admin/sessions', 
+    icon: Monitor,
     allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
   },
   { 

@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { SidebarProvider, useSidebar } from '@/contexts/sidebar-context';
 import { cn } from '@/lib/utils';
+import { usePageVisit } from '@/hooks/use-page-visit';
 
 export default function DashboardLayout({
   children,
@@ -72,6 +73,9 @@ export default function DashboardLayout({
 // Componente interno que usa el contexto del sidebar
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useSidebar();
+  
+  // Rastrear visitas a páginas automáticamente
+  usePageVisit();
 
   return (
     <div className="flex h-screen overflow-hidden">
