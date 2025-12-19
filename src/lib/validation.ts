@@ -147,10 +147,13 @@ export const userIdSchema = z
 
 /**
  * Schema para validar zonas
+ * Acepta cualquier string válido (las zonas se seleccionan desde el dropdown)
  */
-export const zoneSchema = z.enum(['norte', 'sur', 'centro'], {
-  errorMap: () => ({ message: 'La zona debe ser: norte, sur o centro' }),
-});
+export const zoneSchema = z
+  .string()
+  .min(1, 'La zona es requerida')
+  .max(100, 'El nombre de la zona no puede exceder 100 caracteres')
+  .transform(sanitizeString);
 
 /**
  * Schema para validar tipos de documento
