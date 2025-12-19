@@ -1153,7 +1153,7 @@ export async function recordPageVisit(data: {
   } catch (error) {
     // No lanzar error, solo loguear silenciosamente
     // para no interrumpir la experiencia del usuario
-    logger.warn('Error registrando visita a página', error, {}, 'api-client');
+    logger.error('Error registrando visita a página', error, {}, 'api-client');
   }
 }
 

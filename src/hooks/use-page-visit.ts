@@ -9,7 +9,6 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { recordPageVisit } from '@/lib/api';
-import { decodeAccessToken } from '@/lib/auth';
 
 // Mapeo de rutas a nombres de módulos y páginas
 const PAGE_MAPPING: Record<string, { module: string; name: string }> = {
@@ -65,9 +64,9 @@ export function usePageVisit() {
 
     // Limpiar cuando el componente se desmonte o cambie la ruta
     return () => {
-      // Calcular duración si es posible
+      // Calcular duración si es posible (para uso futuro)
       if (visitStartTimeRef.current) {
-        const duration = Math.floor((Date.now() - visitStartTimeRef.current) / 1000);
+        // const duration = Math.floor((Date.now() - visitStartTimeRef.current) / 1000);
         // Opcional: registrar la duración cuando se sale de la página
         // Por ahora solo registramos la entrada
       }

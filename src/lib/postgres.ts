@@ -1854,7 +1854,21 @@ export async function getUserSessionsWithInfo(options: {
       params.push(options.offset);
     }
 
-    const result = await query(queryText, params);
+    const result = await query<{
+      id: number;
+      user_id: number;
+      user_name: string;
+      user_email: string;
+      user_role: string;
+      session_token: string;
+      ip_address?: string;
+      user_agent?: string;
+      session_started_at: Date;
+      session_last_used: Date;
+      session_expires_at: Date;
+      session_status: 'active' | 'expired';
+      pages_visited_count: number;
+    }>(queryText, params);
     return result.rows;
   } catch (error) {
     if (error instanceof Error && (
@@ -1905,7 +1919,18 @@ export async function getUserActivitySummary(options: {
 
     queryText += ' ORDER BY last_page_visit DESC NULLS LAST';
 
-    const result = await query(queryText, params);
+    const result = await query<{
+      user_id: number;
+      user_name: string;
+      user_email: string;
+      user_role: string;
+      total_sessions: number;
+      total_page_visits: number;
+      modules_visited: number;
+      last_session_start: Date;
+      last_page_visit: Date;
+      modules_list: string;
+    }>(queryText, params);
     return result.rows;
   } catch (error) {
     if (error instanceof Error && (

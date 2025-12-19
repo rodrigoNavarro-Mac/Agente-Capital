@@ -12,7 +12,6 @@ import {
   Activity, 
   Monitor, 
   Globe, 
-  Clock, 
   ChevronLeft, 
   ChevronRight, 
   RefreshCw, 
@@ -22,7 +21,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { getAdminSessions, getUser } from '@/lib/api';
+import { getAdminSessions } from '@/lib/api';
 import { formatRelativeTime, formatDate, copyToClipboard } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { decodeAccessToken } from '@/lib/auth';
@@ -75,7 +74,6 @@ export default function AdminSessionsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'sessions' | 'activity' | 'visits'>('sessions');
   const [activeOnly, setActiveOnly] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<number | undefined>(undefined);
   const [page, setPage] = useState(0);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [selectedVisit, setSelectedVisit] = useState<PageVisit | null>(null);
@@ -105,7 +103,6 @@ export default function AdminSessionsPage() {
     setLoading(true);
     try {
       const data = await getAdminSessions({
-        userId: selectedUserId,
         activeOnly,
         limit: ITEMS_PER_PAGE,
         offset: page * ITEMS_PER_PAGE,
@@ -125,7 +122,7 @@ export default function AdminSessionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId, activeOnly, page, toast]);
+  }, [activeOnly, page, toast]);
 
   useEffect(() => {
     loadData();
