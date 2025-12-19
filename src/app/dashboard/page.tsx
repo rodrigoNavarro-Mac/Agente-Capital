@@ -9,6 +9,7 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { checkHealth, getDashboardStats, type DashboardStats, getDocuments, getQueryLogs, getChatHistory, getUser, getUserDevelopments, getAllUsers, getAgentConfig } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole, UserDevelopment, QueryLog, DocumentMetadata } from '@/types/documents';
+import { logger } from '@/lib/logger';
 
 interface DevelopmentStats {
   zone: string;
@@ -100,7 +101,7 @@ export default function DashboardPage() {
         await loadUserDashboard(payload.userId, role);
       }
     } catch (err) {
-      console.error('Error cargando datos:', err);
+      logger.error('Error loading user data:', err);
       setError('Error al cargar información');
     } finally {
       setLoading(false);
@@ -215,7 +216,7 @@ export default function DashboardPage() {
         },
       });
     } catch (err) {
-      console.error('Error cargando estadísticas adicionales:', err);
+      logger.error('Error loading admin dashboard stats:', err);
       // Inicializar con valores por defecto si hay error
       setAdminStats({
         totalUsers: 0,

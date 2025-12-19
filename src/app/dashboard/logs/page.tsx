@@ -14,6 +14,7 @@ import { formatRelativeTime, truncate, formatDate, copyToClipboard } from '@/lib
 import type { QueryLog, ActionLog } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { useToast } from '@/components/ui/use-toast';
+import { logger } from '@/lib/logger';
 
 type UnifiedLog = {
   id: string;
@@ -691,7 +692,7 @@ function ZohoSyncSection() {
       const last = await getLastZohoSync();
       setLastSync(last);
     } catch (error) {
-      console.error('Error cargando última sincronización:', error);
+      logger.error('Error loading last sync:', error);
     }
   }, []);
 

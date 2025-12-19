@@ -20,6 +20,7 @@ Sistema completo de Agente de IA para **Capital Plus**, construido con Next.js 1
 - [Sistema de Caché](#-sistema-de-caché)
 - [Procesamiento de Documentos](#-procesamiento-de-documentos)
 - [Sistema de Aprendizaje](#-sistema-de-aprendizaje)
+- [Módulo de Comisiones](#-módulo-de-comisiones)
 - [Base de Datos y Optimizaciones](#-base-de-datos-y-optimizaciones)
 - [Autenticación y Seguridad](#-autenticación-y-seguridad)
 - [API Endpoints](#-api-endpoints)
@@ -472,6 +473,18 @@ El sistema aprende de feedback positivo:
 - Se agrega al system prompt
 - Mejora respuestas futuras
 
+## 💰 Módulo de Comisiones
+
+Sistema completo para calcular, auditar y dar seguimiento a comisiones de ventas.
+
+- **UI dedicada** (`/dashboard/commissions`): 4 pestañas (Configuración, Ventas comisionables, Distribución, Dashboard). Solo accesible para roles `admin` y `ceo`.
+- **Configuración por desarrollo** (`/api/commissions/config`): porcentajes de fases (venta/postventa), roles directos, pool opcional, roles opcionales de postventa y configuración global para roles indirectos (operaciones, marketing, legal, postventa).
+- **Ventas comisionables** (`/api/commissions/sales`): CRUD de deals cerrados-ganados con filtros por desarrollo, asesor y fechas. Sync masivo desde la BD local de Zoho (`/api/commissions/sync-sales`) sin llamar a la API externa.
+- **Cálculo y distribución** (`/api/commissions/distributions`): calcula comisiones por fases y roles usando `commission-calculator`, aplica reglas por desarrollo (`/api/commissions/rules`), permite recalcular, registrar ajustes manuales auditables (`/api/commissions/adjustments`) y marcar pagos por distribución (`pending` | `paid`).
+- **Facturas e invoices PDF** (`/api/commissions/invoices`): subir, reemplazar, descargar y eliminar facturas asociadas a cada distribución con validación de tamaño y tipo.
+- **Metas y dashboard** (`/api/commissions/billing-targets`, `/api/commissions/dashboard`): metas mensuales de facturación, métricas anuales y por desarrollo (pagado vs pendiente, ticket promedio, cumplimiento de meta, por asesor y por desarrollo).
+- **Tablas clave**: `commission_configs`, `commission_global_configs`, `commission_sales`, `commission_distributions`, `commission_adjustments`, `commission_rules`, `commission_billing_targets`.
+
 ## 🗄️ Base de Datos y Optimizaciones
 
 ### Estructura de Tablas Principales
@@ -484,6 +497,12 @@ El sistema aprende de feedback positivo:
 6. **learned_responses**: Respuestas aprendidas
 7. **agent_config**: Configuración del agente
 8. **zoho_leads**, **zoho_deals**: Datos de Zoho CRM
+9. **commission_configs**, **commission_global_configs**: Configuración por desarrollo y roles globales
+10. **commission_sales**: Ventas comisionables (deals cerrados-ganados)
+11. **commission_distributions**: Distribución de comisiones por rol/fase y estado de pago
+12. **commission_adjustments**: Auditoría de ajustes manuales
+13. **commission_rules**: Reglas de incentivos por desarrollo/periodo
+14. **commission_billing_targets**: Metas mensuales de facturación
 
 ### Optimizaciones de Queries
 
@@ -598,6 +617,15 @@ El sistema aprende de feedback positivo:
 - Sincroniza pipelines
 - Estadísticas de CRM
 
+### 8. Gestionar Comisiones
+
+1. Ve a **Dashboard > Commissions** (solo admin/ceo)
+2. En **Configuración**, define porcentajes por desarrollo y roles globales
+3. En **Ventas comisionables**, importa con **Sync desde BD** o registra/edita ventas
+4. En **Distribución**, calcula o recalcula comisiones, ajusta manualmente y marca pagos (`pending`/`paid`)
+5. (Opcional) Sube el PDF de factura de cada distribución y marca estado de pago
+6. En **Dashboard**, revisa pagos vs pendientes, ticket promedio, cumplimiento de metas y totales por asesor/desarrollo
+
 ## 📁 Estructura del Proyecto
 
 ### Organización de Archivos
@@ -614,6 +642,7 @@ Agente-Capital/
 │   │   │   ├── upload/               # Procesamiento de archivos
 │   │   │   ├── users/                # Gestión de usuarios
 │   │   │   ├── zoho/                 # Integración Zoho CRM
+│   │   │   ├── commissions/          # Config, ventas, distribución y dashboard de comisiones
 │   │   │   ├── cron/                 # Jobs programados
 │   │   │   └── agent-config/         # Configuración del agente
 │   │   ├── dashboard/                # Frontend (React)
@@ -624,6 +653,7 @@ Agente-Capital/
 │   │   │   ├── logs/                 # Visor de logs
 │   │   │   ├── users/                # Gestión de usuarios
 │   │   │   ├── zoho/                 # Dashboard Zoho
+│   │   │   ├── commissions/          # UI de cálculo, ajustes y dashboard de comisiones
 │   │   │   └── guia/                 # Guía de usuario
 │   │   └── login/                    # Página de login
 │   ├── components/                   # Componentes React

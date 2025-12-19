@@ -20,6 +20,7 @@
 
 import { queryWithKeyset, type KeysetPaginationResult } from './postgres-serverless';
 import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
+import { logger } from '@/lib/logger';
 
 /**
  * Obtiene leads usando keyset pagination (cursor-based)
@@ -117,7 +118,7 @@ export async function getZohoLeadsFromDBKeyset(options: {
         notesMap.get(row.parent_id)!.push(note);
       });
     } catch (error) {
-      console.warn('⚠️ Error obteniendo notas de leads:', error);
+      logger.warn('Error obteniendo notas de leads', { error }, 'postgres-keyset');
     }
   }
 
@@ -140,7 +141,7 @@ export async function getZohoLeadsFromDBKeyset(options: {
       );
       total = parseInt(countResult.rows[0].count);
     } catch (error) {
-      console.warn('⚠️ Error obteniendo total de leads:', error);
+      logger.warn('Error obteniendo total de leads', { error }, 'postgres-keyset');
     }
   }
 
@@ -249,7 +250,7 @@ export async function getZohoDealsFromDBKeyset(options: {
         notesMap.get(row.parent_id)!.push(note);
       });
     } catch (error) {
-      console.warn('⚠️ Error obteniendo notas de deals:', error);
+      logger.warn('Error obteniendo notas de deals', { error }, 'postgres-keyset');
     }
   }
 
@@ -271,7 +272,7 @@ export async function getZohoDealsFromDBKeyset(options: {
       );
       total = parseInt(countResult.rows[0].count);
     } catch (error) {
-      console.warn('⚠️ Error obteniendo total de deals:', error);
+      logger.warn('Error obteniendo total de deals', { error }, 'postgres-keyset');
     }
   }
 

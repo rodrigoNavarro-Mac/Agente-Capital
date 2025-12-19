@@ -8,6 +8,7 @@
 
 import { createHash } from 'crypto';
 import { initPinecone, getPineconeIndex } from '@/lib/pinecone';
+import { logger } from '@/lib/logger';
 import { 
   getCachedResponse, 
   saveCachedResponse, 
@@ -82,11 +83,11 @@ export async function findCachedResponse(
     // Verificar si esta respuesta tiene feedback negativo asociado
     const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
     if (hasBadFeedback) {
-      console.log(`⚠️ Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+      logger.warn(`Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`, {}, 'cache');
       return null;
     }
     
-    console.log(`✅ Caché HIT (exacto): "${query.substring(0, 50)}..."`);
+    logger.info(`Caché HIT (exacto): "${query.substring(0, 50)}..."`, {}, 'cache');
     await incrementCacheHit(exactMatch.id);
     return { entry: exactMatch, similarity: 1.0 };
   }
@@ -101,7 +102,7 @@ export async function findCachedResponse(
   if (cachedEmbedding && (now - cachedEmbedding.timestamp) < EMBEDDING_CACHE_TTL) {
     // Usar embedding del caché en memoria
     queryVector = cachedEmbedding.vector;
-    console.log(`💾 Embedding desde caché en memoria`);
+    logger.info('Embedding desde caché en memoria', {}, 'cache');
   } else {
     // Generar nuevo embedding
     try {
@@ -114,7 +115,7 @@ export async function findCachedResponse(
       );
 
       if (!embeddings[0]?.values || embeddings[0].values.length === 0) {
-        console.log('⚠️ No se pudo generar embedding para búsqueda en caché');
+        logger.warn('No se pudo generar embedding para búsqueda en caché', {}, 'cache');
         return null;
       }
 
@@ -134,10 +135,10 @@ export async function findCachedResponse(
         embeddingCache.clear();
         toKeep.forEach(([key, value]) => embeddingCache.set(key, value));
       }
-    } catch (error) {
-      console.error('❌ Error generando embedding:', error);
-      return null;
-    }
+  } catch (error) {
+    logger.error('Error generando embedding', error, {}, 'cache');
+    return null;
+  }
   }
 
   try {
@@ -180,20 +181,28 @@ export async function findCachedResponse(
         // Verificar si esta respuesta tiene feedback negativo asociado
         const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
         if (hasBadFeedback) {
-          console.log(`⚠️ Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+          logger.warn(
+            `Caché ignorado (tiene feedback negativo): "${query.substring(0, 50)}..."`,
+            {},
+            'cache'
+          );
           return null;
         }
         
-        console.log(`✅ Caché HIT (similar, score: ${similarityScore.toFixed(2)}): "${query.substring(0, 50)}..."`);
+        logger.info(
+          `Caché HIT (similar, score: ${similarityScore.toFixed(2)}): "${query.substring(0, 50)}..."`,
+          {},
+          'cache'
+        );
         await incrementCacheHit(entry.id);
         return { entry, similarity: similarityScore };
       }
     }
 
-    console.log(`❌ Caché MISS: "${query.substring(0, 50)}..."`);
+    logger.info(`Caché MISS: "${query.substring(0, 50)}..."`, {}, 'cache');
     return null;
   } catch (error) {
-    console.error('❌ Error buscando en caché:', error);
+    logger.error('Error buscando en caché', error, {}, 'cache');
     return null;
   }
 }
@@ -215,7 +224,11 @@ export async function saveToCache(
     // Si tiene, no guardar en caché
     const hasBadFeedback = await hasBadFeedbackInCache(query, zone, development);
     if (hasBadFeedback) {
-      console.log(`⚠️ No se guarda en caché (tiene feedback negativo): "${query.substring(0, 50)}..."`);
+      logger.warn(
+        `No se guarda en caché (tiene feedback negativo): "${query.substring(0, 50)}..."`,
+        {},
+        'cache'
+      );
       return;
     }
     const queryHash = generateQueryHash(query);
@@ -253,10 +266,10 @@ export async function saveToCache(
           },
         ]);
 
-        console.log(`💾 Embedding guardado en caché: ${embeddingId}`);
+        logger.info(`Embedding guardado en caché: ${embeddingId}`, {}, 'cache');
       }
     } catch (error) {
-      console.error('⚠️ Error guardando embedding en caché:', error);
+      logger.error('Error guardando embedding en caché', error, {}, 'cache');
       // Continuar sin embedding (solo hash exacto funcionará)
     }
 
@@ -282,9 +295,13 @@ export async function saveToCache(
       expires_at: expiresAt,
     });
 
-    console.log(`💾 Respuesta guardada en caché: ${queryHash} con ${sourceFilenames.length} fuentes`);
+    logger.info(
+      `Respuesta guardada en caché: ${queryHash} con ${sourceFilenames.length} fuentes`,
+      {},
+      'cache'
+    );
   } catch (error) {
-    console.error('❌ Error guardando en caché:', error);
+    logger.error('Error guardando en caché', error, {}, 'cache');
     // No lanzar error, el caché es opcional
   }
 }
@@ -295,10 +312,10 @@ export async function saveToCache(
 export async function cleanupCache(): Promise<number> {
   try {
     const deletedCount = await cleanupExpiredCache();
-    console.log(`🧹 Caché limpiado: ${deletedCount} entradas eliminadas`);
+    logger.info(`Caché limpiado: ${deletedCount} entradas eliminadas`, {}, 'cache');
     return deletedCount;
   } catch (error) {
-    console.error('❌ Error limpiando caché:', error);
+    logger.error('Error limpiando caché', error, {}, 'cache');
     return 0;
   }
 }

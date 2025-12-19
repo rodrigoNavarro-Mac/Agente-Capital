@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '@/lib/logger';
 // @ts-expect-error - pdf-parse no tiene tipos
 import pdfParse from 'pdf-parse';
 
@@ -162,7 +163,11 @@ async function recognizeImageWithScript(imagePath: string): Promise<string> {
   
   // Log para diagnóstico (solo si el texto es muy corto)
   if (extractedText.length > 0 && extractedText.length < 50) {
-    console.log(`   ⚠️ Texto extraído muy corto (${extractedText.length} caracteres): "${extractedText.substring(0, 50)}"`);
+    logger.warn(
+      `Texto extraído muy corto (${extractedText.length} caracteres): "${extractedText.substring(0, 50)}"`,
+      {},
+      'ocr'
+    );
   }
   
   return extractedText;
@@ -184,7 +189,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     const data = await pdfParse(buffer);
     return data.text || '';
   } catch (error) {
-    console.error('❌ Error extrayendo texto desde pdf-parse:', error);
+    logger.error('Error extrayendo texto desde pdf-parse', error, {}, 'ocr');
     throw error;
   }
 }
@@ -198,7 +203,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
  * @returns Texto extraído de todas las páginas
  */
 export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string> {
-  console.log('🔍 Iniciando OCR para PDF escaneado...');
+  logger.info('Iniciando OCR para PDF escaneado...', {}, 'ocr');
   
   try {
     // Verificar que el archivo existe
@@ -231,7 +236,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
 
     try {
       // PASO 1: Convertir PDF a imágenes usando script separado
-      console.log('📸 Convirtiendo PDF a imágenes (usando script separado)...');
+      logger.info('Convirtiendo PDF a imágenes (usando script separado)...', {}, 'ocr');
       const scriptPath = path.join(process.cwd(), 'scripts', 'pdf-to-images.js');
       
       // Verificar que el script existe
@@ -296,7 +301,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
         throw new Error('El script no generó imágenes válidas');
       }
 
-      console.log(`✅ PDF convertido a ${imagePaths.length} imágenes`);
+      logger.info(`PDF convertido a ${imagePaths.length} imágenes`, {}, 'ocr');
 
       // PASO 2: Aplicar OCR a cada imagen usando script separado
       let fullText = '';
@@ -307,8 +312,8 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
         const imagePath = imagePaths[i];
         const pageNum = i + 1;
         
-        console.log(`🔤 Procesando página ${pageNum}/${imagePaths.length} con OCR...`);
-        console.log(`   📁 Imagen: ${imagePath}`);
+        logger.info(`Procesando página ${pageNum}/${imagePaths.length} con OCR...`, {}, 'ocr');
+        logger.debug(`Imagen: ${imagePath}`, {}, 'ocr');
         
         try {
           // Verificar que la imagen existe antes de procesarla
@@ -330,33 +335,33 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
           if (pageText && pageText.length > 0) {
             fullText += `\n\n--- Página ${pageNum} ---\n\n${pageText}`;
             pagesWithText++;
-            console.log(`   ✅ Página ${pageNum}: ${pageText.length} caracteres extraídos`);
+            logger.info(`Página ${pageNum}: ${pageText.length} caracteres extraídos`, {}, 'ocr');
             // Mostrar una muestra del texto extraído para diagnóstico
             const preview = pageText.substring(0, 100).replace(/\n/g, ' ');
-            console.log(`   📝 Vista previa: "${preview}..."`);
+            logger.debug(`Vista previa: "${preview}..."`, {}, 'ocr');
           } else {
-            console.log(`   ⚠️ Página ${pageNum}: No se extrajo texto (texto vacío o null)`);
             // Si no se extrajo texto, puede ser un problema de calidad de imagen
-            console.log(`   💡 La imagen puede ser muy borrosa o no contener texto legible`);
+            logger.warn(`Página ${pageNum}: No se extrajo texto (texto vacío o null)`, {}, 'ocr');
+            logger.info('La imagen puede ser muy borrosa o no contener texto legible', {}, 'ocr');
           }
         } catch (pageError) {
           pagesProcessed++;
           const errorMsg = pageError instanceof Error ? pageError.message : String(pageError);
-          console.error(`❌ Error procesando página ${pageNum}:`, errorMsg);
+          logger.error(`Error procesando página ${pageNum}`, new Error(errorMsg), {}, 'ocr');
           
           // Mostrar más detalles del error para diagnóstico
           if (errorMsg.includes('Tesseract') || errorMsg.includes('tesseract') || errorMsg.includes('TESSERACT_NOT_FOUND')) {
-            console.error(`   💡 Sugerencia: Verifica que Tesseract OCR esté instalado en el sistema`);
-            console.error(`   💡 Ejecuta: tesseract --version`);
-            console.error(`   💡 En Windows: descarga desde https://github.com/UB-Mannheim/tesseract/wiki`);
+            logger.info('Sugerencia: Verifica que Tesseract OCR esté instalado en el sistema', {}, 'ocr');
+            logger.info('Ejecuta: tesseract --version', {}, 'ocr');
+            logger.info('En Windows: descarga desde https://github.com/UB-Mannheim/tesseract/wiki', {}, 'ocr');
           } else if (errorMsg.includes('LANGUAGE_NOT_FOUND') || errorMsg.includes('lang')) {
-            console.error(`   💡 Sugerencia: Verifica que los idiomas español (spa) e inglés (eng) estén instalados`);
-            console.error(`   💡 Ejecuta: tesseract --list-langs`);
+            logger.info('Sugerencia: Verifica que los idiomas español (spa) e inglés (eng) estén instalados', {}, 'ocr');
+            logger.info('Ejecuta: tesseract --list-langs', {}, 'ocr');
           } else if (errorMsg.includes('timeout') || errorMsg.includes('TIMEOUT')) {
-            console.error(`   💡 Sugerencia: La imagen es muy grande o compleja. Intenta reducir la resolución.`);
+            logger.info('Sugerencia: La imagen es muy grande o compleja. Intenta reducir la resolución.', {}, 'ocr');
           } else if (errorMsg.includes('vacía') || errorMsg.includes('corrupta') || errorMsg.includes('INVALID_IMAGE')) {
-            console.error(`   💡 Sugerencia: El PDF puede no haberse convertido correctamente a imagen.`);
-            console.error(`   💡 Verifica que el PDF no esté protegido o corrupto.`);
+            logger.info('Sugerencia: El PDF puede no haberse convertido correctamente a imagen.', {}, 'ocr');
+            logger.info('Verifica que el PDF no esté protegido o corrupto.', {}, 'ocr');
           }
           
           // Continuar con la siguiente página en lugar de fallar completamente
@@ -365,7 +370,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
       }
       
       // Log de resumen
-      console.log(`📊 Resumen OCR: ${pagesWithText}/${pagesProcessed} páginas con texto extraído`);
+      logger.info(`Resumen OCR: ${pagesWithText}/${pagesProcessed} páginas con texto extraído`, {}, 'ocr');
 
       // Limpiar imágenes temporales
       try {
@@ -378,7 +383,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
           fs.rmdirSync(tempDir);
         }
       } catch (cleanupError) {
-        console.warn('⚠️ No se pudieron limpiar archivos temporales:', cleanupError);
+        logger.warn('No se pudieron limpiar archivos temporales', { error: cleanupError }, 'ocr');
       }
 
       const finalText = fullText.trim();
@@ -410,7 +415,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
         throw new Error(errorDetails.join('\n'));
       }
       
-      console.log(`✅ OCR completado: ${finalText.length} caracteres totales`);
+      logger.info(`OCR completado: ${finalText.length} caracteres totales`, {}, 'ocr');
       return finalText;
       
     } catch (execError) {
@@ -430,7 +435,7 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
     }
     
   } catch (error) {
-    console.error('❌ Error en OCR:', error);
+    logger.error('Error en OCR', error, {}, 'ocr');
     throw error;
   }
 }
@@ -444,17 +449,17 @@ export async function extractTextFromPDFWithOCR(pdfPath: string): Promise<string
  */
 export async function extractTextFromImage(imagePath: string): Promise<string> {
   try {
-    console.log(`🔤 Aplicando OCR a imagen: ${path.basename(imagePath)}`);
+    logger.info(`Aplicando OCR a imagen: ${path.basename(imagePath)}`, {}, 'ocr');
     
     // Usar el script separado para aplicar OCR
     // Esto evita problemas con webpack y workers del navegador
     const text = await recognizeImageWithScript(imagePath);
     
-    console.log(`✅ OCR completado: ${text.length} caracteres extraídos`);
+    logger.info(`OCR completado: ${text.length} caracteres extraídos`, {}, 'ocr');
     
     return text;
   } catch (error) {
-    console.error('❌ Error en OCR de imagen:', error);
+    logger.error('Error en OCR de imagen', error, {}, 'ocr');
     throw error;
   }
 }
@@ -500,21 +505,21 @@ export async function extractTextWithOCRFallback(
 ): Promise<{ text: string; usedOCR: boolean }> {
   try {
     // Intentar extracción estándar primero
-    console.log('📄 Intentando extracción estándar de PDF...');
+    logger.info('Intentando extracción estándar de PDF...', {}, 'ocr');
     const standardText = await standardExtractor(pdfPath);
     
     // Verificar si necesita OCR
     if (needsOCR(standardText)) {
-      console.log('⚠️ Texto insuficiente detectado, cambiando a OCR...');
+      logger.warn('Texto insuficiente detectado, cambiando a OCR...', {}, 'ocr');
       const ocrText = await extractTextFromPDFWithOCR(pdfPath);
       return { text: ocrText, usedOCR: true };
     }
     
-    console.log('✅ Texto extraído exitosamente con método estándar');
+    logger.info('Texto extraído exitosamente con método estándar', {}, 'ocr');
     return { text: standardText, usedOCR: false };
     
   } catch (error) {
-    console.error('❌ Error en extracción con fallback:', error);
+    logger.error('Error en extracción con fallback', error, {}, 'ocr');
     throw error;
   }
 }

@@ -12,6 +12,7 @@ import {
   getSimilarLearnedResponses,
   type LearnedResponseEntry 
 } from '@/lib/postgres';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -62,7 +63,7 @@ export async function findLearnedResponse(
   if (cachedEmbedding && (now - cachedEmbedding.timestamp) < EMBEDDING_CACHE_TTL) {
     // Usar embedding del caché en memoria
     queryVector = cachedEmbedding.vector;
-    console.log(`💾 Embedding desde caché en memoria (learned responses)`);
+    logger.info('Embedding desde caché en memoria (learned responses)', {}, 'learned-responses');
   } else {
     // Generar nuevo embedding
     try {
@@ -75,7 +76,11 @@ export async function findLearnedResponse(
       );
 
       if (!embeddings[0]?.values || embeddings[0].values.length === 0) {
-        console.log('⚠️ No se pudo generar embedding para búsqueda de respuestas aprendidas');
+        logger.warn(
+          'No se pudo generar embedding para búsqueda de respuestas aprendidas',
+          {},
+          'learned-responses'
+        );
         return null;
       }
 
@@ -96,7 +101,7 @@ export async function findLearnedResponse(
         toKeep.forEach(([key, value]) => embeddingCache.set(key, value));
       }
     } catch (error) {
-      console.error('❌ Error generando embedding para respuestas aprendidas:', error);
+      logger.error('Error generando embedding para respuestas aprendidas', error, {}, 'learned-responses');
       return null;
     }
   }
@@ -118,7 +123,11 @@ export async function findLearnedResponse(
     ) || [];
 
     if (validMatches.length === 0) {
-      console.log(`❌ No se encontraron respuestas aprendidas similares (umbral: ${SIMILARITY_THRESHOLD})`);
+      logger.info(
+        `No se encontraron respuestas aprendidas similares (umbral: ${SIMILARITY_THRESHOLD})`,
+        {},
+        'learned-responses'
+      );
       return null;
     }
 
@@ -127,7 +136,7 @@ export async function findLearnedResponse(
     const similarEntries = await getSimilarLearnedResponses(embeddingIds);
 
     if (similarEntries.length === 0) {
-      console.log(`❌ No se encontraron respuestas aprendidas en la base de datos`);
+      logger.info('No se encontraron respuestas aprendidas en la base de datos', {}, 'learned-responses');
       return null;
     }
 
@@ -151,16 +160,24 @@ export async function findLearnedResponse(
       });
 
     if (entriesWithSimilarity.length === 0) {
-      console.log(`❌ No se encontraron respuestas aprendidas con quality_score >= ${minQualityScore}`);
+      logger.info(
+        `No se encontraron respuestas aprendidas con quality_score >= ${minQualityScore}`,
+        {},
+        'learned-responses'
+      );
       return null;
     }
 
     const bestMatch = entriesWithSimilarity[0];
-    console.log(`📚 Respuesta aprendida encontrada (similarity: ${bestMatch.similarity.toFixed(2)}, quality_score: ${bestMatch.entry.quality_score.toFixed(2)})`);
+    logger.info(
+      `Respuesta aprendida encontrada (similarity: ${bestMatch.similarity.toFixed(2)}, quality_score: ${bestMatch.entry.quality_score.toFixed(2)})`,
+      {},
+      'learned-responses'
+    );
     
     return bestMatch;
   } catch (error) {
-    console.error('❌ Error buscando respuestas aprendidas:', error);
+    logger.error('Error buscando respuestas aprendidas', error, {}, 'learned-responses');
     return null;
   }
 }
@@ -188,7 +205,7 @@ export async function saveLearnedResponseEmbedding(
     );
 
     if (!embeddings[0]?.values || embeddings[0].values.length === 0) {
-      console.log('⚠️ No se pudo generar embedding para guardar respuesta aprendida');
+      logger.warn('No se pudo generar embedding para guardar respuesta aprendida', {}, 'learned-responses');
       return false;
     }
 
@@ -208,10 +225,10 @@ export async function saveLearnedResponseEmbedding(
       },
     ]);
 
-    console.log(`💾 Embedding guardado en Pinecone: ${embeddingId}`);
+    logger.info(`Embedding guardado en Pinecone: ${embeddingId}`, {}, 'learned-responses');
     return true;
   } catch (error) {
-    console.error('❌ Error guardando embedding de respuesta aprendida:', error);
+    logger.error('Error guardando embedding de respuesta aprendida', error, {}, 'learned-responses');
     return false;
   }
 }
@@ -227,7 +244,7 @@ export async function deleteLearnedResponseEmbedding(embeddingId: string): Promi
     // Extraer el ID numérico del embedding_id (formato: "learned-{id}")
     const idMatch = embeddingId.match(/^learned-(\d+)$/);
     if (!idMatch) {
-      console.log(`⚠️ Formato de embedding_id inválido: ${embeddingId}`);
+      logger.warn(`Formato de embedding_id inválido: ${embeddingId}`, {}, 'learned-responses');
       return;
     }
 
@@ -236,13 +253,21 @@ export async function deleteLearnedResponseEmbedding(embeddingId: string): Promi
     // Verificar que la respuesta aprendida existe en la BD
     const learnedResponse = await getLearnedResponseById(responseId);
     if (!learnedResponse) {
-      console.log(`⚠️ Respuesta aprendida con ID ${responseId} no existe, no se puede eliminar embedding`);
+      logger.warn(
+        `Respuesta aprendida con ID ${responseId} no existe, no se puede eliminar embedding`,
+        {},
+        'learned-responses'
+      );
       return;
     }
 
     // Verificar que el embedding_id coincide
     if (learnedResponse.embedding_id !== embeddingId) {
-      console.log(`⚠️ El embedding_id no coincide: esperado ${embeddingId}, encontrado ${learnedResponse.embedding_id}`);
+      logger.warn(
+        `El embedding_id no coincide: esperado ${embeddingId}, encontrado ${learnedResponse.embedding_id}`,
+        {},
+        'learned-responses'
+      );
       return;
     }
 
@@ -251,9 +276,9 @@ export async function deleteLearnedResponseEmbedding(embeddingId: string): Promi
     const ns = index.namespace(LEARNED_RESPONSES_NAMESPACE);
     
     await ns.deleteOne(embeddingId);
-    console.log(`🗑️ Embedding eliminado de Pinecone: ${embeddingId}`);
+    logger.info(`Embedding eliminado de Pinecone: ${embeddingId}`, {}, 'learned-responses');
   } catch (error) {
-    console.error('❌ Error eliminando embedding de respuesta aprendida:', error);
+    logger.error('Error eliminando embedding de respuesta aprendida', error, {}, 'learned-responses');
     // No lanzar error, es opcional
   }
 }

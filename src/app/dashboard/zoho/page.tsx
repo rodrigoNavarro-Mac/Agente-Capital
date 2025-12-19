@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { 
   getZohoLeads, 
   getZohoDeals, 
@@ -26,6 +26,7 @@ import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/development-colors';
 import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, type TimePeriod } from '@/lib/time-buckets';
+import { logger } from '@/lib/logger';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,7 @@ export default function ZohoCRMPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   
   const { toast } = useToast();
 
@@ -196,7 +198,7 @@ export default function ZohoCRMPage() {
         if (!cancelled) setActivityStats(data);
       } catch (e) {
         // No mostramos toast para evitar "spam" cuando se cambian filtros.
-        console.warn('⚠️ No se pudo cargar activityStats:', e);
+        logger.error('Error loading activity stats:', e);
         if (!cancelled) setActivityStats(null);
       } finally {
         if (!cancelled) setActivityStatsLoading(false);
@@ -473,7 +475,7 @@ export default function ZohoCRMPage() {
         if (!cancelled) setStoredNotesInsights(data);
       } catch (e) {
         // No toast para evitar ruido al cambiar filtros
-        console.warn('⚠️ No se pudo cargar storedNotesInsights:', e);
+        logger.error('Error loading stored notes insights:', e);
         if (!cancelled) setStoredNotesInsights(null);
       } finally {
         if (!cancelled) setStoredNotesInsightsLoading(false);
@@ -537,7 +539,7 @@ export default function ZohoCRMPage() {
         description: 'La IA generó insights a partir de las notas.',
       });
     } catch (e) {
-      console.error('Error generando insights con IA:', e);
+      logger.error('Error generating AI notes insights:', e);
       toast({
         title: 'Error',
         description: e instanceof Error ? e.message : 'No se pudieron generar insights con IA.',
@@ -1424,7 +1426,7 @@ export default function ZohoCRMPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {userRole === 'admin' && (
+          {(userRole === 'admin' || userRole === 'ceo') && (
             <Button
               onClick={handleSync}
               disabled={syncing}
@@ -1478,104 +1480,128 @@ export default function ZohoCRMPage() {
       {/* Global Filters */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filtros Globales
-          </CardTitle>
-          <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Periodo</label>
-              <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar periodo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="week">Semanal</SelectItem>
-                  <SelectItem value="month">Mensual</SelectItem>
-                  <SelectItem value="quarter">Trimestral</SelectItem>
-                  <SelectItem value="year">Anual</SelectItem>
-                </SelectContent>
-              </Select>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Filtros Globales
+              </CardTitle>
+              <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
             </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Desarrollo</label>
-              <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar desarrollo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los desarrollos</SelectItem>
-                  {availableDevelopments.map((dev) => (
-                    <SelectItem key={dev} value={dev}>
-                      {dev}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
-              <Select value={selectedSource} onValueChange={setSelectedSource}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar fuente" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las fuentes</SelectItem>
-                  {availableSources.map((source) => (
-                    <SelectItem key={source} value={source}>
-                      {source}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Asesor</label>
-              <Select value={selectedOwner} onValueChange={setSelectedOwner}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar asesor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los asesores</SelectItem>
-                  {availableOwners.map((owner) => (
-                    <SelectItem key={owner} value={owner}>
-                      {owner}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
-              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los estados</SelectItem>
-                  {availableStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant={showLastMonth ? "default" : "outline"}
-                onClick={() => setShowLastMonth(!showLastMonth)}
-                className="w-full"
-              >
-                <Calendar className="h-4 w-4 mr-2" />
-                {showLastMonth ? 'Ver periodo actual' : 'Ver periodo anterior'}
-              </Button>
-            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setFiltersOpen((open) => !open)}
+              className="flex items-center gap-2"
+            >
+              {filtersOpen ? (
+                <>
+                  <ChevronUp className="h-4 w-4" />
+                  Ocultar
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-4 w-4" />
+                  Mostrar
+                </>
+              )}
+            </Button>
           </div>
-        </CardContent>
+        </CardHeader>
+        {filtersOpen && (
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Periodo</label>
+                <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar periodo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="week">Semanal</SelectItem>
+                    <SelectItem value="month">Mensual</SelectItem>
+                    <SelectItem value="quarter">Trimestral</SelectItem>
+                    <SelectItem value="year">Anual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Desarrollo</label>
+                <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar desarrollo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los desarrollos</SelectItem>
+                    {availableDevelopments.map((dev) => (
+                      <SelectItem key={dev} value={dev}>
+                        {dev}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
+                <Select value={selectedSource} onValueChange={setSelectedSource}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar fuente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las fuentes</SelectItem>
+                    {availableSources.map((source) => (
+                      <SelectItem key={source} value={source}>
+                        {source}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Asesor</label>
+                <Select value={selectedOwner} onValueChange={setSelectedOwner}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar asesor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los asesores</SelectItem>
+                    {availableOwners.map((owner) => (
+                      <SelectItem key={owner} value={owner}>
+                        {owner}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
+                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los estados</SelectItem>
+                    {availableStatuses.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant={showLastMonth ? "default" : "outline"}
+                  onClick={() => setShowLastMonth(!showLastMonth)}
+                  className="w-full"
+                >
+                  <Calendar className="h-4 w-4 mr-2" />
+                  {showLastMonth ? 'Ver periodo actual' : 'Ver periodo anterior'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* Tabs */}

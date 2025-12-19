@@ -6,6 +6,7 @@
  */
 
 import { query } from './postgres';
+import { logger } from '@/lib/logger';
 import type {
   CommissionConfig,
   CommissionConfigInput,
@@ -44,7 +45,7 @@ export async function getCommissionConfig(
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo configuración de comisiones:', error);
+    logger.error('Error obteniendo configuración de comisiones', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -59,7 +60,7 @@ export async function getAllCommissionConfigs(): Promise<CommissionConfig[]> {
     );
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo configuraciones de comisiones:', error);
+    logger.error('Error obteniendo configuraciones de comisiones', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -125,7 +126,7 @@ export async function upsertCommissionConfig(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error guardando configuración de comisiones:', error);
+    logger.error('Error guardando configuración de comisiones', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -140,7 +141,7 @@ export async function getCommissionGlobalConfigs(): Promise<CommissionGlobalConf
     );
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo configuración global de comisiones:', error);
+    logger.error('Error obteniendo configuración global de comisiones', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -166,7 +167,7 @@ export async function updateCommissionGlobalConfig(
     }
     return result.rows[0];
   } catch (error) {
-    console.error('Error actualizando configuración global de comisiones:', error);
+    logger.error('Error actualizando configuración global de comisiones', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -186,7 +187,7 @@ export async function getCommissionSale(id: number): Promise<CommissionSale | nu
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo venta comisionable:', error);
+    logger.error('Error obteniendo venta comisionable', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -204,7 +205,7 @@ export async function getCommissionSaleByZohoDealId(
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo venta comisionable por Zoho Deal ID:', error);
+    logger.error('Error obteniendo venta comisionable por Zoho Deal ID', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -264,7 +265,7 @@ export async function getClosedWonDealsFromDB(
       };
     });
   } catch (error) {
-    console.error('Error obteniendo deals cerrados-ganados:', error);
+    logger.error('Error obteniendo deals cerrados-ganados', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -372,7 +373,7 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
 
     return await upsertCommissionSale(saleInput);
   } catch (error) {
-    console.error('Error sincronizando deal a venta comisionable:', error);
+    logger.error('Error sincronizando deal a venta comisionable', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -411,13 +412,13 @@ export async function processClosedWonDealsFromLocalDB(): Promise<{
         errors++;
         const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
         errorsList.push(`Deal ${deal.id}: ${errorMsg}`);
-        console.error(`Error procesando deal ${deal.id}:`, error);
+        logger.error(`Error procesando deal ${deal.id}`, error, {}, 'commission-db');
       }
     }
 
     return { processed, errors, errorsList, skipped };
   } catch (error) {
-    console.error('Error procesando deals cerrados-ganados desde BD local:', error);
+    logger.error('Error procesando deals cerrados-ganados desde BD local', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -436,31 +437,31 @@ export async function getCommissionSales(
     let paramIndex = 1;
 
     if (filters?.desarrollo) {
-      whereConditions.push(`desarrollo = $${paramIndex}`);
+      whereConditions.push(`cs.desarrollo = $${paramIndex}`);
       params.push(filters.desarrollo);
       paramIndex++;
     }
 
     if (filters?.propietario_deal) {
-      whereConditions.push(`propietario_deal = $${paramIndex}`);
+      whereConditions.push(`cs.propietario_deal = $${paramIndex}`);
       params.push(filters.propietario_deal);
       paramIndex++;
     }
 
     if (filters?.fecha_firma_from) {
-      whereConditions.push(`fecha_firma >= $${paramIndex}::date`);
+      whereConditions.push(`cs.fecha_firma >= $${paramIndex}::date`);
       params.push(filters.fecha_firma_from);
       paramIndex++;
     }
 
     if (filters?.fecha_firma_to) {
-      whereConditions.push(`fecha_firma <= $${paramIndex}::date`);
+      whereConditions.push(`cs.fecha_firma <= $${paramIndex}::date`);
       params.push(filters.fecha_firma_to);
       paramIndex++;
     }
 
     if (filters?.commission_calculated !== undefined) {
-      whereConditions.push(`commission_calculated = $${paramIndex}`);
+      whereConditions.push(`cs.commission_calculated = $${paramIndex}`);
       params.push(filters.commission_calculated);
       paramIndex++;
     }
@@ -471,7 +472,7 @@ export async function getCommissionSales(
 
     // Obtener total
     const countResult = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM commission_sales ${whereClause}`,
+      `SELECT COUNT(*) as count FROM commission_sales cs ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0]?.count || '0', 10);
@@ -479,8 +480,21 @@ export async function getCommissionSales(
     // Obtener ventas
     params.push(limit, offset);
     const salesResult = await query<CommissionSale>(
-      `SELECT * FROM commission_sales ${whereClause}
-       ORDER BY fecha_firma DESC, id DESC
+      `SELECT 
+         cs.*,
+         COALESCE(cd.total_distributions, 0) AS total_distributions,
+         COALESCE(cd.paid_distributions, 0) AS paid_distributions
+       FROM commission_sales cs
+       LEFT JOIN (
+         SELECT 
+           sale_id,
+           COUNT(*) AS total_distributions,
+           COUNT(*) FILTER (WHERE payment_status = 'paid') AS paid_distributions
+         FROM commission_distributions
+         GROUP BY sale_id
+       ) cd ON cs.id = cd.sale_id
+       ${whereClause}
+       ORDER BY cs.fecha_firma DESC, cs.id DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       params
     );
@@ -490,7 +504,7 @@ export async function getCommissionSales(
       total,
     };
   } catch (error) {
-    console.error('Error obteniendo ventas comisionables:', error);
+    logger.error('Error obteniendo ventas comisionables', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -547,7 +561,7 @@ export async function upsertCommissionSale(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error guardando venta comisionable:', error);
+    logger.error('Error guardando venta comisionable', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -573,7 +587,7 @@ export async function updateCommissionSaleCalculation(
       [commissionTotal, commissionSalePhase, commissionPostSalePhase, saleId]
     );
   } catch (error) {
-    console.error('Error actualizando cálculo de comisión:', error);
+    logger.error('Error actualizando cálculo de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -597,7 +611,7 @@ export async function getCommissionDistributions(
     );
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo distribuciones de comisión:', error);
+    logger.error('Error obteniendo distribuciones de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -628,7 +642,7 @@ export async function createCommissionDistribution(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error creando distribución de comisión:', error);
+    logger.error('Error creando distribución de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -657,7 +671,7 @@ export async function createCommissionDistributions(
 
     return created;
   } catch (error) {
-    console.error('Error creando distribuciones de comisión:', error);
+    logger.error('Error creando distribuciones de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -675,7 +689,7 @@ export async function getCommissionDistribution(
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo distribución de comisión:', error);
+    logger.error('Error obteniendo distribución de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -703,7 +717,7 @@ export async function updateCommissionDistribution(
     }
     return result.rows[0];
   } catch (error) {
-    console.error('Error actualizando distribución de comisión:', error);
+    logger.error('Error actualizando distribución de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -729,7 +743,7 @@ export async function updateCommissionDistributionPaymentStatus(
     }
     return result.rows[0];
   } catch (error) {
-    console.error('Error actualizando estado de pago de distribución:', error);
+    logger.error('Error actualizando estado de pago de distribución', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -805,7 +819,7 @@ export async function getCommissionDistributionsWithSaleInfo(
 
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo distribuciones con información de venta:', error);
+    logger.error('Error obteniendo distribuciones con información de venta', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -833,7 +847,7 @@ export async function deleteCommissionDistributions(saleId: number): Promise<voi
       [saleId]
     );
   } catch (error) {
-    console.error('Error eliminando distribuciones de comisión:', error);
+    logger.error('Error eliminando distribuciones de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -873,7 +887,7 @@ export async function createCommissionAdjustment(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error creando ajuste de comisión:', error);
+    logger.error('Error creando ajuste de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -895,7 +909,7 @@ export async function getCommissionAdjustments(
     );
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo ajustes de comisión:', error);
+    logger.error('Error obteniendo ajustes de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -922,7 +936,7 @@ export async function getCommissionRules(desarrollo?: string): Promise<Commissio
     const result = await query<CommissionRule>(sqlQuery, params);
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo reglas de comisión:', error);
+    logger.error('Error obteniendo reglas de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -938,7 +952,7 @@ export async function getCommissionRule(id: number): Promise<CommissionRule | nu
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo regla de comisión:', error);
+    logger.error('Error obteniendo regla de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -978,7 +992,7 @@ export async function createCommissionRule(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error creando regla de comisión:', error);
+    logger.error('Error creando regla de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1073,7 +1087,7 @@ export async function updateCommissionRule(
 
     return result.rows[0];
   } catch (error) {
-    console.error('Error actualizando regla de comisión:', error);
+    logger.error('Error actualizando regla de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1089,7 +1103,7 @@ export async function deleteCommissionRule(id: number): Promise<boolean> {
     );
     return result.rows.length > 0;
   } catch (error) {
-    console.error('Error eliminando regla de comisión:', error);
+    logger.error('Error eliminando regla de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1147,7 +1161,7 @@ function _fechaEstaEnPeriodo(
     }
     return false;
   } catch (error) {
-    console.error('Error verificando si fecha está en período:', error);
+    logger.error('Error verificando si fecha está en período', error, {}, 'commission-db');
     return false;
   }
 }
@@ -1175,7 +1189,7 @@ export async function countUnidadesVendidasEnPeriodo(
       // Formato: "2025-Q1" -> año 2025, trimestre 1 (enero-marzo)
       const match = periodoValue.match(/^(\d{4})-Q(\d)$/);
       if (!match) {
-        console.warn(`Formato de período trimestral inválido: ${periodoValue}`);
+        logger.warn(`Formato de período trimestral inválido: ${periodoValue}`, {}, 'commission-db');
         return 0;
       }
       const año = parseInt(match[1], 10);
@@ -1191,7 +1205,7 @@ export async function countUnidadesVendidasEnPeriodo(
       // Formato: "2025-01" -> año 2025, mes 1
       const match = periodoValue.match(/^(\d{4})-(\d{2})$/);
       if (!match) {
-        console.warn(`Formato de período mensual inválido: ${periodoValue}`);
+        logger.warn(`Formato de período mensual inválido: ${periodoValue}`, {}, 'commission-db');
         return 0;
       }
       const año = parseInt(match[1], 10);
@@ -1203,13 +1217,13 @@ export async function countUnidadesVendidasEnPeriodo(
       // Formato: "2025" -> año 2025
       const año = parseInt(periodoValue, 10);
       if (isNaN(año)) {
-        console.warn(`Formato de período anual inválido: ${periodoValue}`);
+        logger.warn(`Formato de período anual inválido: ${periodoValue}`, {}, 'commission-db');
         return 0;
       }
       dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2`;
       params.push(año);
     } else {
-      console.warn(`Tipo de período desconocido: ${periodoType}`);
+      logger.warn(`Tipo de período desconocido: ${periodoType}`, {}, 'commission-db');
       return 0;
     }
     
@@ -1230,7 +1244,7 @@ export async function countUnidadesVendidasEnPeriodo(
     
     return parseInt(result.rows[0]?.count || '0', 10);
   } catch (error) {
-    console.error('Error contando unidades vendidas en período:', error);
+    logger.error('Error contando unidades vendidas en período', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1359,7 +1373,7 @@ export async function getApplicableCommissionRules(
     
     return applicableRules;
   } catch (error) {
-    console.error('Error obteniendo reglas aplicables de comisión:', error);
+    logger.error('Error obteniendo reglas aplicables de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1455,7 +1469,7 @@ export async function getRuleUnitsCountMap(
     
     return unitsCountMap;
   } catch (error) {
-    console.error('Error obteniendo conteo de unidades por regla:', error);
+    logger.error('Error obteniendo conteo de unidades por regla', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1479,7 +1493,7 @@ export async function getCommissionBillingTargets(
     );
     return result.rows;
   } catch (error) {
-    console.error('Error obteniendo metas de facturación:', error);
+    logger.error('Error obteniendo metas de facturación', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1499,7 +1513,7 @@ export async function getCommissionBillingTarget(
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo meta de facturación:', error);
+    logger.error('Error obteniendo meta de facturación', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1525,7 +1539,7 @@ export async function upsertCommissionBillingTarget(
     );
     return result.rows[0];
   } catch (error) {
-    console.error('Error guardando meta de facturación:', error);
+    logger.error('Error guardando meta de facturación', error, {}, 'commission-db');
     throw error;
   }
 }
@@ -1545,7 +1559,7 @@ export async function deleteCommissionBillingTarget(
     );
     return (result.rowCount || 0) > 0;
   } catch (error) {
-    console.error('Error eliminando meta de facturación:', error);
+    logger.error('Error eliminando meta de facturación', error, {}, 'commission-db');
     throw error;
   }
 }

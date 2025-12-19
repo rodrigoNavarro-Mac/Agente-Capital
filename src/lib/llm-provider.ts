@@ -10,6 +10,7 @@ import { runLLM as runLLMLMStudio, checkLMStudioHealth, getAvailableModels as ge
 import { runLLM as runLLMOpenAI, checkOpenAIHealth, getAvailableModels as getOpenAIModels } from './openai';
 import { getConfig } from './postgres';
 import type { LMStudioMessage } from '@/types/documents';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // TIPOS
@@ -45,7 +46,7 @@ export async function getLLMProvider(): Promise<LLMProvider> {
     }
     return DEFAULT_PROVIDER;
   } catch (error) {
-    console.error('❌ Error obteniendo proveedor LLM, usando por defecto:', error);
+    logger.error('Error obteniendo proveedor LLM, usando por defecto', error, {}, 'llm-provider');
     return DEFAULT_PROVIDER;
   }
 }
@@ -63,7 +64,7 @@ export async function runLLM(
 ): Promise<string> {
   const provider = await getLLMProvider();
   
-  console.log(`🔌 Usando proveedor LLM: ${provider}`);
+  logger.info(`Usando proveedor LLM: ${provider}`, {}, 'llm-provider');
   
   switch (provider) {
     case 'openai':
@@ -81,7 +82,7 @@ export async function runLLM(
 export async function checkLLMHealth(): Promise<boolean> {
   const provider = await getLLMProvider();
   
-  console.log(`🔍 Verificando salud del proveedor LLM: ${provider}`);
+  logger.info(`Verificando salud del proveedor LLM: ${provider}`, {}, 'llm-provider');
   
   switch (provider) {
     case 'openai':
@@ -108,7 +109,7 @@ export async function getAvailableModels(): Promise<string[]> {
         return getLMStudioModels();
     }
   } catch (error) {
-    console.error(`❌ Error obteniendo modelos del proveedor ${provider}:`, error);
+    logger.error(`Error obteniendo modelos del proveedor ${provider}`, error, {}, 'llm-provider');
     return [];
   }
 }

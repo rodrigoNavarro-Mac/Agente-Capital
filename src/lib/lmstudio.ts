@@ -13,6 +13,7 @@ import type {
 } from '@/types/documents';
 import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
 import { fetchWithTimeout, TIMEOUTS } from '@/lib/timeout';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -57,7 +58,7 @@ export async function runLLM(
   };
 
   try {
-    console.log(`🤖 Enviando consulta a LM Studio (modelo: ${model})...`);
+    logger.info(`Enviando consulta a LM Studio (modelo: ${model})...`, {}, 'lmstudio');
     
     // Aplicar timeout a la llamada a LM Studio
     const response = await fetchWithTimeout(
@@ -80,29 +81,38 @@ export async function runLLM(
     const data: LMStudioResponse = await response.json();
 
     // Debug: Ver la respuesta completa
-    console.log('🔍 Respuesta de LM Studio:', JSON.stringify(data, null, 2));
+    logger.debug('Respuesta de LM Studio', { data }, 'lmstudio');
 
     // Extraer el contenido de la respuesta
     const content = data.choices?.[0]?.message?.content;
     
     if (!content) {
-      console.error('❌ La respuesta no tiene contenido. Estructura recibida:', {
-        hasChoices: !!data.choices,
-        choicesLength: data.choices?.length,
-        firstChoice: data.choices?.[0],
-      });
+      logger.error(
+        'La respuesta no tiene contenido. Estructura recibida',
+        undefined,
+        {
+          hasChoices: !!data.choices,
+          choicesLength: data.choices?.length,
+          firstChoice: data.choices?.[0],
+        },
+        'lmstudio'
+      );
       throw new Error('La respuesta de LM Studio no contiene contenido');
     }
 
     // Log de tokens utilizados si está disponible
     if (data.usage) {
-      console.log(`📊 Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`);
+      logger.info(
+        `Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`,
+        {},
+        'lmstudio'
+      );
     }
 
-    console.log('✅ Respuesta de LM Studio recibida');
+    logger.info('Respuesta de LM Studio recibida', {}, 'lmstudio');
     return content;
   } catch (error) {
-    console.error('❌ Error en runLLM:', error);
+    logger.error('Error en runLLM', error, {}, 'lmstudio');
     throw error;
   }
 }
@@ -124,7 +134,7 @@ export async function runRAGQuery(
 ): Promise<string> {
   // Si no hay contexto, usar respuesta predeterminada
   if (!context || context.trim() === '') {
-    console.log('⚠️ No se encontró contexto relevante');
+    logger.warn('No se encontró contexto relevante', {}, 'lmstudio');
     return NO_CONTEXT_RESPONSE;
   }
 
@@ -155,7 +165,7 @@ Por favor, responde la pregunta basándote en el contexto proporcionado. Si el c
     const response = await runLLM(messages);
     return response;
   } catch (error) {
-    console.error('❌ Error en runRAGQuery:', error);
+    logger.error('Error en runRAGQuery', error, {}, 'lmstudio');
     throw error;
   }
 }
@@ -174,27 +184,31 @@ export async function checkLMStudioHealth(): Promise<boolean> {
       },
     });
 
-    console.log(`🔍 LM Studio health check: Status ${response.status}`);
+    logger.info(`LM Studio health check: Status ${response.status}`, {}, 'lmstudio');
 
     if (response.ok) {
       const data = await response.json();
-      console.log('✅ LM Studio está disponible.');
+      logger.info('LM Studio está disponible.', {}, 'lmstudio');
       
       // Verificar si hay modelos disponibles
       if (data.data && Array.isArray(data.data) && data.data.length > 0) {
-        console.log(`📋 Modelos cargados (${data.data.length}):`, data.data.map((m: any) => m.id));
+        logger.info(
+          `Modelos cargados (${data.data.length}):`,
+          { models: data.data.map((m: any) => m.id) },
+          'lmstudio'
+        );
       } else {
-        console.warn('⚠️ LM Studio está corriendo pero NO hay modelos cargados');
+        logger.warn('LM Studio está corriendo pero NO hay modelos cargados', {}, 'lmstudio');
       }
       
       return true;
     }
 
-    console.warn(`⚠️ LM Studio respondió con status ${response.status}`);
+    logger.warn(`LM Studio respondió con status ${response.status}`, {}, 'lmstudio');
     return false;
   } catch (error) {
-    console.error('❌ LM Studio no está disponible:', error);
-    console.log(`💡 Verifica que LM Studio esté corriendo en ${LMSTUDIO_BASE_URL}`);
+    logger.error('LM Studio no está disponible', error, {}, 'lmstudio');
+    logger.info(`Verifica que LM Studio esté corriendo en ${LMSTUDIO_BASE_URL}`, {}, 'lmstudio');
     return false;
   }
 }
@@ -221,7 +235,7 @@ export async function getAvailableModels(): Promise<string[]> {
     
     return models;
   } catch (error) {
-    console.error('❌ Error obteniendo modelos:', error);
+    logger.error('Error obteniendo modelos', error, {}, 'lmstudio');
     throw error;
   }
 }
@@ -361,7 +375,7 @@ export async function runLLMStream(
       }
     }
   } catch (error) {
-    console.error('❌ Error en runLLMStream:', error);
+    logger.error('Error en runLLMStream', error, {}, 'lmstudio');
     throw error;
   }
 }

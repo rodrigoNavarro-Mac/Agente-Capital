@@ -17,6 +17,7 @@ import { copyToClipboard } from '@/lib/utils';
 import { decodeAccessToken } from '@/lib/auth';
 import type { UserRole } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { logger } from '@/lib/logger';
 
 // Tipo para representar un mensaje en el chat
 interface ChatMessage {
@@ -138,7 +139,7 @@ export default function AgentPage() {
   const loadChatHistory = useCallback(async (chatId: ChatId, zoneValue: string, devValue: string) => {
     // Validar parámetros requeridos
     if (!zoneValue || !devValue || !userId) {
-      console.warn('[loadChatHistory] Faltan parámetros');
+      logger.error('[loadChatHistory] Missing parameters');
       setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar como intentado aunque falle
       return;
     }
@@ -166,7 +167,7 @@ export default function AgentPage() {
       if (history.length > 0) {
         const foreignMessages = history.filter(h => h.user_id !== userId);
         if (foreignMessages.length > 0) {
-          console.error('[SEGURIDAD] Se recibieron mensajes de otros usuarios');
+          logger.error('[SECURITY] Received messages from other users');
         }
       }
 
@@ -174,7 +175,7 @@ export default function AgentPage() {
       // Esto es una capa adicional de seguridad en caso de que el backend no filtre correctamente
       const userHistory = history.filter(log => {
         if (log.user_id !== userId) {
-          console.error('[SEGURIDAD] Mensaje de otro usuario detectado y filtrado');
+          logger.error('[SECURITY] Message from other user detected and filtered');
           return false;
         }
         return true;
@@ -182,7 +183,7 @@ export default function AgentPage() {
       
       if (userHistory.length !== history.length) {
         const filteredCount = history.length - userHistory.length;
-        console.error(`[SEGURIDAD] Se filtraron ${filteredCount} mensaje(s) de otros usuarios del historial`);
+        logger.error(`[SECURITY] Filtered ${filteredCount} message(s) from other users in history`);
         toast({
           title: 'Mensajes filtrados',
           description: `Se detectaron ${filteredCount} mensaje(s) que no pertenecen a tu cuenta y fueron filtrados por seguridad.`,
@@ -236,7 +237,7 @@ export default function AgentPage() {
         },
       }));
     } catch (error) {
-      console.error('[loadChatHistory] Error cargando historial:', error);
+      logger.error('[loadChatHistory] Error loading history:', error);
       
       // Solo mostrar toast si el error no es por timeout (para no alarmar al usuario)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -261,7 +262,7 @@ export default function AgentPage() {
       const user = await getUser(userId);
       setUserRole(user.role || null);
     } catch (error) {
-      console.error('Error cargando información del usuario:', error);
+      logger.error('Error loading user information:', error);
     }
   }, [userId]);
 
@@ -300,7 +301,7 @@ export default function AgentPage() {
         }
       }
     } catch (error) {
-      console.error('Error cargando asignaciones del usuario:', error);
+      logger.error('Error loading user assignments:', error);
     }
   }, [userRole, userId, createOrActivateChat]);
 
@@ -310,7 +311,7 @@ export default function AgentPage() {
       const config = await getAgentConfig();
       setTopK(config.top_k || 5);
     } catch (error) {
-      console.error('Error cargando configuración:', error);
+      logger.error('Error loading configuration:', error);
     }
   }, []);
 
@@ -545,7 +546,7 @@ export default function AgentPage() {
               );
             }
           } catch (error) {
-            console.warn('No se pudo guardar la calificación en el nuevo query_log_id:', error);
+            logger.error('Error saving rating in new query_log_id:', error);
             // No mostrar error al usuario, solo log
           }
         }
@@ -704,7 +705,7 @@ export default function AgentPage() {
         description: 'El historial ha sido eliminado permanentemente. Puedes empezar un nuevo chat.',
       });
     } catch (error) {
-      console.error('Error eliminando chat:', error);
+      logger.error('Error deleting chat:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'No se pudo eliminar el historial',

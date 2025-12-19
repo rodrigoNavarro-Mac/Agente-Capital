@@ -7,6 +7,7 @@
 
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { logger } from '@/lib/logger';
 
 /**
  * Combina clases de Tailwind con merge inteligente
@@ -93,7 +94,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text);
     return true;
   } catch (error) {
-    console.error('Error copiando al portapapeles:', error);
+    logger.error('Error copiando al portapapeles', error, {}, 'utils');
     return false;
   }
 }

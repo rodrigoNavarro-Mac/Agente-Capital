@@ -11,6 +11,7 @@ import type { PineconeMatch } from '@/types/documents';
 import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
 import { runLLM as runLLMProvider, checkLLMHealth, checkAllProvidersHealth } from './llm-provider';
 import { validateResponseAgainstChunks } from './responseValidator';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -71,7 +72,7 @@ export async function runRAGQuery(
 ): Promise<string> {
   // Si no hay contexto, usar respuesta predeterminada
   if (!context || context.trim() === '') {
-    console.log('⚠️ No se encontró contexto relevante');
+    logger.warn('No se encontró contexto relevante', {}, 'llm');
     return NO_CONTEXT_RESPONSE;
   }
 
@@ -125,21 +126,25 @@ Por favor, responde la pregunta basándote ÚNICAMENTE en el contexto proporcion
       
       // Log de advertencias si las hay
       if (validation.warnings.length > 0) {
-        console.log('⚠️ Advertencias de validación:');
-        validation.warnings.forEach(warning => console.log(`  - ${warning}`));
+        logger.warn('Advertencias de validación', { warnings: validation.warnings }, 'llm');
       }
       
       // Si hay afirmaciones sin citas, loguearlas
       if (validation.uncitedClaims.length > 0) {
-        console.log(`⚠️ Se encontraron ${validation.uncitedClaims.length} afirmación(es) sin citas:`);
-        validation.uncitedClaims.slice(0, 3).forEach(claim => {
-          console.log(`  - "${claim.substring(0, 80)}..."`);
-        });
+        logger.warn(
+          `Se encontraron ${validation.uncitedClaims.length} afirmación(es) sin citas`,
+          { claims: validation.uncitedClaims.slice(0, 3).map((claim) => claim.substring(0, 200)) },
+          'llm'
+        );
       }
       
       // Usar la respuesta filtrada
       if (!validation.isValid && validation.warnings.length > 0) {
-        console.log('⚠️ La respuesta contiene información que puede no estar respaldada por los chunks');
+        logger.warn(
+          'La respuesta contiene información que puede no estar respaldada por los chunks',
+          {},
+          'llm'
+        );
       }
       
       return validation.filteredResponse;
@@ -147,7 +152,7 @@ Por favor, responde la pregunta basándote ÚNICAMENTE en el contexto proporcion
     
     return response;
   } catch (error) {
-    console.error('❌ Error en runRAGQuery:', error);
+    logger.error('Error en runRAGQuery', error, {}, 'llm');
     throw error;
   }
 }

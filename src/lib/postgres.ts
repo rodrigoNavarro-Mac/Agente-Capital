@@ -107,7 +107,12 @@ function getPoolConfig() {
   if (connectionString) {
     // Validar formato básico de la URL
     if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
-      console.error('La cadena de conexión debe comenzar con postgresql:// o postgres://');
+      logger.error(
+        'La cadena de conexión debe comenzar con postgresql:// o postgres://',
+        undefined,
+        { connectionStringPrefix: connectionString.slice(0, 20) },
+        'postgres'
+      );
       throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
     
@@ -151,7 +156,7 @@ function getPoolConfig() {
         };
       }
     } catch (e) {
-      console.error('Error parseando cadena de conexión:', e);
+      logger.error('Error parseando cadena de conexión', e, undefined, 'postgres');
       // Si no podemos parsear, asumir que es Supabase si viene de variables de Vercel
       isSupabase = !!process.env.POSTGRES_URL || 
                    !!process.env.POSTGRES_PRISMA_URL ||
@@ -186,13 +191,13 @@ function getPoolConfig() {
   // En desarrollo local, dar mensajes más útiles si falta configuración
   if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL) {
     if (!password) {
-      console.warn('⚠️ ADVERTENCIA: POSTGRES_PASSWORD no está configurado. Usando contraseña vacía.');
-      console.warn('   Para desarrollo local, crea un archivo .env.local con:');
-      console.warn('   POSTGRES_HOST=localhost');
-      console.warn('   POSTGRES_PORT=5432');
-      console.warn('   POSTGRES_USER=postgres');
-      console.warn('   POSTGRES_PASSWORD=tu_contraseña');
-      console.warn('   POSTGRES_DB=capital_plus_agent');
+      logger.warn('⚠️ ADVERTENCIA: POSTGRES_PASSWORD no está configurado. Usando contraseña vacía.', undefined, 'postgres');
+      logger.warn('   Para desarrollo local, crea un archivo .env.local con:', undefined, 'postgres');
+      logger.warn('   POSTGRES_HOST=localhost', undefined, 'postgres');
+      logger.warn('   POSTGRES_PORT=5432', undefined, 'postgres');
+      logger.warn('   POSTGRES_USER=postgres', undefined, 'postgres');
+      logger.warn('   POSTGRES_PASSWORD=tu_contraseña', undefined, 'postgres');
+      logger.warn('   POSTGRES_DB=capital_plus_agent', undefined, 'postgres');
     }
   }
   
@@ -231,19 +236,19 @@ pool.on('error', (err: Error & { code?: string }) => {
   // Mensajes más descriptivos para errores comunes
   if (err instanceof Error) {
     if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
-      console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
-      console.error('   Verifica que una de estas variables esté configurada en Vercel:');
-      console.error('   - POSTGRES_URL (creada automáticamente por integración Supabase)');
-      console.error('   - POSTGRES_PRISMA_URL');
-      console.error('   - POSTGRES_URL_NON_POOLING');
-      console.error('   - DATABASE_URL (si configurada manualmente)');
+      logger.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.', err, undefined, 'postgres');
+      logger.error('   Verifica que una de estas variables esté configurada en Vercel:', undefined, undefined, 'postgres');
+      logger.error('   - POSTGRES_URL (creada automáticamente por integración Supabase)', undefined, undefined, 'postgres');
+      logger.error('   - POSTGRES_PRISMA_URL', undefined, undefined, 'postgres');
+      logger.error('   - POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres');
+      logger.error('   - DATABASE_URL (si configurada manualmente)', undefined, undefined, 'postgres');
     } else if (err.message.includes('ECONNREFUSED')) {
-      console.error('DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.');
+      logger.error('DIAGNÓSTICO: Conexión rechazada. Verifica que la base de datos esté accesible.', err, undefined, 'postgres');
     } else if (err.message.includes('password authentication failed')) {
-      console.error('DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.');
+      logger.error('DIAGNÓSTICO: Error de autenticación. Verifica las credenciales en la cadena de conexión.', err, undefined, 'postgres');
     } else if (err.code === '57P01' || err.message.includes('terminating connection')) {
-      console.error('⚠️ DIAGNÓSTICO: Conexión terminada por el servidor.');
-      console.error('   Esto puede ser temporal. El pool intentará reconectar.');
+      logger.error('⚠️ DIAGNÓSTICO: Conexión terminada por el servidor.', err, undefined, 'postgres');
+      logger.error('   Esto puede ser temporal. El pool intentará reconectar.', undefined, undefined, 'postgres');
     }
   }
 });
@@ -304,7 +309,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
       }
       
       // Si no es un error de conexión o se agotaron los intentos, loggear y lanzar
-      console.error('Error en query:', error);
+      logger.error('Error en query', error, { text, params }, 'postgres');
       
       // Mensajes más descriptivos para errores de conexión
       if (error instanceof Error) {
@@ -312,41 +317,41 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
                           (!process.env.DATABASE_URL && !process.env.POSTGRES_URL);
         
         if (isConnectionError) {
-          console.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.');
+          logger.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.', error, { attempt, retries }, 'postgres');
           if (isLocalDev) {
-            console.error('   DESARROLLO LOCAL: Verifica que:');
-            console.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)');
-            console.error('   2. Las variables de entorno estén configuradas en .env.local:');
-            console.error('      POSTGRES_HOST=localhost');
-            console.error('      POSTGRES_PORT=5432');
-            console.error('      POSTGRES_USER=postgres');
-            console.error('      POSTGRES_PASSWORD=tu_contraseña');
-            console.error('      POSTGRES_DB=capital_plus_agent');
-            console.error('   3. La base de datos exista: createdb capital_plus_agent');
-            console.error('   4. Las credenciales sean correctas');
+            logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
+            logger.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)', undefined, undefined, 'postgres');
+            logger.error('   2. Las variables de entorno estén configuradas en .env.local:', undefined, undefined, 'postgres');
+            logger.error('      POSTGRES_HOST=localhost', undefined, undefined, 'postgres');
+            logger.error('      POSTGRES_PORT=5432', undefined, undefined, 'postgres');
+            logger.error('      POSTGRES_USER=postgres', undefined, undefined, 'postgres');
+            logger.error('      POSTGRES_PASSWORD=tu_contraseña', undefined, undefined, 'postgres');
+            logger.error('      POSTGRES_DB=capital_plus_agent', undefined, undefined, 'postgres');
+            logger.error('   3. La base de datos exista: createdb capital_plus_agent', undefined, undefined, 'postgres');
+            logger.error('   4. Las credenciales sean correctas', undefined, undefined, 'postgres');
           } else {
-            console.error('   La base de datos puede estar en mantenimiento o sobrecargada.');
+            logger.error('   La base de datos puede estar en mantenimiento o sobrecargada.', undefined, undefined, 'postgres');
           }
         } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
-          console.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.');
+          logger.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.', error, undefined, 'postgres');
           if (isLocalDev) {
-            console.error('   DESARROLLO LOCAL: Verifica que:');
-            console.error('   1. PostgreSQL esté corriendo en localhost');
-            console.error('   2. POSTGRES_HOST esté configurado correctamente en .env.local');
-            console.error('   3. No haya problemas de firewall bloqueando la conexión');
+            logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
+            logger.error('   1. PostgreSQL esté corriendo en localhost', undefined, undefined, 'postgres');
+            logger.error('   2. POSTGRES_HOST esté configurado correctamente en .env.local', undefined, undefined, 'postgres');
+            logger.error('   3. No haya problemas de firewall bloqueando la conexión', undefined, undefined, 'postgres');
           } else {
-            console.error('   Esto generalmente significa que:');
-            console.error('   1. Ninguna variable de conexión está configurada en Vercel, o');
-            console.error('   2. El hostname en la cadena de conexión es incorrecto, o');
-            console.error('   3. Hay un problema de red/DNS en Vercel');
-            console.error('');
-            console.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables');
-            console.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.');
-            console.error('   Si no existe, verifica la integración o crea manualmente:');
-            console.error('   - POSTGRES_URL (recomendado)');
-            console.error('   - POSTGRES_PRISMA_URL');
-            console.error('   - POSTGRES_URL_NON_POOLING');
-            console.error('   - DATABASE_URL (compatibilidad)');
+            logger.error('   Esto generalmente significa que:', undefined, undefined, 'postgres');
+            logger.error('   1. Ninguna variable de conexión está configurada en Vercel, o', undefined, undefined, 'postgres');
+            logger.error('   2. El hostname en la cadena de conexión es incorrecto, o', undefined, undefined, 'postgres');
+            logger.error('   3. Hay un problema de red/DNS en Vercel', undefined, undefined, 'postgres');
+            logger.error('', undefined, undefined, 'postgres');
+            logger.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables', undefined, undefined, 'postgres');
+            logger.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.', undefined, undefined, 'postgres');
+            logger.error('   Si no existe, verifica la integración o crea manualmente:', undefined, undefined, 'postgres');
+            logger.error('   - POSTGRES_URL (recomendado)', undefined, undefined, 'postgres');
+            logger.error('   - POSTGRES_PRISMA_URL', undefined, undefined, 'postgres');
+            logger.error('   - POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres');
+            logger.error('   - DATABASE_URL (compatibilidad)', undefined, undefined, 'postgres');
           }
         }
       }
@@ -390,7 +395,7 @@ export async function checkConnection(): Promise<boolean> {
     const _result = await query('SELECT NOW()');
     return true;
   } catch (error) {
-    console.error('Error conectando a PostgreSQL:', error);
+    logger.error('Error conectando a PostgreSQL', error, {}, 'postgres');
     return false;
   }
 }
@@ -1086,7 +1091,7 @@ export async function getQueryLogById(queryLogId: number): Promise<{
     
     return result.rows[0] || null;
   } catch (error) {
-    console.error('Error obteniendo query log:', error);
+    logger.error('Error getting query log by id:', error);
     return null;
   }
 }
@@ -1120,7 +1125,7 @@ export async function invalidateCacheByQuery(
     
     return result.rows.length;
   } catch (error) {
-    console.error('Error invalidando caché:', error);
+    logger.error('Error invalidando caché', error, {}, 'postgres');
     return 0;
   }
 }
@@ -1151,7 +1156,7 @@ export async function hasBadFeedbackInCache(
     
     return (result.rows[0]?.count || 0) > 0;
   } catch (error) {
-    console.error('Error verificando feedback negativo:', error);
+    logger.error('Error verificando feedback negativo', error, {}, 'postgres');
     return false;
   }
 }
@@ -1309,7 +1314,7 @@ export async function getActionLogs(options: {
           try {
             parsedMetadata = JSON.parse(row.metadata);
           } catch (e) {
-            console.warn('[getActionLogs] Error parseando metadata:', e);
+            logger.warn('[getActionLogs] Error parseando metadata', { error: e instanceof Error ? e.message : String(e) }, 'postgres');
             parsedMetadata = undefined;
           }
         } else {
@@ -1414,7 +1419,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       logger.warn('Column feedback_rating not available; using default value', undefined, 'postgres');
     } else {
       // Otro tipo de error, registrar como advertencia pero no fallar
-      console.warn('Error obteniendo calificación promedio:', errorMsg);
+      logger.warn('Error obteniendo calificación promedio', { errorMsg }, 'postgres');
     }
     averageRating = 0;
   }
@@ -1828,7 +1833,7 @@ export async function getLearnedResponse(queryText: string): Promise<{
       // Solo loggear el error completo en modo debug o si es un error crítico
       if (semanticError instanceof Error && !errorMessage.includes('no existe la relación') && 
           !errorMessage.includes('does not exist')) {
-        console.error('❌ Error en búsqueda semántica de respuestas aprendidas:', semanticError);
+        logger.error('❌ Error en búsqueda semántica de respuestas aprendidas', semanticError, undefined, 'postgres');
       }
     }
 
@@ -2630,7 +2635,7 @@ export async function syncZohoNote(
     if (error instanceof Error && (error.message.includes('no existe la relación') || 
         error.message.includes('does not exist'))) {
       // Si la tabla no existe, simplemente retornar false (no crítico)
-      console.warn('Tabla zoho_notes no existe. Ejecuta la migración 008_zoho_notes_table.sql');
+      logger.warn('Tabla zoho_notes no existe. Ejecuta la migración 008_zoho_notes_table.sql', undefined, 'postgres');
       return false;
     }
     throw error;
@@ -2746,7 +2751,7 @@ export async function upsertZohoNotesAIInsights(
       error instanceof Error &&
       (error.message.includes('no existe la relación') || error.message.includes('does not exist'))
     ) {
-      console.warn('Tabla zoho_notes_ai_insights no existe. Ejecuta la migración 010_zoho_notes_ai_insights.sql');
+      logger.warn('Tabla zoho_notes_ai_insights no existe. Ejecuta la migración 010_zoho_notes_ai_insights.sql', undefined, 'postgres');
       return;
     }
     throw error;
@@ -2829,7 +2834,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
     logger.debug('Deleted Zoho leads not present in Zoho', { totalDeleted }, 'postgres');
     return totalDeleted;
   } catch (error) {
-    console.error('Error eliminando leads eliminados en Zoho:', error);
+    logger.error('Error eliminando leads eliminados en Zoho', error, undefined, 'postgres');
     throw error;
   }
 }
@@ -2909,7 +2914,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
     logger.debug('Deleted Zoho deals not present in Zoho', { totalDeleted }, 'postgres');
     return totalDeleted;
   } catch (error) {
-    console.error('Error eliminando deals eliminados en Zoho:', error);
+    logger.error('Error eliminando deals eliminados en Zoho', error, undefined, 'postgres');
     throw error;
   }
 }
@@ -2950,7 +2955,7 @@ export async function logZohoSync(
     );
   } catch (error) {
     // No lanzar error si la tabla no existe, solo loguear
-    console.error('Error registrando log de sincronización:', error);
+    logger.error('Error registrando log de sincronización', error, {}, 'postgres');
   }
 }
 
@@ -3107,7 +3112,7 @@ export async function getZohoLeadsFromDB(
         });
       } catch (error) {
         // Si falla, simplemente no incluir notas
-        console.warn('⚠️ Error obteniendo notas de leads:', error);
+        logger.warn('Error obteniendo notas de leads', { error }, 'postgres');
       }
     }
 
@@ -3279,7 +3284,7 @@ export async function getZohoDealsFromDB(
         });
       } catch (error) {
         // Si falla, simplemente no incluir notas
-        console.warn('⚠️ Error obteniendo notas de deals:', error);
+        logger.warn('Error obteniendo notas de deals', { error }, 'postgres');
       }
     }
 

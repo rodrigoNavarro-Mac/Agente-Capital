@@ -31,6 +31,7 @@ import type {
   Permission
 } from '@/types/documents';
 import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // TIPOS PARA KEYSET PAGINATION
@@ -105,7 +106,7 @@ function getServerlessConfig() {
     parsedUrl = new URL(connectionString);
     hostname = parsedUrl.hostname;
   } catch (e) {
-    console.error('Error parseando cadena de conexión:', e);
+    logger.error('Error parseando cadena de conexión', e, {}, 'postgres-serverless');
   }
 
   // Detectar si es Supabase
@@ -200,13 +201,22 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
       // Si es error de conexión y hay reintentos, esperar y reintentar
       if (isConnectionError && attempt < retries) {
         const delay = Math.min(200 * Math.pow(2, attempt), 2000); // Backoff exponencial (max 2s)
-        console.log(`⚠️ Error de conexión, reintentando en ${delay}ms (intento ${attempt + 1}/${retries + 1})...`);
+      logger.warn(
+        `Error de conexión, reintentando en ${delay}ms (intento ${attempt + 1}/${retries + 1})...`,
+        {},
+        'postgres-serverless'
+      );
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       
       // Si no es error de conexión o se agotaron los intentos, lanzar
-      console.error(`Error en query (intento ${attempt + 1}/${retries + 1}):`, error);
+    logger.error(
+      `Error en query (intento ${attempt + 1}/${retries + 1})`,
+      error,
+      {},
+      'postgres-serverless'
+    );
       
       if (attempt === retries) {
         throw error;
@@ -239,7 +249,7 @@ export async function checkConnection(): Promise<boolean> {
     await query('SELECT NOW()');
     return true;
   } catch (error) {
-    console.error('Error conectando a PostgreSQL:', error);
+    logger.error('Error conectando a PostgreSQL', error, {}, 'postgres-serverless');
     return false;
   }
 }
@@ -1026,7 +1036,7 @@ export async function getZohoLeadsFromDB(
           notesMap.get(row.parent_id)!.push(note);
         });
       } catch (error) {
-        console.warn('⚠️ Error obteniendo notas de leads:', error);
+        logger.warn('Error obteniendo notas de leads', { error }, 'postgres-serverless');
       }
     }
 
@@ -1189,7 +1199,7 @@ export async function getZohoDealsFromDB(
           notesMap.get(row.parent_id)!.push(note);
         });
       } catch (error) {
-        console.warn('⚠️ Error obteniendo notas de deals:', error);
+        logger.warn('Error obteniendo notas de deals', { error }, 'postgres-serverless');
       }
     }
 

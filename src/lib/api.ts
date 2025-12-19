@@ -19,6 +19,7 @@ import type {
   Role,
   Permission,
 } from '@/types/documents';
+import { logger } from '@/lib/logger';
 
 // =====================================================
 // BASE FETCH HELPER
@@ -217,7 +218,7 @@ export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse
   });
   
   if (!response.success || !response.data) {
-    console.error('[API] Respuesta inválida');
+    logger.error('[API] Respuesta inválida', undefined, {}, 'api-client');
     throw new Error('Error obteniendo logs: respuesta inválida del servidor');
   }
   
@@ -1115,7 +1116,7 @@ export async function checkPermission(permission: Permission): Promise<boolean> 
     
     return response.hasPermission;
   } catch (error) {
-    console.error('Error verificando permiso:', error);
+    logger.error('Error verificando permiso', error, {}, 'api-client');
     return false;
   }
 }

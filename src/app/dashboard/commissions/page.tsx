@@ -39,6 +39,7 @@ import type {
   CommissionBillingTarget,
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
+import { logger } from '@/lib/logger';
 
 export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
@@ -160,9 +161,9 @@ export default function CommissionsPage() {
       } else if (activeTab === 'dashboard') {
         await loadDashboard();
       }
-    } catch (error) {
-      console.error('Error cargando datos:', error);
-      toast({
+      } catch (error) {
+        logger.error('Error loading data:', error);
+        toast({
         title: 'Error',
         description: 'Error al cargar los datos',
         variant: 'destructive',
@@ -364,7 +365,7 @@ function ConfigTab({
       // Ordenar alfabéticamente
       setAvailableDevelopments(Array.from(allDevelopments).sort());
     } catch (error) {
-      console.error('Error cargando desarrollos:', error);
+      logger.error('Error loading developments:', error);
       // En caso de error, usar desarrollos de configuraciones existentes
       const existingDevs = configs.map(c => c.desarrollo);
       setAvailableDevelopments(existingDevs.sort());
@@ -440,7 +441,7 @@ function ConfigTab({
         setRules(data.data || []);
       }
     } catch (error) {
-      console.error('Error cargando reglas:', error);
+      logger.error('Error loading rules:', error);
     } finally {
       setLoadingRules(false);
     }
@@ -515,10 +516,10 @@ function ConfigTab({
           description: errorMessage,
           variant: 'destructive',
         });
-        console.error('Errores de validación:', data.details || data.error);
+        logger.error('Validation errors:', data.details || data.error);
       }
     } catch (error) {
-      console.error('Error guardando configuración:', error);
+      logger.error('Error saving configuration:', error);
       toast({
         title: 'Error',
         description: 'Error al guardar la configuración',
@@ -568,7 +569,7 @@ function ConfigTab({
         });
       }
     } catch (error) {
-      console.error('Error guardando configuración global:', error);
+      logger.error('Error saving global configuration:', error);
       toast({
         title: 'Error',
         description: 'Error al guardar la configuración global',
@@ -627,7 +628,7 @@ function ConfigTab({
         });
       }
     } catch (error) {
-      console.error('Error guardando regla:', error);
+      logger.error('Error saving rule:', error);
       toast({
         title: 'Error',
         description: 'Error al guardar la regla',
@@ -667,7 +668,7 @@ function ConfigTab({
         });
       }
     } catch (error) {
-      console.error('Error eliminando regla:', error);
+      logger.error('Error deleting rule:', error);
       toast({
         title: 'Error',
         description: 'Error al eliminar la regla',
@@ -715,7 +716,7 @@ function ConfigTab({
         setBillingTargetFormData(formData);
       }
     } catch (error) {
-      console.error('Error cargando metas de facturación:', error);
+      logger.error('Error loading billing targets:', error);
       toast({
         title: 'Error',
         description: 'Error al cargar las metas de facturación',
@@ -772,7 +773,7 @@ function ConfigTab({
         });
       }
     } catch (error) {
-      console.error('Error guardando meta de facturación:', error);
+      logger.error('Error saving billing target:', error);
       toast({
         title: 'Error',
         description: 'Error al guardar la meta de facturación',
@@ -1668,19 +1669,10 @@ function SalesTab({
         });
         onRefresh(); // Recargar ventas
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al procesar ventas',
-          variant: 'destructive',
-        });
+        logger.error('Error processing sales:', data.error);
       }
     } catch (error) {
-      console.error('Error procesando ventas:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al procesar ventas desde la base de datos',
-        variant: 'destructive',
-      });
+      logger.error('Error processing sales:', error);
     } finally {
       setSyncing(false);
     }
@@ -1749,6 +1741,7 @@ function SalesTab({
                 <TableHead>m²</TableHead>
                 <TableHead>Precio/m²</TableHead>
                 <TableHead>Valor Total</TableHead>
+                <TableHead className="text-center">Pagadas/Total</TableHead>
                 <TableHead>Fecha Firma</TableHead>
                 <TableHead>Estado</TableHead>
               </TableRow>
@@ -1756,7 +1749,7 @@ function SalesTab({
             <TableBody>
               {sales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center text-muted-foreground">
                     <div className="py-8 space-y-2">
                       <p>No hay ventas comisionables</p>
                       <p className="text-sm">Haz clic en &quot;Cargar Ventas desde BD&quot; para procesar los deals cerrados-ganados de la base de datos local</p>
@@ -1787,6 +1780,24 @@ function SalesTab({
                         minimumFractionDigits: 2, 
                         maximumFractionDigits: 2 
                       })}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {(() => {
+                        const total = sale.total_distributions ?? 0;
+                        const paid = sale.paid_distributions ?? 0;
+                        const allPaid = total > 0 && paid === total;
+                        const label = `${paid}/${total}`;
+
+                        return total === 0 ? (
+                          <span className="text-muted-foreground">{label}</span>
+                        ) : (
+                          <div className="flex justify-center">
+                            <Badge variant={allPaid ? 'default' : 'secondary'}>
+                            {label}
+                            </Badge>
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>{new Date(sale.fecha_firma).toLocaleDateString()}</TableCell>
                     <TableCell>
@@ -1855,19 +1866,10 @@ function DistributionTab({
       if (data.success) {
         setSaleDistributions(data.data || []);
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al cargar distribuciones',
-          variant: 'destructive',
-        });
+        logger.error('Error loading distributions:', data.error);
       }
     } catch (error) {
-      console.error('Error cargando distribuciones:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al cargar distribuciones',
-        variant: 'destructive',
-      });
+      logger.error('Error loading distributions:', error);
     } finally {
       setLoadingDistributions(false);
     }
@@ -1905,19 +1907,10 @@ function DistributionTab({
         await loadDistributions(saleId);
         onRefresh(); // Recargar ventas para actualizar estado
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al calcular comisiones',
-          variant: 'destructive',
-        });
+        logger.error('Error calculating commissions:', data.error);
       }
     } catch (error) {
-      console.error('Error calculando comisiones:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al calcular comisiones',
-        variant: 'destructive',
-      });
+      logger.error('Error calculating commissions:', error);
     } finally {
       setCalculating(false);
     }
@@ -1946,19 +1939,10 @@ function DistributionTab({
         setSaleDistributions([]);
         onRefresh(); // Recargar ventas para actualizar estado
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al eliminar cálculo',
-          variant: 'destructive',
-        });
+        logger.error('Error deleting calculation:', data.error);
       }
     } catch (error) {
-      console.error('Error eliminando cálculo:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al eliminar cálculo',
-        variant: 'destructive',
-      });
+      logger.error('Error deleting calculation:', error);
     } finally {
       setDeleting(false);
     }
@@ -1993,19 +1977,10 @@ function DistributionTab({
           description: `La comisión ha sido marcada como ${newStatus === 'paid' ? 'pagada' : 'pendiente'}`,
         });
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al actualizar estado de pago',
-          variant: 'destructive',
-        });
+        logger.error('Error updating payment status:', data.error);
       }
     } catch (error) {
-      console.error('Error actualizando estado de pago:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al actualizar estado de pago',
-        variant: 'destructive',
-      });
+      logger.error('Error updating payment status:', error);
     }
   };
 
@@ -2653,12 +2628,7 @@ function DashboardTab({
         });
       }
     } catch (error) {
-      console.error('Error cargando distribuciones:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al cargar distribuciones',
-        variant: 'destructive',
-      });
+      logger.error('Error loading distributions:', error);
     } finally {
       setLoadingDistributions(false);
     }
@@ -2698,19 +2668,10 @@ function DashboardTab({
         // Recargar distribuciones para actualizar el estado
         await loadDistributions();
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al subir factura',
-          variant: 'destructive',
-        });
+        logger.error('Error uploading invoice:', data.error);
       }
     } catch (error) {
-      console.error('Error subiendo factura:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al subir factura',
-        variant: 'destructive',
-      });
+      logger.error('Error uploading invoice:', error);
     } finally {
       setUploadingInvoice(null);
     }

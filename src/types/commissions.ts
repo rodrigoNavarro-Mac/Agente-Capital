@@ -142,6 +142,9 @@ export interface CommissionSale {
   commission_total: number;
   commission_sale_phase: number;
   commission_post_sale_phase: number;
+  // Agregado: resumen de pagos (conteo de distribuciones pagadas vs totales)
+  total_distributions?: number;
+  paid_distributions?: number;
   
   // Metadata
   created_at: string;

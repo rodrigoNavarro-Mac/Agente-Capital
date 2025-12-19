@@ -6,6 +6,8 @@
  * Mejora significativamente el rendimiento de endpoints GET
  */
 
+import { logger } from '@/lib/logger';
+
 // =====================================================
 // TIPOS
 // =====================================================
@@ -52,7 +54,7 @@ if (!globalThis.__memoryCache) {
   
   // Log inicial para debugging
   if (process.env.NODE_ENV === 'development') {
-    console.log('🔧 Caché en memoria inicializado (persistente entre recargas)');
+    logger.info('Caché en memoria inicializado (persistente entre recargas)', {}, 'memory-cache');
   }
 }
 
@@ -212,19 +214,23 @@ export async function getCachedDocuments<T>(
   if (cached !== null) {
     const entry = cache.get(key);
     const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
-    console.log(`✅ Caché HIT (documents): ${key} [${timeLeft}s restantes]`);
+    logger.info(`Caché HIT (documents): ${key} [${timeLeft}s restantes]`, {}, 'memory-cache');
     return cached;
   }
   
   // Si no está en caché, obtener de la fuente
-  console.log(`❌ Caché MISS (documents): ${key}`);
+  logger.info(`Caché MISS (documents): ${key}`, {}, 'memory-cache');
   const startTime = Date.now();
   const data = await fetcher();
   const fetchTime = Date.now() - startTime;
   
   // Guardar en caché
   set(key, data, CACHE_TTL.DOCUMENTS);
-  console.log(`💾 Datos obtenidos y guardados en caché (documents): ${key} [${fetchTime}ms]`);
+  logger.info(
+    `Datos obtenidos y guardados en caché (documents): ${key} [${fetchTime}ms]`,
+    {},
+    'memory-cache'
+  );
   
   return data;
 }
@@ -242,16 +248,20 @@ export async function getCachedDevelopments<T>(
   if (cached !== null) {
     const entry = cache.get(key);
     const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
-    console.log(`✅ Caché HIT (developments): ${key} [${timeLeft}s restantes]`);
+    logger.info(`Caché HIT (developments): ${key} [${timeLeft}s restantes]`, {}, 'memory-cache');
     return cached;
   }
   
-  console.log(`❌ Caché MISS (developments): ${key}`);
+  logger.info(`Caché MISS (developments): ${key}`, {}, 'memory-cache');
   const startTime = Date.now();
   const data = await fetcher();
   const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.DEVELOPMENTS);
-  console.log(`💾 Datos obtenidos y guardados en caché (developments): ${key} [${fetchTime}ms]`);
+  logger.info(
+    `Datos obtenidos y guardados en caché (developments): ${key} [${fetchTime}ms]`,
+    {},
+    'memory-cache'
+  );
   
   return data;
 }
@@ -268,16 +278,20 @@ export async function getCachedStats<T>(
   if (cached !== null) {
     const entry = cache.get(key);
     const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
-    console.log(`✅ Caché HIT (stats): ${key} [${timeLeft}s restantes]`);
+    logger.info(`Caché HIT (stats): ${key} [${timeLeft}s restantes]`, {}, 'memory-cache');
     return cached;
   }
   
-  console.log(`❌ Caché MISS (stats): ${key}`);
+  logger.info(`Caché MISS (stats): ${key}`, {}, 'memory-cache');
   const startTime = Date.now();
   const data = await fetcher();
   const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.STATS);
-  console.log(`💾 Datos obtenidos y guardados en caché (stats): ${key} [${fetchTime}ms]`);
+  logger.info(
+    `Datos obtenidos y guardados en caché (stats): ${key} [${fetchTime}ms]`,
+    {},
+    'memory-cache'
+  );
   
   return data;
 }
@@ -295,16 +309,20 @@ export async function getCachedConfig<T>(
   if (cached !== null) {
     const entry = cache.get(key);
     const timeLeft = entry ? Math.round((entry.expiresAt - Date.now()) / 1000) : 0;
-    console.log(`✅ Caché HIT (config): ${key} [${timeLeft}s restantes]`);
+    logger.info(`Caché HIT (config): ${key} [${timeLeft}s restantes]`, {}, 'memory-cache');
     return cached;
   }
   
-  console.log(`❌ Caché MISS (config): ${key}`);
+  logger.info(`Caché MISS (config): ${key}`, {}, 'memory-cache');
   const startTime = Date.now();
   const data = await fetcher();
   const fetchTime = Date.now() - startTime;
   set(key, data, CACHE_TTL.CONFIG);
-  console.log(`💾 Datos obtenidos y guardados en caché (config): ${key} [${fetchTime}ms]`);
+  logger.info(
+    `Datos obtenidos y guardados en caché (config): ${key} [${fetchTime}ms]`,
+    {},
+    'memory-cache'
+  );
   
   return data;
 }
@@ -346,7 +364,11 @@ if (typeof setInterval !== 'undefined') {
   cleanupInterval = setInterval(() => {
     const cleaned = cleanup();
     if (cleaned > 0) {
-      console.log(`🧹 Limpieza automática de caché: ${cleaned} entradas eliminadas`);
+      logger.info(
+        `Limpieza automática de caché: ${cleaned} entradas eliminadas`,
+        {},
+        'memory-cache'
+      );
     }
   }, 15 * 60 * 1000); // Cada 15 minutos (reducido de 5 a 15 para menos overhead)
 }
