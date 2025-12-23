@@ -101,3 +101,6 @@ COMMENT ON VIEW user_activity_summary IS 'Resumen de actividad por usuario inclu
 -- =====================================================
 -- FIN DE MIGRACIÓN
 -- =====================================================
+
+
+

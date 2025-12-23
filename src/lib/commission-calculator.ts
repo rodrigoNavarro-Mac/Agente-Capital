@@ -183,28 +183,33 @@ function redistributeExternalAdvisorPercent(
   dealOwnerPercent: number,
   externalAdvisorPercent: number
 ): { saleManagerPercent: number; dealOwnerPercent: number } {
-  if (externalAdvisorPercent === 0 || externalAdvisorPercent === null) {
-    return { saleManagerPercent, dealOwnerPercent };
+  // Asegurar que todos los valores sean números
+  const saleManager = Number(saleManagerPercent) || 0;
+  const dealOwner = Number(dealOwnerPercent) || 0;
+  const externalAdvisor = Number(externalAdvisorPercent) || 0;
+  
+  if (externalAdvisor === 0 || externalAdvisor === null) {
+    return { saleManagerPercent: saleManager, dealOwnerPercent: dealOwner };
   }
 
   // Calcular el total actual (sin el asesor externo)
-  const totalWithoutAdvisor = saleManagerPercent + dealOwnerPercent;
+  const totalWithoutAdvisor = saleManager + dealOwner;
   
   if (totalWithoutAdvisor === 0) {
     // Si ambos son 0, dividir el porcentaje del asesor equitativamente
     return {
-      saleManagerPercent: externalAdvisorPercent / 2,
-      dealOwnerPercent: externalAdvisorPercent / 2,
+      saleManagerPercent: Number((externalAdvisor / 2).toFixed(3)),
+      dealOwnerPercent: Number((externalAdvisor / 2).toFixed(3)),
     };
   }
 
   // Redistribuir proporcionalmente según los porcentajes actuales
-  const saleManagerRatio = saleManagerPercent / totalWithoutAdvisor;
-  const dealOwnerRatio = dealOwnerPercent / totalWithoutAdvisor;
+  const saleManagerRatio = saleManager / totalWithoutAdvisor;
+  const dealOwnerRatio = dealOwner / totalWithoutAdvisor;
 
   return {
-    saleManagerPercent: Number((saleManagerPercent + externalAdvisorPercent * saleManagerRatio).toFixed(3)),
-    dealOwnerPercent: Number((dealOwnerPercent + externalAdvisorPercent * dealOwnerRatio).toFixed(3)),
+    saleManagerPercent: Number((saleManager + externalAdvisor * saleManagerRatio).toFixed(3)),
+    dealOwnerPercent: Number((dealOwner + externalAdvisor * dealOwnerRatio).toFixed(3)),
   };
 }
 
@@ -224,10 +229,11 @@ function calculateSalePhaseDistribution(
     sale.propietario_deal.trim().toLowerCase() === 'asesor externo';
 
   // Obtener porcentajes redistribuidos si no hay asesor externo
+  // Asegurar que todos los valores sean números (pueden venir como strings desde la BD)
   const hasExternalAdvisor = sale.asesor_externo && sale.asesor_externo.trim() !== '';
-  let saleManagerPercent = config.sale_manager_percent;
-  let dealOwnerPercent = config.deal_owner_percent;
-  let externalAdvisorPercent = config.external_advisor_percent || 0;
+  let saleManagerPercent = Number(config.sale_manager_percent) || 0;
+  let dealOwnerPercent = Number(config.deal_owner_percent) || 0;
+  let externalAdvisorPercent = Number(config.external_advisor_percent) || 0;
 
   // Si el propietario del deal es "Asesor Externo" literal, usar el porcentaje de asesor externo
   if (isDealOwnerExternalAdvisor && externalAdvisorPercent > 0) {
@@ -249,8 +255,10 @@ function calculateSalePhaseDistribution(
 
   // Calcular montos basados en el pool total de ventas (solo si pool está habilitado)
   // El pool se calcula sobre el valor total, no sobre el valor de la fase
-  const poolPercent = config.pool_enabled && config.sale_pool_total_percent ? config.sale_pool_total_percent : 0;
-  const poolAmount = poolPercent > 0 ? (sale.valor_total * poolPercent) / 100 : sale.valor_total;
+  // Asegurar que valor_total sea un número
+  const valorTotal = Number(sale.valor_total) || 0;
+  const poolPercent = config.pool_enabled && config.sale_pool_total_percent ? Number(config.sale_pool_total_percent) || 0 : 0;
+  const poolAmount = poolPercent > 0 ? Number(((valorTotal * poolPercent) / 100).toFixed(3)) : valorTotal;
 
   // Gerente de Ventas (obligatorio)
   // El porcentaje se calcula sobre el monto total, no sobre el valor de la fase
@@ -299,9 +307,9 @@ function calculateSalePhaseDistribution(
 
 
   // Roles indirectos (globales) - se aplican sobre el monto total, no sobre el valor de la fase
-  const operationsPercent = globalConfigs.find(c => c.config_key === 'operations_coordinator_percent')?.config_value || 0;
+  const operationsPercent = Number(globalConfigs.find(c => c.config_key === 'operations_coordinator_percent')?.config_value || 0);
   if (operationsPercent > 0) {
-    const amount = (sale.valor_total * operationsPercent) / 100;
+    const amount = (valorTotal * operationsPercent) / 100;
     distributions.push({
       role_type: 'operations_coordinator',
       person_name: getRolePersonName('operations_coordinator'),
@@ -311,9 +319,9 @@ function calculateSalePhaseDistribution(
     });
   }
 
-  const marketingPercent = globalConfigs.find(c => c.config_key === 'marketing_percent')?.config_value || 0;
+  const marketingPercent = Number(globalConfigs.find(c => c.config_key === 'marketing_percent')?.config_value || 0);
   if (marketingPercent > 0) {
-    const amount = (sale.valor_total * marketingPercent) / 100;
+    const amount = (valorTotal * marketingPercent) / 100;
     distributions.push({
       role_type: 'marketing',
       person_name: getRolePersonName('marketing'),
@@ -335,11 +343,14 @@ function calculatePostSalePhaseDistribution(
   globalConfigs: CommissionGlobalConfig[]
 ): RoleDistribution[] {
   const distributions: RoleDistribution[] = [];
+  
+  // Asegurar que valorTotal sea un número
+  const valorTotalNum = Number(valorTotal) || 0;
 
   // Roles base (globales) - se aplican sobre el monto total, no sobre el valor de la fase
-  const legalPercent = globalConfigs.find(c => c.config_key === 'legal_manager_percent')?.config_value || 0;
+  const legalPercent = Number(globalConfigs.find(c => c.config_key === 'legal_manager_percent')?.config_value || 0);
   if (legalPercent > 0) {
-    const amount = (valorTotal * legalPercent) / 100;
+    const amount = (valorTotalNum * legalPercent) / 100;
     distributions.push({
       role_type: 'legal_manager',
       person_name: getRolePersonName('legal_manager'),
@@ -349,9 +360,9 @@ function calculatePostSalePhaseDistribution(
     });
   }
 
-  const postSaleCoordinatorPercent = globalConfigs.find(c => c.config_key === 'post_sale_coordinator_percent')?.config_value || 0;
+  const postSaleCoordinatorPercent = Number(globalConfigs.find(c => c.config_key === 'post_sale_coordinator_percent')?.config_value || 0);
   if (postSaleCoordinatorPercent > 0) {
-    const amount = (valorTotal * postSaleCoordinatorPercent) / 100;
+    const amount = (valorTotalNum * postSaleCoordinatorPercent) / 100;
     distributions.push({
       role_type: 'post_sale_coordinator',
       person_name: getRolePersonName('post_sale_coordinator'),
@@ -363,35 +374,38 @@ function calculatePostSalePhaseDistribution(
 
   // Roles opcionales (dependen del desarrollo) - Fase Postventa
   // El porcentaje se calcula sobre el monto total, no sobre el valor de la fase
-  if (config.customer_service_enabled && config.customer_service_percent && config.customer_service_percent > 0) {
-    const amount = (valorTotal * config.customer_service_percent) / 100;
+  const customerServicePercent = Number(config.customer_service_percent) || 0;
+  if (config.customer_service_enabled && customerServicePercent > 0) {
+    const amount = (valorTotalNum * customerServicePercent) / 100;
     distributions.push({
       role_type: 'customer_service',
       person_name: getRolePersonName('customer_service'),
       person_id: null,
-      percent: config.customer_service_percent,
+      percent: customerServicePercent,
       amount: Number(amount.toFixed(3)),
     });
   }
 
-  if (config.deliveries_enabled && config.deliveries_percent && config.deliveries_percent > 0) {
-    const amount = (valorTotal * config.deliveries_percent) / 100;
+  const deliveriesPercent = Number(config.deliveries_percent) || 0;
+  if (config.deliveries_enabled && deliveriesPercent > 0) {
+    const amount = (valorTotalNum * deliveriesPercent) / 100;
     distributions.push({
       role_type: 'deliveries',
       person_name: getRolePersonName('deliveries'),
       person_id: null,
-      percent: config.deliveries_percent,
+      percent: deliveriesPercent,
       amount: Number(amount.toFixed(3)),
     });
   }
 
-  if (config.bonds_enabled && config.bonds_percent && config.bonds_percent > 0) {
-    const amount = (valorTotal * config.bonds_percent) / 100;
+  const bondsPercent = Number(config.bonds_percent) || 0;
+  if (config.bonds_enabled && bondsPercent > 0) {
+    const amount = (valorTotalNum * bondsPercent) / 100;
     distributions.push({
       role_type: 'bonds',
       person_name: getRolePersonName('bonds'),
       person_id: null,
-      percent: config.bonds_percent,
+      percent: bondsPercent,
       amount: Number(amount.toFixed(3)),
     });
   }
@@ -416,8 +430,12 @@ export function calculateCommission(
   commissionPercent: number = 100, // Porcentaje de comisión sobre el valor total (por defecto 100%)
   ruleUnitsCountMap?: Map<number, number> // Mapa de rule_id -> unidades_vendidas_en_periodo
 ): CommissionCalculationResult {
+  // Asegurar que todos los valores numéricos sean números (pueden venir como strings desde la BD)
+  const valorTotal = Number(sale.valor_total) || 0;
+  const commissionPercentNum = Number(commissionPercent) || 100;
+  
   // Calcular comisión base sobre el monto total (SIN incluir reglas)
-  const commissionBase = Number(((sale.valor_total * commissionPercent) / 100).toFixed(3));
+  const commissionBase = Number(((valorTotal * commissionPercentNum) / 100).toFixed(3));
 
   // Calcular utilidad por reglas aplicables (NO se distribuye en fases, solo se referencia)
   let ruleUtilityAmount = 0;
@@ -443,15 +461,16 @@ export function calculateCommission(
   // Agregar reglas cumplidas
   if (applicableRules.length > 0) {
     applicableRules.forEach((rule) => {
-      const ruleAmount = Number(((sale.valor_total * rule.porcentaje_comision) / 100).toFixed(3));
+      const porcentajeComision = Number(rule.porcentaje_comision) || 0;
+      const ruleAmount = Number(((valorTotal * porcentajeComision) / 100).toFixed(3));
       ruleUtilityAmount = Number((ruleUtilityAmount + ruleAmount).toFixed(3));
       const unidadesVendidasEnPeriodo = getUnidadesVendidas(rule.id);
       ruleDetails.push({
         rule_name: rule.rule_name,
-        percent: rule.porcentaje_comision,
+        percent: porcentajeComision,
         amount: ruleAmount,
         fulfilled: true,
-        unidades_requeridas: rule.unidades_vendidas,
+        unidades_requeridas: Number(rule.unidades_vendidas) || 0,
         unidades_vendidas: unidadesVendidasEnPeriodo,
         operador: rule.operador,
       });
@@ -466,10 +485,10 @@ export function calculateCommission(
         const unidadesVendidasEnPeriodo = getUnidadesVendidas(rule.id);
         ruleDetails.push({
           rule_name: rule.rule_name,
-          percent: rule.porcentaje_comision,
+          percent: Number(rule.porcentaje_comision) || 0,
           amount: 0,
           fulfilled: false,
-          unidades_requeridas: rule.unidades_vendidas,
+          unidades_requeridas: Number(rule.unidades_vendidas) || 0,
           unidades_vendidas: unidadesVendidasEnPeriodo,
           operador: rule.operador,
         });
@@ -479,13 +498,15 @@ export function calculateCommission(
 
   // Calcular montos por fase (solo sobre la comisión base, NO incluye utilidad de reglas)
   // Los porcentajes de fase solo sirven como guía
-  const salePhaseAmount = Number(((commissionBase * config.phase_sale_percent) / 100).toFixed(3));
-  const postSalePhaseAmount = Number(((commissionBase * config.phase_post_sale_percent) / 100).toFixed(3));
+  const phaseSalePercent = Number(config.phase_sale_percent) || 0;
+  const phasePostSalePercent = Number(config.phase_post_sale_percent) || 0;
+  const salePhaseAmount = Number(((commissionBase * phaseSalePercent) / 100).toFixed(3));
+  const postSalePhaseAmount = Number(((commissionBase * phasePostSalePercent) / 100).toFixed(3));
 
   // Calcular distribuciones por fase
   // Los porcentajes se calculan sobre el monto total (valor_total), no sobre el valor de la fase
   const saleDistributions = calculateSalePhaseDistribution(config, sale, salePhaseAmount, globalConfigs);
-  const postSaleDistributions = calculatePostSalePhaseDistribution(config, sale.valor_total, globalConfigs);
+  const postSaleDistributions = calculatePostSalePhaseDistribution(config, valorTotal, globalConfigs);
 
   // Calcular suma real de distribuciones por fase
   const salePhaseDistributed = saleDistributions.reduce((sum, dist) => sum + dist.amount, 0);
@@ -530,11 +551,15 @@ export function calculateCommission(
   
   // Si hay utilidad restante (diferencia entre total de fases y lo distribuido), agregarla
   if (remainingUtility > 0.01) { // Tolerancia de 0.01 para errores de redondeo
+    // Asegurar que valorTotal no sea 0 para evitar división por cero
+    const percentValue = valorTotal > 0 
+      ? Number(((remainingUtility / valorTotal) * 100).toFixed(3))
+      : 0;
     utilityDistributions.push({
       role_type: 'rule_bonus',
       person_name: 'Utilidad Restante',
       person_id: null,
-      percent: Number(((remainingUtility / sale.valor_total) * 100).toFixed(3)),
+      percent: percentValue,
       amount: remainingUtility,
     });
   }
