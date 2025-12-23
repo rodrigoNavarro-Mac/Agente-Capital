@@ -1873,7 +1873,7 @@ function DistributionTab({
     } finally {
       setLoadingDistributions(false);
     }
-  }, [toast]);
+  }, []);
 
   // Cargar distribuciones cuando se selecciona una venta
   useEffect(() => {

@@ -15,6 +15,8 @@ import {
 import { logger } from '@/lib/logger';
 import type { APIResponse } from '@/types/documents';
 
+export const dynamic = 'force-dynamic';
+
 // Roles permitidos para acceder a esta información
 const ALLOWED_ROLES = ['admin', 'ceo'];
 
@@ -147,6 +149,7 @@ export async function GET(
     );
   }
 }
+
 
 
 

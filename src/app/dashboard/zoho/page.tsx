@@ -103,10 +103,11 @@ export default function ZohoCRMPage() {
   };
 
   // Función para comparar desarrollos de forma case-insensitive
-  const compareDevelopments = (dev1: string, dev2: string): boolean => {
+  // Envolver en useCallback para mantener referencia estable y evitar recreaciones innecesarias
+  const compareDevelopments = useCallback((dev1: string, dev2: string): boolean => {
     if (!dev1 || !dev2) return false;
     return normalizeDevelopmentDisplay(dev1) === normalizeDevelopmentDisplay(dev2);
-  };
+  }, []);
 
   // Obtener lista de desarrollos únicos de los datos
   // Para sales_manager, incluir también los desarrollos asignados (incluso si no hay datos)
@@ -488,6 +489,7 @@ export default function ZohoCRMPage() {
       notesForAI,
     };
   }, [
+    compareDevelopments,
     deals,
     getPeriodDates,
     leads,
@@ -1125,7 +1127,7 @@ export default function ZohoCRMPage() {
       activitiesByType: {},
       activitiesByOwner: {},
     };
-  }, [getPeriodDates]);
+  }, [compareDevelopments, getPeriodDates]);
 
   // Helper para obtener número de semana
   const getWeekNumber = (date: Date): number => {
@@ -1421,7 +1423,7 @@ export default function ZohoCRMPage() {
       if (selectedStatus !== 'all' && lead.Lead_Status !== selectedStatus) return false;
       return true;
     });
-  }, [getPeriodDates, leads, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
+  }, [compareDevelopments, getPeriodDates, leads, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
 
   const displayedFilteredDeals = useMemo(() => {
     const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
@@ -1441,7 +1443,7 @@ export default function ZohoCRMPage() {
       if (selectedStatus !== 'all' && deal.Stage !== selectedStatus) return false;
       return true;
     });
-  }, [deals, getPeriodDates, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
+  }, [compareDevelopments, deals, getPeriodDates, selectedDesarrollo, selectedOwner, selectedPeriod, selectedSource, selectedStatus, showLastMonth]);
 
   // Si no tiene permisos
   if (
