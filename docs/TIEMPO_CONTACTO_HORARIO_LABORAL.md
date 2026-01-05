@@ -184,3 +184,4 @@ Supongamos estos leads:
 5. **Toma de decisiones**: Refleja el desempeño real durante el horario laboral.
 
 
+

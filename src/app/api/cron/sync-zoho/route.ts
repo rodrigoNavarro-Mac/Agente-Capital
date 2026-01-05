@@ -65,18 +65,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (syncType === 'leads' || syncType === 'full') {
       try {
         logger.info('[ZohoSyncCron] Sincronizando leads', {}, 'cron-sync-zoho');
-        const leads = await getAllZohoLeads();
+        let leads;
+        try {
+          leads = await getAllZohoLeads();
+        } catch (fetchError) {
+          // Detectar errores de red temprano
+          const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+          const isNetworkError = errorMsg.includes('ENOTFOUND') || 
+                                errorMsg.includes('ETIMEDOUT') || 
+                                errorMsg.includes('ECONNREFUSED') ||
+                                errorMsg.includes('fetch failed') ||
+                                errorMsg.includes('network');
+          
+          if (isNetworkError) {
+            errorMessage = `Error de conexión con Zoho: No se pudo conectar a accounts.zoho.com. Verifica tu conexión a internet.`;
+            logger.error('[ZohoSyncCron] Network error connecting to Zoho', fetchError, { errorMessage }, 'cron-sync-zoho');
+            throw new Error(errorMessage);
+          }
+          throw fetchError; // Re-lanzar otros errores
+        }
         zohoLeadIds = leads.map(lead => lead.id);
         
         for (const lead of leads) {
           try {
             const wasCreated = await syncZohoLead(lead);
             recordsSynced++;
-            if (wasCreated) {
+            if (wasCreated === true) {
               recordsCreated++;
-            } else {
+            } else if (wasCreated === false) {
               recordsUpdated++;
             }
+            // Si wasCreated es null, no se cuenta como creado ni actualizado (sin cambios)
           } catch (error) {
             recordsFailed++;
             logger.error(`[ZohoSyncCron] Error sincronizando lead`, error, { leadId: lead.id }, 'cron-sync-zoho');
@@ -104,18 +123,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (syncType === 'deals' || syncType === 'full') {
       try {
         logger.info('[ZohoSyncCron] Sincronizando deals', {}, 'cron-sync-zoho');
-        const deals = await getAllZohoDeals();
+        let deals;
+        try {
+          deals = await getAllZohoDeals();
+        } catch (fetchError) {
+          // Detectar errores de red temprano
+          const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+          const isNetworkError = errorMsg.includes('ENOTFOUND') || 
+                                errorMsg.includes('ETIMEDOUT') || 
+                                errorMsg.includes('ECONNREFUSED') ||
+                                errorMsg.includes('fetch failed') ||
+                                errorMsg.includes('network');
+          
+          if (isNetworkError) {
+            errorMessage = errorMessage 
+              ? `${errorMessage}; Error de conexión con Zoho: No se pudo conectar a accounts.zoho.com. Verifica tu conexión a internet.`
+              : `Error de conexión con Zoho: No se pudo conectar a accounts.zoho.com. Verifica tu conexión a internet.`;
+            logger.error('[ZohoSyncCron] Network error connecting to Zoho', fetchError, { errorMessage }, 'cron-sync-zoho');
+            throw new Error(errorMessage);
+          }
+          throw fetchError; // Re-lanzar otros errores
+        }
         zohoDealIds = deals.map(deal => deal.id);
         
         for (const deal of deals) {
           try {
             const wasCreated = await syncZohoDeal(deal);
             recordsSynced++;
-            if (wasCreated) {
+            if (wasCreated === true) {
               recordsCreated++;
-            } else {
+            } else if (wasCreated === false) {
               recordsUpdated++;
             }
+            // Si wasCreated es null, no se cuenta como creado ni actualizado (sin cambios)
           } catch (error) {
             recordsFailed++;
             logger.error('[ZohoSyncCron] Error sincronizando deal', error, { dealId: deal.id }, 'cron-sync-zoho');
@@ -181,24 +221,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const durationMs = Date.now() - startTime;
     const errorMsg = error instanceof Error ? error.message : 'Error desconocido en sincronización';
     
-    await logZohoSync(syncType, 'error', {
-      recordsSynced,
-      recordsUpdated,
-      recordsCreated,
-      recordsFailed,
-      recordsDeleted,
-      errorMessage: errorMsg,
-      durationMs,
-    });
+    // Intentar registrar el log, pero no fallar si no se puede (circuit breaker abierto, etc.)
+    try {
+      await logZohoSync(syncType, 'error', {
+        recordsSynced,
+        recordsUpdated,
+        recordsCreated,
+        recordsFailed,
+        recordsDeleted,
+        errorMessage: errorMsg,
+        durationMs,
+      });
+    } catch (logError) {
+      // No fallar si no se puede registrar el log
+      logger.warn('[ZohoSyncCron] Could not log sync error (non-critical)', logError, { syncType }, 'cron-sync-zoho');
+    }
 
     logger.error('[ZohoSyncCron] Error fatal', undefined, { errorMsg }, 'cron-sync-zoho');
+
+    // Determinar código de estado HTTP apropiado
+    const isNetworkError = errorMsg.includes('ENOTFOUND') || 
+                          errorMsg.includes('ETIMEDOUT') || 
+                          errorMsg.includes('ECONNREFUSED') ||
+                          errorMsg.includes('fetch failed') ||
+                          errorMsg.includes('conexión');
+    const statusCode = isNetworkError ? 503 : 500; // 503 Service Unavailable para errores de red
 
     return NextResponse.json(
       {
         success: false,
         error: errorMsg,
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

@@ -2714,16 +2714,16 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
     const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
 
     // Verificar si existe y si necesita actualización
+    // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
     const existingResult = await query<{ 
-      count: string;
       modified_time: Date | null;
     }>(
-      `SELECT COUNT(*) as count, MAX(modified_time) as modified_time 
+      `SELECT modified_time 
        FROM zoho_leads WHERE zoho_id = $1`,
       [lead.id]
     );
-    const exists = parseInt(existingResult.rows[0].count) > 0;
-    const existingModifiedTime = existingResult.rows[0].modified_time 
+    const exists = existingResult.rows.length > 0;
+    const existingModifiedTime = existingResult.rows[0]?.modified_time 
       ? new Date(existingResult.rows[0].modified_time) 
       : null;
     
@@ -2818,16 +2818,16 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
     const modifiedTime = deal.Modified_Time ? new Date(deal.Modified_Time) : null;
 
     // Verificar si existe y si necesita actualización
+    // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
     const existingResult = await query<{ 
-      count: string;
       modified_time: Date | null;
     }>(
-      `SELECT COUNT(*) as count, MAX(modified_time) as modified_time 
+      `SELECT modified_time 
        FROM zoho_deals WHERE zoho_id = $1`,
       [deal.id]
     );
-    const exists = parseInt(existingResult.rows[0].count) > 0;
-    const existingModifiedTime = existingResult.rows[0].modified_time 
+    const exists = existingResult.rows.length > 0;
+    const existingModifiedTime = existingResult.rows[0]?.modified_time 
       ? new Date(existingResult.rows[0].modified_time) 
       : null;
     
@@ -3281,8 +3281,23 @@ export async function logZohoSync(
       ]
     );
   } catch (error) {
-    // No lanzar error si la tabla no existe, solo loguear
-    logger.error('Error registrando log de sincronización', error, {}, 'postgres');
+    // No lanzar error si la tabla no existe o si el circuit breaker está abierto
+    // Solo loguear el error pero no fallar la sincronización
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const isCircuitBreakerError = errorMsg.includes('Circuit breaker is OPEN');
+    const isTableMissing = errorMsg.includes('no existe la relación') || errorMsg.includes('does not exist');
+    
+    if (isCircuitBreakerError) {
+      logger.warn('No se pudo registrar log de sincronización: circuit breaker abierto', undefined, {
+        syncType,
+        status,
+        recordsSynced: stats.recordsSynced,
+      }, 'postgres');
+    } else if (isTableMissing) {
+      logger.warn('Tabla zoho_sync_log no existe. Ejecuta la migración 007_zoho_sync_tables.sql', undefined, 'postgres');
+    } else {
+      logger.error('Error registrando log de sincronización', error, {}, 'postgres');
+    }
   }
 }
 
