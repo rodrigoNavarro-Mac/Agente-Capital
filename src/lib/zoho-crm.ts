@@ -1670,15 +1670,9 @@ export async function getZohoStats(filters?: {
     // 1. Leads: total de leads filtrados
     const totalLeadsCount = filteredLeads.length;
     
-    // 2. Deals (Agendó cita): deals activos (que no están en "Ganado" o "Perdido")
-    const closedStages = ['Ganado', 'Won', 'Cerrado Ganado', 'Perdido', 'Lost', 'Cerrado Perdido'];
-    const dealsWithAppointment = filteredDeals.filter(deal => {
-      const stage = deal.Stage || '';
-      // Deals que no están cerrados (ni ganados ni perdidos)
-      return !closedStages.some(closedStage => 
-        stage.toLowerCase().includes(closedStage.toLowerCase())
-      );
-    }).length;
+    // 2. Deals: TODOS los deals filtrados (independientemente de si tienen cita o están cerrados)
+    // Cambio: ahora incluimos todos los deals, no solo los que no están cerrados
+    const dealsWithAppointment = filteredDeals.length;
     
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
     // Importante: este KPI ahora usa la fecha de cierre (Closing_Date) y NO la fecha de creación.

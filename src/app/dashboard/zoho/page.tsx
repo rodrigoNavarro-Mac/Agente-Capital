@@ -693,31 +693,66 @@ export default function ZohoCRMPage() {
       return true;
     });
 
+    // Diagnóstico: contadores para entender por qué se excluyen deals
+    const dealExclusionReasons = {
+      noCreatedTime: 0,
+      dateOutOfRange: 0,
+      desarrolloMismatch: 0,
+      sourceMismatch: 0,
+      ownerMismatch: 0,
+      statusMismatch: 0,
+      totalExcluded: 0
+    };
+
     const filteredDeals = allDeals.filter(deal => {
       // Filtro de fecha - usar Created_Time o buscar en JSONB si no existe
       const dealCreatedTime = deal.Created_Time || (deal as any).Creacion_de_Deal;
-      if (!dealCreatedTime) return false;
+      if (!dealCreatedTime) {
+        dealExclusionReasons.noCreatedTime++;
+        return false;
+      }
       const dealDate = new Date(dealCreatedTime);
-      if (dealDate < startDate || dealDate > endDate) return false;
+      if (Number.isNaN(dealDate.getTime())) {
+        dealExclusionReasons.noCreatedTime++;
+        return false;
+      }
+      if (dealDate < startDate || dealDate > endDate) {
+        dealExclusionReasons.dateOutOfRange++;
+        return false;
+      }
 
       // Filtro de desarrollo
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
       if (desarrollo && desarrollo !== 'all') {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
-        if (!compareDevelopments(dealDesarrollo, desarrollo)) return false;
+        if (!compareDevelopments(dealDesarrollo, desarrollo)) {
+          dealExclusionReasons.desarrolloMismatch++;
+          return false;
+        }
       }
 
       // Filtro de fuente
-      if (source && source !== 'all' && deal.Lead_Source !== source) return false;
+      if (source && source !== 'all' && deal.Lead_Source !== source) {
+        dealExclusionReasons.sourceMismatch++;
+        return false;
+      }
 
       // Filtro de asesor
-      if (owner && owner !== 'all' && deal.Owner?.name !== owner) return false;
+      if (owner && owner !== 'all' && deal.Owner?.name !== owner) {
+        dealExclusionReasons.ownerMismatch++;
+        return false;
+      }
 
       // Filtro de estado
-      if (status && status !== 'all' && deal.Stage !== status) return false;
+      if (status && status !== 'all' && deal.Stage !== status) {
+        dealExclusionReasons.statusMismatch++;
+        return false;
+      }
 
       return true;
     });
+
+    dealExclusionReasons.totalExcluded = allDeals.length - filteredDeals.length;
 
     // Cerrado Ganado por fecha de cierre:
     // - NO usamos filteredDeals (porque está filtrado por Created_Time)
@@ -747,8 +782,21 @@ export default function ZohoCRMPage() {
       owner,
       status,
       fechaInicio: startDate.toISOString(),
-      fechaFin: endDate.toISOString()
+      fechaFin: endDate.toISOString(),
+      razonesExclusionDeals: dealExclusionReasons
     });
+
+    // Log adicional para deals excluidos (solo si hay muchos excluidos)
+    if (dealExclusionReasons.totalExcluded > 0) {
+      console.log(`⚠️ Deals excluidos del embudo: ${dealExclusionReasons.totalExcluded} de ${allDeals.length}`, {
+        sinCreatedTime: dealExclusionReasons.noCreatedTime,
+        fechaFueraRango: dealExclusionReasons.dateOutOfRange,
+        desarrolloNoCoincide: dealExclusionReasons.desarrolloMismatch,
+        fuenteNoCoincide: dealExclusionReasons.sourceMismatch,
+        asesorNoCoincide: dealExclusionReasons.ownerMismatch,
+        estadoNoCoincide: dealExclusionReasons.statusMismatch
+      });
+    }
 
     // Calcular estadísticas básicas
     const leadsByStatus: Record<string, number> = {};
@@ -1065,15 +1113,24 @@ export default function ZohoCRMPage() {
     // 1. Leads: total de leads filtrados
     const totalLeadsCount = filteredLeads.length;
     
-    // 2. Deals (Agendó cita): deals activos (que no están en "Ganado" o "Perdido")
+    // 2. Deals: TODOS los deals filtrados (independientemente de si tienen cita o están cerrados)
+    // Cambio: ahora incluimos todos los deals, no solo los que no están cerrados
+    const dealsWithAppointment = filteredDeals.length;
+
+    // Diagnóstico: contar deals cerrados que fueron filtrados (para información)
     const closedStages = ['Ganado', 'Won', 'Cerrado Ganado', 'Perdido', 'Lost', 'Cerrado Perdido'];
-    const dealsWithAppointment = filteredDeals.filter(deal => {
+    const closedDealsInFiltered = filteredDeals.filter(deal => {
       const stage = deal.Stage || '';
-      // Deals que no están cerrados (ni ganados ni perdidos)
-      return !closedStages.some(closedStage => 
+      return closedStages.some(closedStage => 
         stage.toLowerCase().includes(closedStage.toLowerCase())
       );
     }).length;
+    const activeDealsInFiltered = filteredDeals.length - closedDealsInFiltered;
+
+    // Log diagnóstico del embudo
+    if (filteredDeals.length > 0) {
+      console.log(`📊 Embudo de ventas - Total Deals: ${filteredDeals.length}, Activos: ${activeDealsInFiltered}, Cerrados: ${closedDealsInFiltered}`);
+    }
     
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
     // Importante: este KPI usa la fecha de cierre (Closing_Date) y NO la fecha de creación.
