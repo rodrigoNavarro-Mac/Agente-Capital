@@ -3288,7 +3288,7 @@ export async function logZohoSync(
     const isTableMissing = errorMsg.includes('no existe la relación') || errorMsg.includes('does not exist');
     
     if (isCircuitBreakerError) {
-      logger.warn('No se pudo registrar log de sincronización: circuit breaker abierto', undefined, {
+      logger.warn('No se pudo registrar log de sincronización: circuit breaker abierto', {
         syncType,
         status,
         recordsSynced: stats.recordsSynced,

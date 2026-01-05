@@ -234,7 +234,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     } catch (logError) {
       // No fallar si no se puede registrar el log
-      logger.warn('[ZohoSyncCron] Could not log sync error (non-critical)', logError, { syncType }, 'cron-sync-zoho');
+      logger.warn(
+        '[ZohoSyncCron] Could not log sync error (non-critical)', 
+        { 
+          error: logError instanceof Error ? logError.message : String(logError),
+          syncType 
+        }, 
+        'cron-sync-zoho'
+      );
     }
 
     logger.error('[ZohoSyncCron] Error fatal', undefined, { errorMsg }, 'cron-sync-zoho');

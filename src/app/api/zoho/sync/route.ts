@@ -343,7 +343,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       });
     } catch (logError) {
       // No fallar si no se puede registrar el log
-      logger.warn('Could not log sync error (non-critical)', logError, { syncType }, logScope);
+      logger.warn(
+        'Could not log sync error (non-critical)', 
+        { 
+          error: logError instanceof Error ? logError.message : String(logError),
+          syncType 
+        }, 
+        logScope
+      );
     }
 
     logger.error('Unhandled error during Zoho sync', error, { syncType, durationMs }, logScope);
