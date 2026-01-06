@@ -482,7 +482,7 @@ Sistema completo para calcular, auditar y dar seguimiento a comisiones de ventas
 - **Ventas comisionables** (`/api/commissions/sales`): CRUD de deals cerrados-ganados con filtros por desarrollo, asesor y fechas. Sync masivo desde la BD local de Zoho (`/api/commissions/sync-sales`) sin llamar a la API externa.
 - **Cálculo y distribución** (`/api/commissions/distributions`): calcula comisiones por fases y roles usando `commission-calculator`, aplica reglas por desarrollo (`/api/commissions/rules`), permite recalcular, registrar ajustes manuales auditables (`/api/commissions/adjustments`) y marcar pagos por distribución (`pending` | `paid`).
 - **Facturas e invoices PDF** (`/api/commissions/invoices`): subir, reemplazar, descargar y eliminar facturas asociadas a cada distribución con validación de tamaño y tipo.
-- **Metas y dashboard** (`/api/commissions/billing-targets`, `/api/commissions/dashboard`): metas mensuales de facturación, métricas anuales y por desarrollo (pagado vs pendiente, ticket promedio, cumplimiento de meta, por asesor y por desarrollo).
+- **Metas y dashboard** (`/api/commissions/billing-targets`, `/api/commissions/dashboard`): metas mensuales de comisión (suma de fase ventas + fase postventa), métricas anuales y por desarrollo (pagado vs pendiente, ticket promedio, cumplimiento de meta, por asesor y por desarrollo).
 - **Tablas clave**: `commission_configs`, `commission_global_configs`, `commission_sales`, `commission_distributions`, `commission_adjustments`, `commission_rules`, `commission_billing_targets`.
 
 ## 🗄️ Base de Datos y Optimizaciones
@@ -502,7 +502,7 @@ Sistema completo para calcular, auditar y dar seguimiento a comisiones de ventas
 11. **commission_distributions**: Distribución de comisiones por rol/fase y estado de pago
 12. **commission_adjustments**: Auditoría de ajustes manuales
 13. **commission_rules**: Reglas de incentivos por desarrollo/periodo
-14. **commission_billing_targets**: Metas mensuales de facturación
+14. **commission_billing_targets**: Metas mensuales de comisión (suma de fase ventas + fase postventa)
 
 ### Optimizaciones de Queries
 

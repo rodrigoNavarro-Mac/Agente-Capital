@@ -23,6 +23,8 @@ import type {
   CommissionRuleInput,
   CommissionBillingTarget,
   CommissionBillingTargetInput,
+  CommissionSalesTarget,
+  CommissionSalesTargetInput,
   ProductPartner,
   ProductPartnerInput,
 } from '@/types/commissions';
@@ -1664,11 +1666,11 @@ export async function getRuleUnitsCountMap(
 }
 
 // =====================================================
-// METAS DE FACTURACIÓN
+// METAS DE COMISIÓN
 // =====================================================
 
 /**
- * Obtiene todas las metas de facturación para un año
+ * Obtiene todas las metas de comisión para un año
  */
 export async function getCommissionBillingTargets(
   year: number
@@ -1682,13 +1684,13 @@ export async function getCommissionBillingTargets(
     );
     return result.rows;
   } catch (error) {
-    logger.error('Error obteniendo metas de facturación', error, {}, 'commission-db');
+    logger.error('Error obteniendo metas de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
 
 /**
- * Obtiene la meta de facturación para un mes y año específicos
+ * Obtiene la meta de comisión para un mes y año específicos
  */
 export async function getCommissionBillingTarget(
   year: number,
@@ -1702,13 +1704,13 @@ export async function getCommissionBillingTarget(
     );
     return result.rows[0] || null;
   } catch (error) {
-    logger.error('Error obteniendo meta de facturación', error, {}, 'commission-db');
+    logger.error('Error obteniendo meta de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
 
 /**
- * Crea o actualiza una meta de facturación
+ * Crea o actualiza una meta de comisión
  */
 export async function upsertCommissionBillingTarget(
   target: CommissionBillingTargetInput,
@@ -1728,13 +1730,13 @@ export async function upsertCommissionBillingTarget(
     );
     return result.rows[0];
   } catch (error) {
-    logger.error('Error guardando meta de facturación', error, {}, 'commission-db');
+    logger.error('Error guardando meta de comisión', error, {}, 'commission-db');
     throw error;
   }
 }
 
 /**
- * Elimina una meta de facturación
+ * Elimina una meta de comisión
  */
 export async function deleteCommissionBillingTarget(
   year: number,
@@ -1748,7 +1750,97 @@ export async function deleteCommissionBillingTarget(
     );
     return (result.rowCount || 0) > 0;
   } catch (error) {
-    logger.error('Error eliminando meta de facturación', error, {}, 'commission-db');
+    logger.error('Error eliminando meta de comisión', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+// =====================================================
+// METAS DE VENTAS
+// =====================================================
+
+/**
+ * Obtiene todas las metas de ventas para un año
+ */
+export async function getCommissionSalesTargets(
+  year: number
+): Promise<CommissionSalesTarget[]> {
+  try {
+    const result = await query<CommissionSalesTarget>(
+      `SELECT * FROM commission_sales_targets 
+       WHERE year = $1 
+       ORDER BY month`,
+      [year]
+    );
+    return result.rows;
+  } catch (error) {
+    logger.error('Error obteniendo metas de ventas', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Obtiene la meta de ventas para un mes y año específicos
+ */
+export async function getCommissionSalesTarget(
+  year: number,
+  month: number
+): Promise<CommissionSalesTarget | null> {
+  try {
+    const result = await query<CommissionSalesTarget>(
+      `SELECT * FROM commission_sales_targets 
+       WHERE year = $1 AND month = $2`,
+      [year, month]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    logger.error('Error obteniendo meta de ventas', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Crea o actualiza una meta de ventas
+ */
+export async function upsertCommissionSalesTarget(
+  target: CommissionSalesTargetInput,
+  userId: number
+): Promise<CommissionSalesTarget> {
+  try {
+    const result = await query<CommissionSalesTarget>(
+      `INSERT INTO commission_sales_targets (
+        year, month, target_amount, created_by, updated_by
+      ) VALUES ($1, $2, $3, $4, $4)
+      ON CONFLICT (year, month) DO UPDATE SET
+        target_amount = EXCLUDED.target_amount,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *`,
+      [target.year, target.month, target.target_amount, userId]
+    );
+    return result.rows[0];
+  } catch (error) {
+    logger.error('Error guardando meta de ventas', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Elimina una meta de ventas
+ */
+export async function deleteCommissionSalesTarget(
+  year: number,
+  month: number
+): Promise<boolean> {
+  try {
+    const result = await query(
+      `DELETE FROM commission_sales_targets 
+       WHERE year = $1 AND month = $2`,
+      [year, month]
+    );
+    return (result.rowCount || 0) > 0;
+  } catch (error) {
+    logger.error('Error eliminando meta de ventas', error, {}, 'commission-db');
     throw error;
   }
 }

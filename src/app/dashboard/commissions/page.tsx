@@ -37,6 +37,7 @@ import type {
   CommissionRuleOperator,
   CommissionRulePeriodType,
   CommissionBillingTarget,
+  CommissionSalesTarget,
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
 import { logger } from '@/lib/logger';
@@ -327,8 +328,114 @@ function ConfigTab({
   const [_billingTargets, setBillingTargets] = useState<CommissionBillingTarget[]>([]);
   const [loadingBillingTargets, setLoadingBillingTargets] = useState(false);
   const [billingTargetYear, setBillingTargetYear] = useState<number>(new Date().getFullYear());
-  const [billingTargetFormData, setBillingTargetFormData] = useState<Record<number, number>>({});
+  const [billingTargetFormData, setBillingTargetFormData] = useState<Record<number, string>>({});
   const [savingBillingTarget, setSavingBillingTarget] = useState(false);
+  
+  // Estados para metas de ventas
+  const [_salesTargets, setSalesTargets] = useState<CommissionSalesTarget[]>([]);
+  const [loadingSalesTargets, setLoadingSalesTargets] = useState(false);
+  const [salesTargetYear, setSalesTargetYear] = useState<number>(new Date().getFullYear());
+  const [salesTargetFormData, setSalesTargetFormData] = useState<Record<number, string>>({});
+  const [savingSalesTarget, setSavingSalesTarget] = useState(false);
+
+  // Funciones helper para formatear números con comas (usar useCallback para evitar recrearlas)
+  const formatNumberWithCommas = useCallback((value: number | string): string => {
+    if (value === undefined || value === null || value === '') return '';
+    // Remover comas existentes y convertir a número
+    const numValue = typeof value === 'string' 
+      ? parseFloat(value.replace(/,/g, '')) 
+      : value;
+    if (isNaN(numValue)) return '';
+    // Formatear con comas cada 3 dígitos y mantener decimales
+    return numValue.toLocaleString('es-MX', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }, []);
+
+  const parseFormattedNumber = useCallback((formattedValue: string): number => {
+    if (!formattedValue || formattedValue === '') return 0;
+    // Remover comas y convertir a número
+    const cleaned = formattedValue.replace(/,/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  }, []);
+
+  // Función para manejar el cambio de input - permite escribir sin formato, formatea al perder foco
+  const handleBillingTargetChange = (month: number, inputValue: string) => {
+    // Permitir borrar completamente
+    if (inputValue === '') {
+      setBillingTargetFormData({
+        ...billingTargetFormData,
+        [month]: '',
+      });
+      return;
+    }
+    
+    // Remover solo comas (para permitir reescritura), pero mantener números y punto decimal
+    let cleaned = inputValue.replace(/,/g, '');
+    
+    // Validar que solo contenga números y un punto decimal
+    if (!/^\d*\.?\d*$/.test(cleaned)) {
+      // Si no es válido, mantener el valor anterior
+      return;
+    }
+    
+    // Permitir solo un punto decimal
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = parts[0] + '.' + parts.slice(1).join('');
+    }
+    
+    // Limitar a 2 decimales
+    if (parts.length === 2 && parts[1].length > 2) {
+      cleaned = parts[0] + '.' + parts[1].substring(0, 2);
+    }
+    
+    // Guardar el valor sin formato mientras se escribe
+    setBillingTargetFormData({
+      ...billingTargetFormData,
+      [month]: cleaned,
+    });
+  };
+
+  // Función para manejar el cambio de input de metas de ventas
+  const handleSalesTargetChange = (month: number, inputValue: string) => {
+    // Permitir borrar completamente
+    if (inputValue === '') {
+      setSalesTargetFormData({
+        ...salesTargetFormData,
+        [month]: '',
+      });
+      return;
+    }
+    
+    // Remover solo comas (para permitir reescritura), pero mantener números y punto decimal
+    let cleaned = inputValue.replace(/,/g, '');
+    
+    // Validar que solo contenga números y un punto decimal
+    if (!/^\d*\.?\d*$/.test(cleaned)) {
+      // Si no es válido, mantener el valor anterior
+      return;
+    }
+    
+    // Permitir solo un punto decimal
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = parts[0] + '.' + parts.slice(1).join('');
+    }
+    
+    // Limitar a 2 decimales
+    if (parts.length === 2 && parts[1].length > 2) {
+      cleaned = parts[0] + '.' + parts[1].substring(0, 2);
+    }
+    
+    // Guardar el valor sin formato mientras se escribe
+    setSalesTargetFormData({
+      ...salesTargetFormData,
+      [month]: cleaned,
+    });
+  };
   const { toast } = useToast();
 
   // Cargar valores globales cuando se cargan los datos
@@ -727,10 +834,10 @@ function ConfigTab({
       if (data.success) {
         const targets = data.data || [];
         setBillingTargets(targets);
-        // Inicializar formulario con valores existentes
-        const formData: Record<number, number> = {};
+        // Inicializar formulario con valores existentes (formateados con comas)
+        const formData: Record<number, string> = {};
         targets.forEach((target: CommissionBillingTarget) => {
-          formData[target.month] = target.target_amount;
+          formData[target.month] = formatNumberWithCommas(target.target_amount);
         });
         setBillingTargetFormData(formData);
       }
@@ -738,21 +845,31 @@ function ConfigTab({
       logger.error('Error loading billing targets:', error);
       toast({
         title: 'Error',
-        description: 'Error al cargar las metas de facturación',
+        description: 'Error al cargar las metas de comisión',
         variant: 'destructive',
       });
     } finally {
       setLoadingBillingTargets(false);
     }
-  }, [billingTargetYear, toast]);
+  }, [billingTargetYear, toast, formatNumberWithCommas]);
 
   useEffect(() => {
     loadBillingTargets();
   }, [loadBillingTargets]);
 
   const handleSaveBillingTarget = async (month: number) => {
-    const targetAmount = billingTargetFormData[month];
-    if (targetAmount === undefined || targetAmount < 0) {
+    const formattedValue = billingTargetFormData[month];
+    if (formattedValue === undefined || formattedValue === '') {
+      toast({
+        title: 'Error',
+        description: 'El monto objetivo no puede estar vacío',
+        variant: 'destructive',
+      });
+      return;
+    }
+    // Parsear el valor formateado a número
+    const targetAmount = parseFormattedNumber(formattedValue);
+    if (targetAmount < 0) {
       toast({
         title: 'Error',
         description: 'El monto objetivo debe ser mayor o igual a 0',
@@ -781,13 +898,13 @@ function ConfigTab({
       if (data.success) {
         toast({
           title: 'Éxito',
-          description: 'Meta de facturación guardada correctamente',
+          description: 'Meta de comisión guardada correctamente',
         });
         await loadBillingTargets();
       } else {
         toast({
           title: 'Error',
-          description: data.error || 'Error al guardar la meta de facturación',
+          description: data.error || 'Error al guardar la meta de comisión',
           variant: 'destructive',
         });
       }
@@ -795,11 +912,111 @@ function ConfigTab({
       logger.error('Error saving billing target:', error);
       toast({
         title: 'Error',
-        description: 'Error al guardar la meta de facturación',
+        description: 'Error al guardar la meta de comisión',
         variant: 'destructive',
       });
     } finally {
       setSavingBillingTarget(false);
+    }
+  };
+
+  // Funciones para metas de ventas
+  const loadSalesTargets = useCallback(async () => {
+    setLoadingSalesTargets(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/sales-targets?year=${salesTargetYear}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        const targets = data.data || [];
+        setSalesTargets(targets);
+        // Inicializar formulario con valores existentes (formateados con comas)
+        const formData: Record<number, string> = {};
+        targets.forEach((target: CommissionSalesTarget) => {
+          formData[target.month] = formatNumberWithCommas(target.target_amount);
+        });
+        setSalesTargetFormData(formData);
+      }
+    } catch (error) {
+      logger.error('Error loading sales targets:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar las metas de ventas',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingSalesTargets(false);
+    }
+  }, [salesTargetYear, toast, formatNumberWithCommas]);
+
+  useEffect(() => {
+    loadSalesTargets();
+  }, [loadSalesTargets]);
+
+  const handleSaveSalesTarget = async (month: number) => {
+    const formattedValue = salesTargetFormData[month];
+    if (formattedValue === undefined || formattedValue === '') {
+      toast({
+        title: 'Error',
+        description: 'El monto objetivo no puede estar vacío',
+        variant: 'destructive',
+      });
+      return;
+    }
+    // Parsear el valor formateado a número
+    const targetAmount = parseFormattedNumber(formattedValue);
+    if (targetAmount < 0) {
+      toast({
+        title: 'Error',
+        description: 'El monto objetivo debe ser mayor o igual a 0',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingSalesTarget(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/sales-targets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          year: salesTargetYear,
+          month,
+          target_amount: targetAmount,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Éxito',
+          description: 'Meta de ventas guardada correctamente',
+        });
+        await loadSalesTargets();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al guardar la meta de ventas',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      logger.error('Error saving sales target:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al guardar la meta de ventas',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSalesTarget(false);
     }
   };
 
@@ -1414,12 +1631,12 @@ function ConfigTab({
         </CardContent>
       </Card>
 
-      {/* Metas de Facturación */}
+      {/* Metas de Comisión */}
       <Card>
         <CardHeader>
-          <CardTitle>Metas de Facturación</CardTitle>
+          <CardTitle>Metas de Comisión</CardTitle>
           <CardDescription>
-            Configura las metas de facturación mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento.
+            Configura las metas de comisión mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento. El monto se calcula como la suma de la fase de ventas y fase de postventa.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1481,15 +1698,31 @@ function ConfigTab({
                 <Label>{name}</Label>
                 <div className="flex gap-2">
                   <Input
-                    type="number"
-                    step="0.001"
-                    min="0"
+                    type="text"
                     value={billingTargetFormData[month] !== undefined ? billingTargetFormData[month] : ''}
-                    onChange={(e) => setBillingTargetFormData({
-                      ...billingTargetFormData,
-                      [month]: parseFloat(e.target.value) || 0,
-                    })}
-                    placeholder="0.000"
+                    onChange={(e) => handleBillingTargetChange(month, e.target.value)}
+                    onBlur={(e) => {
+                      // Al perder el foco, formatear el valor con comas
+                      const inputValue = e.target.value;
+                      if (inputValue === '') {
+                        return;
+                      }
+                      const parsed = parseFormattedNumber(inputValue);
+                      if (parsed > 0) {
+                        setBillingTargetFormData({
+                          ...billingTargetFormData,
+                          [month]: formatNumberWithCommas(parsed),
+                        });
+                      } else {
+                        // Si no es un número válido, limpiar
+                        setBillingTargetFormData({
+                          ...billingTargetFormData,
+                          [month]: '',
+                        });
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="text-right"
                   />
                   <Button
                     onClick={() => handleSaveBillingTarget(month)}
@@ -1498,6 +1731,118 @@ function ConfigTab({
                     size="sm"
                   >
                     {savingBillingTarget ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Metas de Ventas */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Metas de Ventas</CardTitle>
+          <CardDescription>
+            Configura las metas de ventas mensuales para el dashboard. Estas metas se utilizan para calcular el porcentaje de cumplimiento. El monto se calcula usando el valor total de la venta sin IVA.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <Label>Año:</Label>
+            <Select
+              value={salesTargetYear.toString()}
+              onValueChange={(value) => setSalesTargetYear(parseInt(value, 10))}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 5 }, (_, i) => {
+                  const year = new Date().getFullYear() - 2 + i;
+                  return (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => loadSalesTargets()}
+              disabled={loadingSalesTargets}
+            >
+              {loadingSalesTargets ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cargando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Actualizar
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { month: 1, name: 'Enero' },
+              { month: 2, name: 'Febrero' },
+              { month: 3, name: 'Marzo' },
+              { month: 4, name: 'Abril' },
+              { month: 5, name: 'Mayo' },
+              { month: 6, name: 'Junio' },
+              { month: 7, name: 'Julio' },
+              { month: 8, name: 'Agosto' },
+              { month: 9, name: 'Septiembre' },
+              { month: 10, name: 'Octubre' },
+              { month: 11, name: 'Noviembre' },
+              { month: 12, name: 'Diciembre' },
+            ].map(({ month, name }) => (
+              <div key={month} className="space-y-2">
+                <Label>{name}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={salesTargetFormData[month] !== undefined ? salesTargetFormData[month] : ''}
+                    onChange={(e) => handleSalesTargetChange(month, e.target.value)}
+                    onBlur={(e) => {
+                      // Al perder el foco, formatear el valor con comas
+                      const inputValue = e.target.value;
+                      if (inputValue === '') {
+                        return;
+                      }
+                      const parsed = parseFormattedNumber(inputValue);
+                      if (parsed > 0) {
+                        setSalesTargetFormData({
+                          ...salesTargetFormData,
+                          [month]: formatNumberWithCommas(parsed),
+                        });
+                      } else {
+                        // Si no es un número válido, limpiar
+                        setSalesTargetFormData({
+                          ...salesTargetFormData,
+                          [month]: '',
+                        });
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="text-right"
+                  />
+                  <Button
+                    onClick={() => handleSaveSalesTarget(month)}
+                    disabled={savingSalesTarget}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {savingSalesTarget ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="h-4 w-4" />
@@ -3080,16 +3425,16 @@ function DashboardTab({
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           {selectedDesarrollo !== 'all' && developmentDashboard ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Total Anual</CardTitle>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Total Anual</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
+                  <CardContent className="pt-2">
+                    <div className="text-xl font-bold">
                       ${developmentDashboard.total_annual.toLocaleString('es-MX', { 
                         minimumFractionDigits: 2, 
                         maximumFractionDigits: 2 
@@ -3098,14 +3443,14 @@ function DashboardTab({
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
                       Pagadas
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-green-600">
+                  <CardContent className="pt-2">
+                    <div className="text-xl font-bold text-green-600">
                       ${(developmentDashboard.total_paid || 0).toLocaleString('es-MX', { 
                         minimumFractionDigits: 2, 
                         maximumFractionDigits: 2 
@@ -3114,14 +3459,14 @@ function DashboardTab({
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-yellow-600" />
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-yellow-600" />
                       Pendientes
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-yellow-600">
+                  <CardContent className="pt-2">
+                    <div className="text-xl font-bold text-yellow-600">
                       ${(developmentDashboard.total_pending || 0).toLocaleString('es-MX', { 
                         minimumFractionDigits: 2, 
                         maximumFractionDigits: 2 
@@ -3132,35 +3477,35 @@ function DashboardTab({
               </div>
               
               {/* Tabla mensual con estado de pago */}
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">Comisiones por Mes</h3>
+              <div className="space-y-1.5">
+                <h3 className="text-sm font-semibold">Comisiones por Mes</h3>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Mes</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead className="text-right">Pagadas</TableHead>
-                        <TableHead className="text-right">Pendientes</TableHead>
+                      <TableRow className="h-8">
+                        <TableHead className="text-xs py-1.5">Mes</TableHead>
+                        <TableHead className="text-xs py-1.5 text-right">Total</TableHead>
+                        <TableHead className="text-xs py-1.5 text-right">Pagadas</TableHead>
+                        <TableHead className="text-xs py-1.5 text-right">Pendientes</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {developmentDashboard.monthly_stats.map((month) => (
-                        <TableRow key={month.month}>
-                          <TableCell className="font-medium">{month.month_name}</TableCell>
-                          <TableCell className="text-right">
+                        <TableRow key={month.month} className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">{month.month_name}</TableCell>
+                          <TableCell className="text-xs py-1.5 text-right">
                             ${month.commission_total.toLocaleString('es-MX', {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
                           </TableCell>
-                          <TableCell className="text-right text-green-600">
+                          <TableCell className="text-xs py-1.5 text-right text-green-600">
                             ${(month.commission_paid || 0).toLocaleString('es-MX', {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
                           </TableCell>
-                          <TableCell className="text-right text-yellow-600">
+                          <TableCell className="text-xs py-1.5 text-right text-yellow-600">
                             ${(month.commission_pending || 0).toLocaleString('es-MX', {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
@@ -3174,46 +3519,38 @@ function DashboardTab({
               </div>
             </div>
           ) : generalDashboard ? (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {/* Tabla 1: Datos mensuales Capital Plus */}
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">Datos mensuales Capital Plus</h3>
+              <div className="space-y-1.5">
+                <h3 className="text-sm font-semibold">Datos mensuales Capital Plus</h3>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Métrica</TableHead>
+                      <TableRow className="h-8">
+                        <TableHead className="text-xs py-1.5">Métrica</TableHead>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-center min-w-[100px]">
-                            {month.month_name.substring(0, 3)}
+                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                            <div className="flex flex-col">
+                              <span>{month.month_name.substring(0, 3)}</span>
+                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                            </div>
                           </TableHead>
                         ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      <TableRow>
-                        <TableCell className="font-medium">Ventas Totales</TableCell>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Ventas Totales</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
                             {month.ventas_totales}
                           </TableCell>
                         ))}
                       </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">Facturación Ventas</TableCell>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Ticket promedio de Venta</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
-                            ${month.facturacion_ventas.toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">Ticket promedio de Venta</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
                             ${month.ticket_promedio_venta.toLocaleString('es-MX', {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
@@ -3221,10 +3558,21 @@ function DashboardTab({
                           </TableCell>
                         ))}
                       </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">Meta de facturación</TableCell>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Comisiones</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                            ${month.monto_comision.toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Meta de comisión</TableCell>
+                        {generalDashboard.monthly_metrics.map((month) => (
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
                             {month.meta_facturacion !== null
                               ? `$${month.meta_facturacion.toLocaleString('es-MX', {
                                   minimumFractionDigits: 2,
@@ -3234,13 +3582,51 @@ function DashboardTab({
                           </TableCell>
                         ))}
                       </TableRow>
-                      <TableRow>
-                        <TableCell className="font-medium">% facturación alcanzado</TableCell>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">% comisión alcanzado</TableCell>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-center">
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
                             {month.porcentaje_cumplimiento !== null ? (
                               <span className={getCumplimientoColor(month.porcentaje_cumplimiento)}>
                                 {month.porcentaje_cumplimiento.toFixed(2)}%
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Monto de ventas</TableCell>
+                        {generalDashboard.monthly_metrics.map((month) => (
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                            ${month.monto_ventas.toLocaleString('es-MX', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">Meta de ventas</TableCell>
+                        {generalDashboard.monthly_metrics.map((month) => (
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                            {month.meta_ventas !== null
+                              ? `$${month.meta_ventas.toLocaleString('es-MX', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}`
+                              : '-'}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      <TableRow className="h-8">
+                        <TableCell className="text-xs py-1.5 font-medium">% ventas alcanzado</TableCell>
+                        {generalDashboard.monthly_metrics.map((month) => (
+                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                            {month.porcentaje_cumplimiento_ventas !== null ? (
+                              <span className={getCumplimientoColor(month.porcentaje_cumplimiento_ventas)}>
+                                {month.porcentaje_cumplimiento_ventas.toFixed(2)}%
                               </span>
                             ) : (
                               <span className="text-gray-500">-</span>
@@ -3254,16 +3640,19 @@ function DashboardTab({
               </div>
 
               {/* Tabla 2: Comisión por desarrollo */}
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">→ Comisión por desarrollo</h3>
+              <div className="space-y-1.5">
+                <h3 className="text-sm font-semibold">→ Comisión por desarrollo</h3>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Desarrollo</TableHead>
+                      <TableRow className="h-8">
+                        <TableHead className="text-xs py-1.5">Desarrollo</TableHead>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-center min-w-[100px]">
-                            {month.month_name.substring(0, 3)}
+                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                            <div className="flex flex-col">
+                              <span>{month.month_name.substring(0, 3)}</span>
+                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                            </div>
                           </TableHead>
                         ))}
                       </TableRow>
@@ -3272,8 +3661,8 @@ function DashboardTab({
                       {Object.keys(generalDashboard.commission_by_development)
                         .sort()
                         .map((desarrollo) => (
-                          <TableRow key={desarrollo}>
-                            <TableCell className="font-medium capitalize">
+                          <TableRow key={desarrollo} className="h-8">
+                            <TableCell className="text-xs py-1.5 font-medium capitalize">
                               {desarrollo}
                             </TableCell>
                             {generalDashboard.monthly_metrics.map((month) => {
@@ -3282,7 +3671,7 @@ function DashboardTab({
                                   month.month
                                 ] || 0;
                               return (
-                                <TableCell key={month.month} className="text-center">
+                                <TableCell key={month.month} className="text-xs py-1.5 text-center">
                                   ${amount.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3308,16 +3697,19 @@ function DashboardTab({
               </div>
 
               {/* Tabla 3: Comisión por vendedor */}
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">→ Comisión por vendedor</h3>
+              <div className="space-y-1.5">
+                <h3 className="text-sm font-semibold">→ Comisión por vendedor</h3>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Vendedor</TableHead>
+                      <TableRow className="h-8">
+                        <TableHead className="text-xs py-1.5">Vendedor</TableHead>
                         {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-center min-w-[100px]">
-                            {month.month_name.substring(0, 3)}
+                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                            <div className="flex flex-col">
+                              <span>{month.month_name.substring(0, 3)}</span>
+                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                            </div>
                           </TableHead>
                         ))}
                       </TableRow>
@@ -3326,15 +3718,15 @@ function DashboardTab({
                       {Object.keys(generalDashboard.commission_by_salesperson)
                         .sort()
                         .map((salesperson) => (
-                          <TableRow key={salesperson}>
-                            <TableCell className="font-medium">{salesperson}</TableCell>
+                          <TableRow key={salesperson} className="h-8">
+                            <TableCell className="text-xs py-1.5 font-medium">{salesperson}</TableCell>
                             {generalDashboard.monthly_metrics.map((month) => {
                               const amount =
                                 generalDashboard.commission_by_salesperson[salesperson]?.[
                                   month.month
                                 ] || 0;
                               return (
-                                <TableCell key={month.month} className="text-center">
+                                <TableCell key={month.month} className="text-xs py-1.5 text-center">
                                   ${amount.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3364,12 +3756,12 @@ function DashboardTab({
           )}
 
           {/* Tabla de Comisiones a Pagar */}
-          <Card className="mt-6">
-            <CardHeader>
+          <Card className="mt-4">
+            <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Comisiones a Pagar</CardTitle>
-                  <CardDescription>
+                  <CardTitle className="text-lg">Comisiones a Pagar</CardTitle>
+                  <CardDescription className="text-xs">
                     Lista detallada de todas las comisiones con su estado de pago
                   </CardDescription>
                 </div>
@@ -3411,10 +3803,10 @@ function DashboardTab({
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-3">
               {loadingDistributions ? (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                <div className="flex items-center justify-center p-4">
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : (() => {
                 // Aplicar filtros
@@ -3437,7 +3829,7 @@ function DashboardTab({
 
                 if (filteredDistributions.length === 0) {
                   return (
-                    <div className="text-center text-muted-foreground p-8">
+                    <div className="text-center text-muted-foreground p-4 text-sm">
                       No hay comisiones disponibles con los filtros seleccionados
                     </div>
                   );
@@ -3460,7 +3852,7 @@ function DashboardTab({
                   .sort((a, b) => a - b);
 
                 return (
-                  <div className="space-y-6">
+                  <div className="space-y-3">
                     {sortedMonths.map(month => {
                       const monthDistributions = groupedByMonth[month];
                       
@@ -3468,15 +3860,25 @@ function DashboardTab({
                       const totalMonth = monthDistributions.reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
                       const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0)), 0);
                       const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0)), 0);
+                      const numTransacciones = monthDistributions.length;
+                      const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
 
                       return (
-                        <div key={month} className="space-y-4 border rounded-lg p-4">
+                        <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
                           <div className="flex items-center justify-between pb-2 border-b">
-                            <h3 className="text-xl font-bold">{monthNames[month - 1]}</h3>
-                            <div className="text-right space-y-1">
+                            <div className="flex items-center gap-3">
+                              <h3 className="text-base font-bold">{monthNames[month - 1]} {selectedYear}</h3>
+                              <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
+                                {monthYear}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4 text-right">
                               <div>
-                                <div className="text-xs text-muted-foreground">Subtotal</div>
-                                <div className="text-lg font-semibold">
+                                <div className="text-[10px] text-muted-foreground">Subtotal</div>
+                                <div className="text-sm font-semibold">
                                   ${totalMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3484,8 +3886,8 @@ function DashboardTab({
                                 </div>
                               </div>
                               <div>
-                                <div className="text-xs text-muted-foreground">IVA</div>
-                                <div className="text-lg font-semibold">
+                                <div className="text-[10px] text-muted-foreground">IVA</div>
+                                <div className="text-sm font-semibold">
                                   ${totalIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3493,8 +3895,8 @@ function DashboardTab({
                                 </div>
                               </div>
                               <div>
-                                <div className="text-xs text-muted-foreground">Total del Mes</div>
-                                <div className="text-2xl font-bold">
+                                <div className="text-[10px] text-muted-foreground">Total Mes</div>
+                                <div className="text-base font-bold">
                                   ${totalConIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3507,19 +3909,19 @@ function DashboardTab({
                           <div className="overflow-x-auto">
                             <Table>
                               <TableHeader>
-                                <TableRow>
-                                  <TableHead>Producto</TableHead>
-                                  <TableHead>Cliente</TableHead>
-                                  <TableHead>Desarrollo</TableHead>
-                                  <TableHead>Fecha</TableHead>
-                                  <TableHead>Persona</TableHead>
-                                  <TableHead>Rol</TableHead>
-                                  <TableHead>Fase</TableHead>
-                                  <TableHead className="text-right">Monto de Comisión</TableHead>
-                                  <TableHead className="text-right">IVA</TableHead>
-                                  <TableHead className="text-right">Total a Facturar</TableHead>
-                                  <TableHead>Estado</TableHead>
-                                  <TableHead>Factura</TableHead>
+                                <TableRow className="h-8">
+                                  <TableHead className="text-xs py-1.5 px-2">Producto</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Desarrollo</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Fecha</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Persona</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Rol</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Fase</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2 text-right">Comisión</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2 text-right">IVA</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2 text-right">Total</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Estado</TableHead>
+                                  <TableHead className="text-xs py-1.5 px-2">Factura</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -3529,56 +3931,56 @@ function DashboardTab({
                                   const totalConIva = calculateTotalWithIva(amount);
                                   
                                   return (
-                                    <TableRow key={dist.id}>
-                                      <TableCell className="font-medium">
+                                    <TableRow key={dist.id} className="h-8">
+                                      <TableCell className="text-xs py-1.5 px-2 font-medium">
                                         {dist.producto || '-'}
                                       </TableCell>
-                                      <TableCell>{dist.cliente_nombre}</TableCell>
-                                      <TableCell>{dist.desarrollo}</TableCell>
-                                      <TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">{dist.cliente_nombre}</TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">{dist.desarrollo}</TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">
                                         {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
                                       </TableCell>
-                                      <TableCell>{dist.person_name}</TableCell>
-                                      <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
-                                      <TableCell>
-                                        <Badge variant="outline">
+                                      <TableCell className="text-xs py-1.5 px-2">{dist.person_name}</TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">{getRoleDisplayName(dist.role_type)}</TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">
+                                        <Badge variant="outline" className="text-[10px] py-0 px-1.5">
                                           {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
                                         </Badge>
                                       </TableCell>
-                                      <TableCell className="text-right font-medium">
+                                      <TableCell className="text-xs py-1.5 px-2 text-right font-medium">
                                         ${amount.toLocaleString('es-MX', {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
                                         })}
                                       </TableCell>
-                                      <TableCell className="text-right">
+                                      <TableCell className="text-xs py-1.5 px-2 text-right">
                                         ${iva.toLocaleString('es-MX', {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
                                         })}
                                       </TableCell>
-                                      <TableCell className="text-right font-bold">
+                                      <TableCell className="text-xs py-1.5 px-2 text-right font-bold">
                                         ${totalConIva.toLocaleString('es-MX', {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
                                         })}
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="text-xs py-1.5 px-2">
                                         <Select
                                           value={dist.payment_status}
                                           onValueChange={(value: 'pending' | 'paid') => handlePaymentStatusChange(dist.id, value)}
                                         >
-                                          <SelectTrigger className="w-[140px]">
+                                          <SelectTrigger className="w-[110px] h-7 text-xs">
                                             <SelectValue>
                                               {dist.payment_status === 'paid' ? (
-                                                <div className="flex items-center gap-2">
-                                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                                  <span>Pagada</span>
+                                                <div className="flex items-center gap-1">
+                                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                                  <span className="text-xs">Pagada</span>
                                                 </div>
                                               ) : (
-                                                <div className="flex items-center gap-2">
-                                                  <Clock className="h-4 w-4 text-yellow-600" />
-                                                  <span>Pendiente</span>
+                                                <div className="flex items-center gap-1">
+                                                  <Clock className="h-3 w-3 text-yellow-600" />
+                                                  <span className="text-xs">Pendiente</span>
                                                 </div>
                                               )}
                                             </SelectValue>
@@ -3599,8 +4001,8 @@ function DashboardTab({
                                           </SelectContent>
                                         </Select>
                                       </TableCell>
-                                      <TableCell>
-                                        <div className="flex items-center gap-2">
+                                      <TableCell className="text-xs py-1.5 px-2">
+                                        <div className="flex items-center gap-1">
                                           {dist.invoice_pdf_path ? (
                                             <>
                                               <Button
@@ -3608,24 +4010,27 @@ function DashboardTab({
                                                 variant="ghost"
                                                 onClick={() => handleViewInvoice(dist.id)}
                                                 title="Ver factura"
+                                                className="h-6 w-6 p-0"
                                               >
-                                                <Eye className="h-4 w-4" />
+                                                <Eye className="h-3 w-3" />
                                               </Button>
                                               <Button
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => handleDownloadInvoice(dist.id)}
                                                 title="Descargar factura"
+                                                className="h-6 w-6 p-0"
                                               >
-                                                <Download className="h-4 w-4" />
+                                                <Download className="h-3 w-3" />
                                               </Button>
                                               <Button
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => handleDeleteInvoice(dist.id)}
                                                 title="Eliminar factura"
+                                                className="h-6 w-6 p-0"
                                               >
-                                                <X className="h-4 w-4 text-red-600" />
+                                                <X className="h-3 w-3 text-red-600" />
                                               </Button>
                                             </>
                                           ) : (
@@ -3652,11 +4057,12 @@ function DashboardTab({
                                                   const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
                                                   input?.click();
                                                 }}
+                                                className="h-6 px-2 text-xs"
                                               >
                                                 {uploadingInvoice === dist.id ? (
-                                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
                                                 ) : (
-                                                  <Upload className="h-4 w-4" />
+                                                  <Upload className="h-3 w-3" />
                                                 )}
                                               </Button>
                                             </>
@@ -3679,26 +4085,26 @@ function DashboardTab({
           </Card>
 
           {/* Tabla de Comisiones por Socio */}
-          <Card className="mt-6">
-            <CardHeader>
+          <Card className="mt-4">
+            <CardHeader className="pb-3">
               <div>
-                <CardTitle>Comisiones por Socio</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-lg">Comisiones por Socio</CardTitle>
+                <CardDescription className="text-xs">
                   Total de comisiones que se deben cobrar a cada socio (100% de fase venta + fase posventa)
                 </CardDescription>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-3">
               {loadingPartnerCommissions ? (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                <div className="flex items-center justify-center p-4">
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : partnerCommissions.length === 0 ? (
-                <div className="text-center text-muted-foreground p-8">
+                <div className="text-center text-muted-foreground p-4 text-sm">
                   No hay comisiones por socio disponibles
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-3">
                   {/* Agrupar por mes y luego por socio */}
                   {(() => {
                     const monthNames = [
@@ -3737,15 +4143,26 @@ function DashboardTab({
                       const totalMonth = monthCommissions.reduce((sum, c) => sum + c.total_comision, 0);
                       const totalIvaMonth = monthCommissions.reduce((sum, c) => sum + c.iva, 0);
                       const totalConIvaMonth = monthCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
+                      const numSocios = Object.keys(groupedBySocio).length;
+                      const numTransacciones = monthCommissions.length;
+                      const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
 
                       return (
-                        <div key={month} className="space-y-4 border rounded-lg p-4">
+                        <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
                           <div className="flex items-center justify-between pb-2 border-b">
-                            <h3 className="text-xl font-bold">{monthNames[month - 1]}</h3>
-                            <div className="text-right space-y-1">
+                            <div className="flex items-center gap-3">
+                              <h3 className="text-base font-bold">{monthNames[month - 1]} {selectedYear}</h3>
+                              <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
+                                {monthYear}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {numSocios} {numSocios === 1 ? 'socio' : 'socios'} • {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4 text-right">
                               <div>
-                                <div className="text-xs text-muted-foreground">Subtotal</div>
-                                <div className="text-lg font-semibold">
+                                <div className="text-[10px] text-muted-foreground">Subtotal</div>
+                                <div className="text-sm font-semibold">
                                   ${totalMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3753,8 +4170,8 @@ function DashboardTab({
                                 </div>
                               </div>
                               <div>
-                                <div className="text-xs text-muted-foreground">IVA</div>
-                                <div className="text-lg font-semibold">
+                                <div className="text-[10px] text-muted-foreground">IVA</div>
+                                <div className="text-sm font-semibold">
                                   ${totalIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3762,8 +4179,8 @@ function DashboardTab({
                                 </div>
                               </div>
                               <div>
-                                <div className="text-xs text-muted-foreground">Total del Mes</div>
-                                <div className="text-2xl font-bold">
+                                <div className="text-[10px] text-muted-foreground">Total Mes</div>
+                                <div className="text-base font-bold">
                                   ${totalConIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -3774,7 +4191,7 @@ function DashboardTab({
                           </div>
 
                           {/* Mostrar comisiones por socio dentro del mes */}
-                          <div className="space-y-4">
+                          <div className="space-y-2">
                             {Object.keys(groupedBySocio).sort().map(socioName => {
                               const socioCommissions = groupedBySocio[socioName];
                               const totalSocio = socioCommissions.reduce((sum, c) => sum + c.total_comision, 0);
@@ -3782,13 +4199,13 @@ function DashboardTab({
                               const totalConIvaSocio = socioCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
 
                               return (
-                                <div key={`${month}-${socioName}`} className="space-y-2">
-                                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                                    <h4 className="text-lg font-semibold">{socioName}</h4>
-                                    <div className="text-right space-y-1">
+                                <div key={`${month}-${socioName}`} className="space-y-1.5">
+                                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                    <h4 className="text-sm font-semibold">{socioName}</h4>
+                                    <div className="flex items-center gap-3 text-right">
                                       <div>
-                                        <div className="text-xs text-muted-foreground">Subtotal</div>
-                                        <div className="text-lg font-semibold">
+                                        <div className="text-[10px] text-muted-foreground">Subtotal</div>
+                                        <div className="text-xs font-semibold">
                                           ${totalSocio.toLocaleString('es-MX', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
@@ -3796,8 +4213,8 @@ function DashboardTab({
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-xs text-muted-foreground">IVA</div>
-                                        <div className="text-lg font-semibold">
+                                        <div className="text-[10px] text-muted-foreground">IVA</div>
+                                        <div className="text-xs font-semibold">
                                           ${totalIvaSocio.toLocaleString('es-MX', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
@@ -3805,8 +4222,8 @@ function DashboardTab({
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-xs text-muted-foreground">Total del Socio</div>
-                                        <div className="text-xl font-bold">
+                                        <div className="text-[10px] text-muted-foreground">Total Socio</div>
+                                        <div className="text-sm font-bold">
                                           ${totalConIvaSocio.toLocaleString('es-MX', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
@@ -3818,40 +4235,40 @@ function DashboardTab({
                                   <div className="overflow-x-auto">
                                     <Table>
                                       <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Concepto</TableHead>
-                                          <TableHead>Lote (Producto)</TableHead>
-                                          <TableHead>Cliente</TableHead>
-                                          <TableHead className="text-right">Participación</TableHead>
-                                          <TableHead className="text-right">Total de Comisión</TableHead>
-                                          <TableHead className="text-right">IVA</TableHead>
-                                          <TableHead className="text-right">Total Factura + IVA</TableHead>
+                                        <TableRow className="h-8">
+                                          <TableHead className="text-xs py-1.5 px-2">Concepto</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2">Lote</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2 text-right">Part.</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2 text-right">Comisión</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2 text-right">IVA</TableHead>
+                                          <TableHead className="text-xs py-1.5 px-2 text-right">Total</TableHead>
                                         </TableRow>
                                       </TableHeader>
                                       <TableBody>
                                         {socioCommissions.map((commission, idx) => (
-                                          <TableRow key={`${commission.sale_id}-${idx}`}>
-                                            <TableCell className="font-medium">
+                                          <TableRow key={`${commission.sale_id}-${idx}`} className="h-8">
+                                            <TableCell className="text-xs py-1.5 px-2 font-medium">
                                               {commission.concepto}
                                             </TableCell>
-                                            <TableCell>{commission.producto || '-'}</TableCell>
-                                            <TableCell>{commission.cliente_nombre}</TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="text-xs py-1.5 px-2">{commission.producto || '-'}</TableCell>
+                                            <TableCell className="text-xs py-1.5 px-2">{commission.cliente_nombre}</TableCell>
+                                            <TableCell className="text-xs py-1.5 px-2 text-right">
                                               {commission.participacion.toFixed(2)}%
                                             </TableCell>
-                                            <TableCell className="text-right font-medium">
+                                            <TableCell className="text-xs py-1.5 px-2 text-right font-medium">
                                               ${commission.total_comision.toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
                                             </TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="text-xs py-1.5 px-2 text-right">
                                               ${commission.iva.toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
                                             </TableCell>
-                                            <TableCell className="text-right font-bold">
+                                            <TableCell className="text-xs py-1.5 px-2 text-right font-bold">
                                               ${commission.total_con_iva.toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,

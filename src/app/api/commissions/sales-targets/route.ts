@@ -1,20 +1,20 @@
 /**
  * =====================================================
- * API: Metas de Comisión de Comisiones
+ * API: Metas de Ventas de Comisiones
  * =====================================================
- * Endpoints para gestionar metas de comisión
+ * Endpoints para gestionar metas de ventas
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import {
-  getCommissionBillingTargets,
-  upsertCommissionBillingTarget,
-  deleteCommissionBillingTarget,
+  getCommissionSalesTargets,
+  upsertCommissionSalesTarget,
+  deleteCommissionSalesTarget,
 } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
-import type { CommissionBillingTargetInput } from '@/types/commissions';
+import type { CommissionSalesTargetInput } from '@/types/commissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,8 +22,8 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_ROLES = ['admin', 'ceo'];
 
 /**
- * GET /api/commissions/billing-targets
- * Obtiene las metas de comisión para un año
+ * GET /api/commissions/sales-targets
+ * Obtiene las metas de ventas para un año
  * Query params: ?year=2024
  */
 export async function GET(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
@@ -65,18 +65,18 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    const targets = await getCommissionBillingTargets(year);
+    const targets = await getCommissionSalesTargets(year);
 
     return NextResponse.json({
       success: true,
       data: targets,
     });
   } catch (error) {
-    logger.error('Error obteniendo metas de comisión', error, {}, 'commissions-billing-targets');
+    logger.error('Error obteniendo metas de ventas', error, {}, 'commissions-sales-targets');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error obteniendo metas de comisión',
+        error: error instanceof Error ? error.message : 'Error obteniendo metas de ventas',
       },
       { status: 500 }
     );
@@ -84,8 +84,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
 }
 
 /**
- * POST /api/commissions/billing-targets
- * Crea o actualiza una meta de comisión
+ * POST /api/commissions/sales-targets
+ * Crea o actualiza una meta de ventas
  */
 export async function POST(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
@@ -148,24 +148,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const targetInput: CommissionBillingTargetInput = {
+    const targetInput: CommissionSalesTargetInput = {
       year: parseInt(year, 10),
       month: parseInt(month, 10),
       target_amount: parseFloat(target_amount),
     };
 
-    const target = await upsertCommissionBillingTarget(targetInput, payload.userId);
+    const target = await upsertCommissionSalesTarget(targetInput, payload.userId);
 
     return NextResponse.json({
       success: true,
       data: target,
     });
   } catch (error) {
-    logger.error('Error guardando meta de comisión', error, {}, 'commissions-billing-targets');
+    logger.error('Error guardando meta de ventas', error, {}, 'commissions-sales-targets');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error guardando meta de comisión',
+        error: error instanceof Error ? error.message : 'Error guardando meta de ventas',
       },
       { status: 500 }
     );
@@ -173,8 +173,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 }
 
 /**
- * DELETE /api/commissions/billing-targets
- * Elimina una meta de comisión
+ * DELETE /api/commissions/sales-targets
+ * Elimina una meta de ventas
  * Query params: ?year=2024&month=1
  */
 export async function DELETE(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
@@ -224,25 +224,25 @@ export async function DELETE(request: NextRequest): Promise<NextResponse<APIResp
       );
     }
 
-    const deleted = await deleteCommissionBillingTarget(year, month);
+    const deleted = await deleteCommissionSalesTarget(year, month);
 
     if (!deleted) {
       return NextResponse.json(
-        { success: false, error: 'Meta de comisión no encontrada' },
+        { success: false, error: 'Meta de ventas no encontrada' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Meta de comisión eliminada correctamente',
+      message: 'Meta de ventas eliminada correctamente',
     });
   } catch (error) {
-    logger.error('Error eliminando meta de comisión', error, {}, 'commissions-billing-targets');
+    logger.error('Error eliminando meta de ventas', error, {}, 'commissions-sales-targets');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error eliminando meta de comisión',
+        error: error instanceof Error ? error.message : 'Error eliminando meta de ventas',
       },
       { status: 500 }
     );

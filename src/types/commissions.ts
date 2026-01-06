@@ -94,6 +94,23 @@ export interface CommissionBillingTargetInput {
   target_amount: number;
 }
 
+export interface CommissionSalesTarget {
+  id: number;
+  year: number;
+  month: number;
+  target_amount: number;
+  created_at: string;
+  updated_at: string;
+  created_by: number | null;
+  updated_by: number | null;
+}
+
+export interface CommissionSalesTargetInput {
+  year: number;
+  month: number;
+  target_amount: number;
+}
+
 export interface CommissionConfigInput {
   desarrollo: string;
   phase_sale_percent: number;
@@ -307,8 +324,12 @@ export interface CommissionGeneralDashboard {
     unidades_vendidas: number;
     facturacion_ventas: number;
     ticket_promedio_venta: number;
+    monto_comision: number;
     meta_facturacion: number | null;
     porcentaje_cumplimiento: number | null;
+    monto_ventas: number;
+    meta_ventas: number | null;
+    porcentaje_cumplimiento_ventas: number | null;
   }[];
   total_annual: {
     ventas_totales: number;

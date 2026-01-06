@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { query } from '@/lib/postgres';
 import { logger } from '@/lib/logger';
-import { getCommissionBillingTargets, getCommissionDistributionsWithSaleInfo } from '@/lib/commission-db';
+import { getCommissionBillingTargets, getCommissionSalesTargets, getCommissionDistributionsWithSaleInfo } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type {
   CommissionDevelopmentDashboard,
@@ -246,14 +246,17 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
 
-  // Obtener todas las ventas del año
+  // Obtener todas las ventas del año (incluyendo fases de comisión)
   const salesResult = await query<{
     id: number;
     fecha_firma: string;
     valor_total: number;
     commission_total: number;
+    commission_sale_phase: number;
+    commission_post_sale_phase: number;
   }>(
-    `SELECT id, fecha_firma, valor_total, commission_total
+    `SELECT id, fecha_firma, valor_total, commission_total, 
+            commission_sale_phase, commission_post_sale_phase
      FROM commission_sales
      WHERE EXTRACT(YEAR FROM fecha_firma) = $1
        AND commission_calculated = true
@@ -263,8 +266,11 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
 
   const sales = salesResult.rows;
 
-  // Obtener todas las metas de facturación para el año (una sola consulta)
+  // Obtener todas las metas de comisión para el año (una sola consulta)
   const billingTargets = await getCommissionBillingTargets(year);
+  
+  // Obtener todas las metas de ventas para el año (una sola consulta)
+  const salesTargets = await getCommissionSalesTargets(year);
 
   // Agrupar por mes
   const monthlyMetrics = Array.from({ length: 12 }, (_, i) => {
@@ -278,16 +284,31 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
     const unidadesVendidas = monthSales.length; // Asumiendo 1 unidad por venta
     const facturacionVentas = monthSales.reduce((sum, s) => sum + Number(s.valor_total || 0), 0);
     
+    // Calcular el monto de comisión como suma de fase ventas + fase postventa
+    const montoComision = monthSales.reduce((sum, s) => 
+      sum + Number(s.commission_sale_phase || 0) + Number(s.commission_post_sale_phase || 0), 
+      0
+    );
+    
     // Promedio de ticket de venta
     const ticketPromedio = ventasTotales > 0
       ? facturacionVentas / ventasTotales
       : 0;
 
-    // Buscar meta de facturación para este mes (ya obtenida arriba)
+    // Buscar meta de comisión para este mes (ya obtenida arriba)
     const targetForMonth = billingTargets.find(t => t.month === month);
     const metaFacturacion: number | null = targetForMonth ? Number(targetForMonth.target_amount) : null;
+    // El porcentaje de cumplimiento se calcula comparando el monto de comisión con la meta
     const porcentajeCumplimiento: number | null = metaFacturacion && metaFacturacion > 0
-      ? Number(((facturacionVentas / metaFacturacion) * 100).toFixed(2))
+      ? Number(((montoComision / metaFacturacion) * 100).toFixed(2))
+      : null;
+
+    // Buscar meta de ventas para este mes
+    const salesTargetForMonth = salesTargets.find(t => t.month === month);
+    const metaVentas: number | null = salesTargetForMonth ? Number(salesTargetForMonth.target_amount) : null;
+    // El porcentaje de cumplimiento de ventas se calcula comparando facturacionVentas (valor_total sin IVA) con la meta
+    const porcentajeCumplimientoVentas: number | null = metaVentas && metaVentas > 0
+      ? Number(((facturacionVentas / metaVentas) * 100).toFixed(2))
       : null;
 
     return {
@@ -297,8 +318,12 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
       unidades_vendidas: unidadesVendidas,
       facturacion_ventas: Number(facturacionVentas.toFixed(2)),
       ticket_promedio_venta: Number(ticketPromedio.toFixed(2)),
+      monto_comision: Number(montoComision.toFixed(2)),
       meta_facturacion: metaFacturacion,
       porcentaje_cumplimiento: porcentajeCumplimiento,
+      monto_ventas: Number(facturacionVentas.toFixed(2)),
+      meta_ventas: metaVentas,
+      porcentaje_cumplimiento_ventas: porcentajeCumplimientoVentas,
     };
   });
 
