@@ -470,8 +470,8 @@ export default function DashboardPage() {
     <div className="space-y-4 sm:space-y-6 md:space-y-8">
       {/* Header */}
       <div className="pl-0 sm:pl-4">
-        <h1 className="text-2xl sm:text-3xl font-bold navy-text">Dashboard</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
+        <h1 className="text-lg font-bold navy-text">Dashboard</h1>
+        <p className="text-xs text-muted-foreground">
           {isAdmin 
             ? 'Vista administrativa del sistema'
             : 'Resumen de tus desarrollos y actividad'
@@ -522,7 +522,7 @@ export default function DashboardPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl font-bold">
               {loading ? '...' : error ? '-' : stats?.totalDocuments.toLocaleString() || '0'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -537,7 +537,7 @@ export default function DashboardPage() {
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl font-bold">
               {loading ? '...' : error ? '-' : stats?.totalQueriesThisMonth.toLocaleString() || '0'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -552,7 +552,7 @@ export default function DashboardPage() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl font-bold">
               {loading ? '...' : error ? '-' : stats?.averageResponseTime ? `${stats.averageResponseTime}s` : '0s'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -569,7 +569,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <div className="text-2xl font-bold">
+              <div className="text-xl font-bold">
                 {loading ? '...' : error ? '-' : stats?.averageRating ? stats.averageRating.toFixed(1) : 'N/A'}
               </div>
               {stats?.averageRating && stats.averageRating > 0 && (
@@ -601,7 +601,7 @@ export default function DashboardPage() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl font-bold">
                 {adminStats.activeUsers}/{adminStats.totalUsers}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -881,7 +881,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Exactitud General</p>
-                    <p className="text-3xl font-bold mt-1">
+                    <p className="text-xl font-bold mt-1">
                       {adminStats.accuracyStats.accuracyPercentage}%
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -919,7 +919,7 @@ export default function DashboardPage() {
                       />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold">
+                      <span className="text-xl font-bold">
                         {adminStats.accuracyStats.accuracyPercentage}%
                       </span>
                     </div>
@@ -936,7 +936,7 @@ export default function DashboardPage() {
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                     </div>
-                    <p className="text-2xl font-bold text-green-600">{adminStats.accuracyStats.excellent}</p>
+                    <p className="text-xl font-bold text-green-600">{adminStats.accuracyStats.excellent}</p>
                     <p className="text-xs text-muted-foreground">Excelente</p>
                   </div>
                   <div className="text-center">
@@ -947,7 +947,7 @@ export default function DashboardPage() {
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                       <Star className="h-4 w-4 text-gray-300" />
                     </div>
-                    <p className="text-2xl font-bold text-blue-600">{adminStats.accuracyStats.good}</p>
+                    <p className="text-xl font-bold text-blue-600">{adminStats.accuracyStats.good}</p>
                     <p className="text-xs text-muted-foreground">Buena</p>
                   </div>
                   <div className="text-center">
@@ -958,7 +958,7 @@ export default function DashboardPage() {
                       <Star className="h-4 w-4 text-gray-300" />
                       <Star className="h-4 w-4 text-gray-300" />
                     </div>
-                    <p className="text-2xl font-bold text-yellow-600">{adminStats.accuracyStats.average}</p>
+                    <p className="text-xl font-bold text-yellow-600">{adminStats.accuracyStats.average}</p>
                     <p className="text-xs text-muted-foreground">Regular</p>
                   </div>
                   <div className="text-center">
@@ -969,7 +969,7 @@ export default function DashboardPage() {
                       <Star className="h-4 w-4 text-gray-300" />
                       <Star className="h-4 w-4 text-gray-300" />
                     </div>
-                    <p className="text-2xl font-bold text-red-600">{adminStats.accuracyStats.poor}</p>
+                    <p className="text-xl font-bold text-red-600">{adminStats.accuracyStats.poor}</p>
                     <p className="text-xs text-muted-foreground">Pobre</p>
                   </div>
                 </div>
@@ -1102,14 +1102,14 @@ export default function DashboardPage() {
           {/* Estadísticas por Desarrollo */}
           {developmentStats.length > 0 && (
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold">Mis Desarrollos</h2>
+              <h2 className="text-sm font-semibold">Mis Desarrollos</h2>
               <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                 {developmentStats.map((stat, index) => (
                   <Card key={index}>
                     <CardHeader>
                       <div className="flex items-center gap-2">
                         <Building2 className="h-5 w-5 text-capital-navy" />
-                        <CardTitle className="text-base sm:text-lg">{stat.development}</CardTitle>
+                        <CardTitle>{stat.development}</CardTitle>
                       </div>
                       <CardDescription className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
@@ -1123,7 +1123,7 @@ export default function DashboardPage() {
                             <FileText className="h-4 w-4" />
                             Documentos
                           </span>
-                          <span className="text-lg font-bold">{stat.documentCount}</span>
+                          <span className="text-xl font-bold">{stat.documentCount}</span>
                         </div>
                         {stat.goodRatings > 0 && (
                           <div className="flex items-center justify-between">
@@ -1131,7 +1131,7 @@ export default function DashboardPage() {
                               <Star className="h-4 w-4 text-yellow-500" />
                               Buenas calificaciones
                             </span>
-                            <span className="text-lg font-bold text-green-600">{stat.goodRatings}</span>
+                            <span className="text-xl font-bold text-green-600">{stat.goodRatings}</span>
                           </div>
                         )}
                         {stat.similarQueries > 0 && (
@@ -1140,7 +1140,7 @@ export default function DashboardPage() {
                               <TrendingUp className="h-4 w-4 text-blue-500" />
                               Consultas repetidas
                             </span>
-                            <span className="text-lg font-bold text-blue-600">{stat.similarQueries}</span>
+                            <span className="text-xl font-bold text-blue-600">{stat.similarQueries}</span>
                           </div>
                         )}
                       </div>

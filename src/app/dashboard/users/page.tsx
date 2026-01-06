@@ -488,7 +488,7 @@ export default function UsersPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div className="pl-4">
-          <h1 className="text-3xl font-bold navy-text">Usuarios</h1>
+          <h1 className="text-lg font-bold navy-text">Usuarios</h1>
           <p className="text-muted-foreground">
             Gestiona usuarios y sus permisos
           </p>
@@ -591,7 +591,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-background border rounded-lg shadow-lg p-6 w-full max-w-md space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
+              <h2 className="text-sm font-semibold">
                 {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
               </h2>
               <Button
@@ -724,7 +724,7 @@ export default function UsersPage() {
           <div className="bg-background border rounded-lg shadow-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Gestionar Desarrollos</h2>
+                <h2 className="text-sm font-semibold">Gestionar Desarrollos</h2>
                 <p className="text-sm text-muted-foreground">{selectedUser.name}</p>
               </div>
               <Button
@@ -739,7 +739,7 @@ export default function UsersPage() {
             {/* Add Development Form */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Asignar Nuevo Desarrollo</CardTitle>
+                <CardTitle>Asignar Nuevo Desarrollo</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -803,7 +803,7 @@ export default function UsersPage() {
             {/* User Developments List */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Desarrollos Asignados</CardTitle>
+                <CardTitle>Desarrollos Asignados</CardTitle>
               </CardHeader>
               <CardContent>
                 {userDevelopments.length === 0 ? (
@@ -874,7 +874,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-background border rounded-lg shadow-lg p-6 w-full max-w-md space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
+              <h2 className="text-sm font-semibold">
                 Cambiar Contraseña
               </h2>
               <Button
@@ -958,7 +958,7 @@ export default function UsersPage() {
                 <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
                   <CheckCircle2 className="h-6 w-6 text-green-600" />
                 </div>
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-sm font-semibold">
                   Usuario Creado
                 </h2>
               </div>
@@ -991,7 +991,7 @@ export default function UsersPage() {
                   <Input
                     value={tempPassword}
                     readOnly
-                    className="font-mono text-lg font-semibold"
+                    className="font-mono text-sm font-semibold"
                   />
                   <Button
                     variant="outline"

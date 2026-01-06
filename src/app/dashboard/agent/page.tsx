@@ -779,7 +779,7 @@ export default function AgentPage() {
       {/* Header - Más compacto */}
       <div className="flex-shrink-0 mb-2 px-2 md:px-0">
         <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-lg md:text-xl lg:text-2xl font-bold navy-text">Consultar Agente</h1>
+          <h1 className="text-lg font-bold navy-text">Consultar Agente</h1>
           {!sidebarOpen && (
             <Badge variant="outline" className="text-[10px] md:text-xs animate-in fade-in duration-300">
               Panel colapsado
@@ -819,7 +819,7 @@ export default function AgentPage() {
           
           <Card className="relative z-10 mx-2 my-2 md:mx-0 md:my-0 max-w-md md:max-w-none flex flex-col" style={{ height: '100%' }}>
             <CardHeader className="relative pr-10 pb-2 pt-3 md:pt-4">
-              <CardTitle className="text-sm md:text-base">Nuevo Chat</CardTitle>
+              <CardTitle>Nuevo Chat</CardTitle>
               <CardDescription className="text-xs">
                 Selecciona zona y desarrollo
               </CardDescription>
@@ -933,7 +933,7 @@ export default function AgentPage() {
             <CardContent className="flex-1 flex items-center justify-center min-h-0 p-4 md:p-6">
               <div className="text-center text-muted-foreground">
                 <MessageSquare className="h-12 w-12 md:h-16 md:w-16 mx-auto mb-2 md:mb-4 opacity-50" />
-                <p className="text-sm md:text-lg font-medium mb-1 md:mb-2">No hay chats activos</p>
+                <p className="text-xs font-medium mb-1 md:mb-2">No hay chats activos</p>
                 <p className="text-xs md:text-sm">Selecciona zona y desarrollo para comenzar una conversación</p>
               </div>
             </CardContent>
@@ -942,7 +942,7 @@ export default function AgentPage() {
               <CardHeader className="flex-shrink-0 pb-2 px-3 md:px-4 lg:px-6 pt-3 md:pt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-sm md:text-base lg:text-lg">Chats Activos</CardTitle>
+                    <CardTitle>Chats Activos</CardTitle>
                     <CardDescription className="text-xs md:text-sm">
                       {chatList.length} conversación(es) activa(s)
                     </CardDescription>

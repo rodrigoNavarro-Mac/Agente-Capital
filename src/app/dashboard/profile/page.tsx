@@ -252,8 +252,8 @@ export default function ProfilePage() {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">Mi Perfil</h1>
-        <p className="text-sm sm:text-base text-muted-foreground mt-1 sm:mt-2">
+        <h1 className="text-lg font-bold">Mi Perfil</h1>
+        <p className="text-xs text-muted-foreground mt-1 sm:mt-2">
           Gestiona tu información personal y configuración de cuenta
         </p>
       </div>
@@ -273,14 +273,14 @@ export default function ProfilePage() {
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium text-muted-foreground">Email:</span>
               </div>
-              <span className="text-sm sm:text-base">{user?.email || 'N/A'}</span>
+              <span className="text-xs">{user?.email || 'N/A'}</span>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-2 min-w-[120px]">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium text-muted-foreground">Nombre:</span>
               </div>
-              <span className="text-sm sm:text-base">{user?.name || 'N/A'}</span>
+              <span className="text-xs">{user?.name || 'N/A'}</span>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-2 min-w-[120px]">
@@ -346,7 +346,7 @@ export default function ProfilePage() {
                   <MessageSquare className="h-4 w-4 text-blue-600" />
                   <span className="text-xs sm:text-sm text-muted-foreground">Total Consultas</span>
                 </div>
-                <span className="text-2xl font-bold text-blue-900">{userStats.totalQueries}</span>
+                <span className="text-xl font-bold text-blue-900">{userStats.totalQueries}</span>
               </div>
               
               <div className="flex flex-col items-center sm:items-start p-3 bg-green-50 rounded-lg">
@@ -354,7 +354,7 @@ export default function ProfilePage() {
                   <TrendingUp className="h-4 w-4 text-green-600" />
                   <span className="text-xs sm:text-sm text-muted-foreground">Este Mes</span>
                 </div>
-                <span className="text-2xl font-bold text-green-900">{userStats.queriesThisMonth}</span>
+                <span className="text-xl font-bold text-green-900">{userStats.queriesThisMonth}</span>
               </div>
               
               <div className="flex flex-col items-center sm:items-start p-3 bg-yellow-50 rounded-lg">
@@ -362,7 +362,7 @@ export default function ProfilePage() {
                   <Star className="h-4 w-4 text-yellow-600" />
                   <span className="text-xs sm:text-sm text-muted-foreground">Calificaciones</span>
                 </div>
-                <span className="text-2xl font-bold text-yellow-900">{userStats.totalRatings}</span>
+                <span className="text-xl font-bold text-yellow-900">{userStats.totalRatings}</span>
               </div>
               
               <div className="flex flex-col items-center sm:items-start p-3 bg-purple-50 rounded-lg">
@@ -370,7 +370,7 @@ export default function ProfilePage() {
                   <BarChart3 className="h-4 w-4 text-purple-600" />
                   <span className="text-xs sm:text-sm text-muted-foreground">Promedio</span>
                 </div>
-                <span className="text-2xl font-bold text-purple-900">
+                <span className="text-xl font-bold text-purple-900">
                   {userStats.averageRating > 0 ? userStats.averageRating.toFixed(1) : 'N/A'}
                 </span>
                 {userStats.averageRating > 0 && (
@@ -509,13 +509,13 @@ export default function ProfilePage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <MapPin className="h-4 w-4 text-capital-navy" />
-                        <span className="font-semibold text-sm sm:text-base">
+                        <span className="font-semibold text-xs">
                           {getZoneName(dev.zone)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mb-3">
                         <Building2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm sm:text-base">{dev.development}</span>
+                        <span className="text-xs">{dev.development}</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Badge 

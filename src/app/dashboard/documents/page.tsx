@@ -174,7 +174,7 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-8">
       <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Documentos</h1>
+        <h1 className="text-lg font-bold navy-text">Documentos</h1>
         <p className="text-muted-foreground">
           Explora y gestiona documentos procesados
         </p>
@@ -411,7 +411,7 @@ export default function DocumentsPage() {
             {/* Información del documento */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Información del Documento</CardTitle>
+                <CardTitle>Información del Documento</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4 text-sm">
@@ -463,7 +463,7 @@ export default function DocumentsPage() {
               <TabsContent value="content" className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Texto Completo del Documento</CardTitle>
+                    <CardTitle>Texto Completo del Documento</CardTitle>
                     <CardDescription>
                       Contenido reconstruido desde los chunks almacenados
                     </CardDescription>
@@ -495,7 +495,7 @@ export default function DocumentsPage() {
                 <TabsContent value="chunks" className="space-y-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">Chunks Almacenados en Pinecone</CardTitle>
+                      <CardTitle>Chunks Almacenados en Pinecone</CardTitle>
                       <CardDescription>
                         Visualiza cómo está dividido y almacenado el documento en la base de datos vectorial
                       </CardDescription>

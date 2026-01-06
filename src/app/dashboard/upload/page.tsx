@@ -191,7 +191,7 @@ export default function UploadPage() {
   return (
     <div className="max-w-4xl space-y-8">
       <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Subir Documentos</h1>
+        <h1 className="text-lg font-bold navy-text">Subir Documentos</h1>
         <p className="text-muted-foreground">
           Procesa y almacena documentos para el agente de IA
         </p>

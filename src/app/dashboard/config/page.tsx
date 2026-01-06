@@ -161,7 +161,7 @@ export default function ConfigPage() {
   return (
     <div className="max-w-4xl space-y-8">
       <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Configuración</h1>
+        <h1 className="text-lg font-bold navy-text">Configuración</h1>
         <p className="text-muted-foreground">
           Ajusta los parámetros del agente de IA
         </p>

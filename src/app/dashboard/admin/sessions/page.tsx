@@ -154,7 +154,7 @@ export default function AdminSessionsPage() {
   return (
     <div className="space-y-8">
       <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Sesiones y Actividad de Usuarios</h1>
+        <h1 className="text-lg font-bold navy-text">Sesiones y Actividad de Usuarios</h1>
         <p className="text-muted-foreground">
           Visualiza sesiones activas, IPs, y módulos visitados por los usuarios
         </p>

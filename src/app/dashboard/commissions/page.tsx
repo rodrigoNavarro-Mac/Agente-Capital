@@ -207,8 +207,8 @@ export default function CommissionsPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Módulo de Comisiones</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-lg font-bold">Módulo de Comisiones</h1>
+          <p className="text-xs text-muted-foreground mt-1">
             Sistema configurable, auditable y flexible para gestión de comisiones
           </p>
         </div>
@@ -1116,7 +1116,7 @@ function ConfigTab({
 
           {/* Fase Venta */}
           <div className="space-y-4 border-l-4 border-blue-500 pl-4">
-            <h3 className="text-lg font-semibold text-blue-600">Fase Venta</h3>
+            <h3 className="text-sm font-semibold text-blue-600">Fase Venta</h3>
             <div className="grid grid-cols-2 gap-4">
             <div>
                 <Label>% Gerente de Ventas del Desarrollo</Label>
@@ -1214,7 +1214,7 @@ function ConfigTab({
 
           {/* Fase Postventa */}
           <div className="space-y-4 border-l-4 border-green-500 pl-4">
-            <h3 className="text-lg font-semibold text-green-600">Fase Postventa</h3>
+            <h3 className="text-sm font-semibold text-green-600">Fase Postventa</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Los roles base (Gerente Legal y Coordinador Postventas) se configuran globalmente. Ver sección &quot;Configuración Global&quot;.
             </p>
@@ -1369,7 +1369,7 @@ function ConfigTab({
               {showRuleForm && (
                 <Card className="mb-4 border-primary">
                   <CardHeader>
-                    <CardTitle className="text-lg">
+                    <CardTitle>
                       {editingRule ? 'Editar Regla' : 'Nueva Regla'}
                     </CardTitle>
                   </CardHeader>
@@ -1866,7 +1866,7 @@ function ConfigTab({
         <CardContent className="space-y-6">
           {/* Fase Venta */}
           <div className="space-y-4 border-l-4 border-blue-500 pl-4">
-            <h3 className="text-lg font-semibold text-blue-600">Fase Venta</h3>
+            <h3 className="text-sm font-semibold text-blue-600">Fase Venta</h3>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
                 <Label>% Coordinador de Operaciones de Venta</Label>
@@ -1929,7 +1929,7 @@ function ConfigTab({
 
           {/* Fase Postventa */}
           <div className="space-y-4 border-l-4 border-green-500 pl-4">
-            <h3 className="text-lg font-semibold text-green-600">Fase Postventa</h3>
+            <h3 className="text-sm font-semibold text-green-600">Fase Postventa</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>% Gerente Legal</Label>
@@ -2643,7 +2643,7 @@ function DistributionTab({
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>
                             <span className="text-muted-foreground">Monto total de la Venta:</span>
-                            <p className="font-semibold text-lg">
+                            <p className="font-semibold text-xl">
                               ${Number(selectedSale.valor_total).toLocaleString('es-MX', { 
                                 minimumFractionDigits: 2, 
                                 maximumFractionDigits: 2 
@@ -2728,7 +2728,7 @@ function DistributionTab({
                                 </div>
                                 <div className="col-span-2 border-t pt-2 mt-2">
                                   <span className="text-muted-foreground">Total de Comisiones (Fase Venta + Postventa):</span>
-                                  <p className="font-semibold text-lg">
+                                  <p className="font-semibold text-xl">
                                     ${totalCommissionsPaid.toLocaleString('es-MX', { 
                                       minimumFractionDigits: 2, 
                                       maximumFractionDigits: 2 
@@ -3833,7 +3833,7 @@ function DashboardTab({
               <div className="space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
                   <div>
-                    <CardTitle className="text-lg text-yellow-600">Comisiones a Pagar</CardTitle>
+                    <CardTitle className="text-yellow-600">Comisiones a Pagar</CardTitle>
                     <CardDescription className="text-xs mt-1">
                       Lista detallada de todas las comisiones con su estado de pago
                     </CardDescription>
@@ -3954,7 +3954,7 @@ function DashboardTab({
                         <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
                           <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
                             <div className="flex items-center gap-3">
-                              <h3 className="text-base font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
+                              <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
                               <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
                                 {monthYear}
                               </span>
@@ -3983,7 +3983,7 @@ function DashboardTab({
                               </div>
                               <div>
                                 <div className="text-[10px] text-muted-foreground">Total Mes</div>
-                                <div className="text-base font-bold">
+                                <div className="text-xl font-bold">
                                   ${totalConIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -4176,7 +4176,7 @@ function DashboardTab({
           <Card className="mt-4">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
-                <CardTitle className="text-lg text-yellow-600">Comisiones por Socio</CardTitle>
+                <CardTitle className="text-yellow-600">Comisiones por Socio</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -4252,7 +4252,7 @@ function DashboardTab({
                         <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
                           <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
                             <div className="flex items-center gap-3">
-                              <h3 className="text-base font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
+                              <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
                               <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
                                 {monthYear}
                               </span>
@@ -4281,7 +4281,7 @@ function DashboardTab({
                               </div>
                               <div>
                                 <div className="text-[10px] text-muted-foreground">Total Mes</div>
-                                <div className="text-base font-bold">
+                                <div className="text-xl font-bold">
                                   ${totalConIvaMonth.toLocaleString('es-MX', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,

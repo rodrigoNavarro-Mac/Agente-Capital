@@ -219,8 +219,8 @@ export function Sidebar() {
           'flex h-16 items-center border-b border-[#1e3d5c] px-6 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
-          <h1 className="text-xl font-bold font-heading">
-            Capital <span className="text-[#fdc23e] text-xl">Plus</span>
+          <h1 className="text-lg font-bold font-heading">
+            Capital <span className="text-[#fdc23e] text-lg">Plus</span>
           </h1>
           {/* Botón para plegar sidebar */}
           <button

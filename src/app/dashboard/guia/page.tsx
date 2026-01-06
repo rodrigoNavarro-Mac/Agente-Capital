@@ -695,11 +695,11 @@ export default function GuiaPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-capital-navy flex items-center gap-2 sm:gap-3">
+          <h1 className="text-lg font-bold text-capital-navy flex items-center gap-2 sm:gap-3">
             <Book className="h-6 w-6 sm:h-8 sm:w-8 text-capital-gold flex-shrink-0" />
             <span>Guía de Usuario</span>
           </h1>
-          <p className="text-sm sm:text-base text-gray-600 mt-1 sm:mt-2">
+          <p className="text-xs text-gray-600 mt-1 sm:mt-2">
             Aprende a usar el Agente Capital Plus de forma efectiva
           </p>
         </div>
@@ -725,11 +725,11 @@ export default function GuiaPage() {
       <Card className="bg-gradient-to-r from-capital-navy to-capital-navy/90">
         <CardContent className="pt-4 sm:pt-6 text-white">
           <div className="flex items-center gap-3 sm:gap-4">
-            <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-full bg-capital-gold flex items-center justify-center text-capital-navy text-xl sm:text-2xl font-bold flex-shrink-0">
+            <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-full bg-capital-gold flex items-center justify-center text-capital-navy text-lg font-bold flex-shrink-0">
               {userName.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg sm:text-xl font-semibold truncate text-capital-gold">{userName}</h3>
+              <h3 className="text-sm font-semibold truncate text-capital-gold">{userName}</h3>
               <p className="text-xs sm:text-sm text-white/80 break-words">
                 Rol: {getRoleName(userRole)} • 
                 {canUpload ? ' Puede subir documentos' : ' Solo consultas'}
@@ -768,7 +768,7 @@ export default function GuiaPage() {
                           <Icon className="h-4 w-4 sm:h-5 sm:w-5 text-capital-navy" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <CardTitle className="text-base sm:text-xl truncate">{section.title}</CardTitle>
+                          <CardTitle className="truncate">{section.title}</CardTitle>
                           <CardDescription className="text-xs sm:text-sm line-clamp-1">{section.description}</CardDescription>
                         </div>
                       </div>
@@ -801,7 +801,7 @@ export default function GuiaPage() {
           <div className="flex items-start gap-2 sm:gap-3">
             <HelpCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <h4 className="font-semibold text-blue-900 mb-2 text-sm sm:text-base">¿Necesitas más ayuda?</h4>
+              <h4 className="font-semibold text-blue-900 mb-2 text-sm">¿Necesitas más ayuda?</h4>
               <p className="text-xs sm:text-sm text-blue-800">
                 Si tienes problemas técnicos o preguntas adicionales, contacta a:
               </p>

@@ -1547,7 +1547,7 @@ export default function ZohoCRMPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold navy-text">ZOHO CRM</h1>
+          <h1 className="text-lg font-bold navy-text">ZOHO CRM</h1>
           <p className="text-muted-foreground">
             Visualiza y gestiona leads y deals desde ZOHO CRM
           </p>
@@ -1951,7 +1951,7 @@ export default function ZohoCRMPage() {
                     <div className="grid gap-4 md:grid-cols-4">
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Leads</p>
-                        <p className="text-2xl font-bold">{stats.totalLeads}</p>
+                        <p className="text-xl font-bold">{stats.totalLeads}</p>
                         {lastMonthStats.totalLeads > 0 && stats.totalLeads !== lastMonthStats.totalLeads && (
                           <p className={`text-xs mt-1 ${stats.totalLeads > lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
                             {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
@@ -1964,7 +1964,7 @@ export default function ZohoCRMPage() {
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Deals</p>
-                        <p className="text-2xl font-bold">{stats.totalDeals}</p>
+                        <p className="text-xl font-bold">{stats.totalDeals}</p>
                         {lastMonthStats.totalDeals > 0 && stats.totalDeals !== lastMonthStats.totalDeals && (
                           <p className={`text-xs mt-1 ${stats.totalDeals > lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
                             {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
@@ -1977,7 +1977,7 @@ export default function ZohoCRMPage() {
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Conversión</p>
-                        <p className="text-2xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
+                        <p className="text-xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
                         {stats.conversionRate !== lastMonthStats.conversionRate && (
                           <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
                             {(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? '+' : ''}
@@ -1987,7 +1987,7 @@ export default function ZohoCRMPage() {
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Tiempo de contacto dentro de horario laboral</p>
-                        <p className="text-2xl font-bold">{displayedAvgTimeToFirstContact.toFixed(1)} min</p>
+                        <p className="text-xl font-bold">{displayedAvgTimeToFirstContact.toFixed(1)} min</p>
                         {stats.averageTimeToFirstContact !== lastMonthStats.averageTimeToFirstContact && (
                           <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
                             {(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
@@ -2054,7 +2054,7 @@ export default function ZohoCRMPage() {
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{displayedStats?.totalLeads || 0}</div>
+                  <div className="text-xl font-bold">{displayedStats?.totalLeads || 0}</div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads > 0 && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
                       stats.totalLeads >= lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'
@@ -2087,7 +2087,7 @@ export default function ZohoCRMPage() {
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{displayedStats?.totalDeals || 0}</div>
+                  <div className="text-xl font-bold">{displayedStats?.totalDeals || 0}</div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals > 0 && (
                     <p className={`text-xs flex items-center gap-1 mt-1 ${
                       stats.totalDeals >= lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'
@@ -2120,7 +2120,7 @@ export default function ZohoCRMPage() {
                   <Target className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
+                  <div className="text-xl font-bold">
                     {((displayedStats?.conversionRate || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.conversionRate !== undefined && (
@@ -2149,7 +2149,7 @@ export default function ZohoCRMPage() {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
+                  <div className="text-xl font-bold">
                     {displayedAvgTimeToFirstContact.toFixed(1)} min
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
@@ -2178,7 +2178,7 @@ export default function ZohoCRMPage() {
                   <AlertCircle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
+                  <div className="text-xl font-bold">
                     {((displayedStats?.leadsOutsideBusinessHoursPercentage || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
@@ -2207,7 +2207,7 @@ export default function ZohoCRMPage() {
                   <TrendingDown className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
+                  <div className="text-xl font-bold">
                     {((displayedStats?.discardedLeadsPercentage || 0)).toFixed(1)}%
                   </div>
                   {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
@@ -2234,7 +2234,7 @@ export default function ZohoCRMPage() {
               {displayedStats && displayedLifecycleFunnel && (
                 <Card className="border border-gray-200 bg-white shadow-sm">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-xl font-semibold text-gray-900">Embudo de Ventas</CardTitle>
+                    <CardTitle className="text-gray-900">Embudo de Ventas</CardTitle>
                     <CardDescription className="text-sm text-gray-600">Análisis del ciclo completo de conversión</CardDescription>
                   </CardHeader>
                   <CardContent className="pt-4">
@@ -2383,7 +2383,7 @@ export default function ZohoCRMPage() {
                                     'bg-red-500'
                                   }`}></div>
                                 </div>
-                                <p className="text-3xl font-bold text-gray-900 mb-1">
+                                <p className="text-xl font-bold text-gray-900 mb-1">
                                   {leadsToDealsRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
@@ -2404,7 +2404,7 @@ export default function ZohoCRMPage() {
                                     'bg-red-500'
                                   }`}></div>
                                 </div>
-                                <p className="text-3xl font-bold text-gray-900 mb-1">
+                                <p className="text-xl font-bold text-gray-900 mb-1">
                                   {dealsToWonRate.toFixed(1)}%
                                 </p>
                                 <p className="text-xs text-gray-500">
@@ -2541,23 +2541,23 @@ export default function ZohoCRMPage() {
                           <div className="grid gap-3 md:grid-cols-5">
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">No contesta / sin contacto</p>
-                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.noAnswerOrNoContact ?? 0}</p>
+                              <p className="text-xl font-bold">{aiNotesInsights.metrics?.noAnswerOrNoContact ?? 0}</p>
                             </div>
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">Precio / presupuesto</p>
-                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.priceOrBudget ?? 0}</p>
+                              <p className="text-xl font-bold">{aiNotesInsights.metrics?.priceOrBudget ?? 0}</p>
                             </div>
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">Financiamiento / crédito</p>
-                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.financingOrCredit ?? 0}</p>
+                              <p className="text-xl font-bold">{aiNotesInsights.metrics?.financingOrCredit ?? 0}</p>
                             </div>
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">Ubicación / zona</p>
-                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.locationOrArea ?? 0}</p>
+                              <p className="text-xl font-bold">{aiNotesInsights.metrics?.locationOrArea ?? 0}</p>
                             </div>
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">Timing / urgencia</p>
-                              <p className="text-lg font-bold">{aiNotesInsights.metrics?.timingOrUrgency ?? 0}</p>
+                              <p className="text-xl font-bold">{aiNotesInsights.metrics?.timingOrUrgency ?? 0}</p>
                             </div>
                           </div>
                         </div>
@@ -2567,7 +2567,7 @@ export default function ZohoCRMPage() {
                     <div className="grid gap-4 md:grid-cols-3">
                       <div className="p-4 border rounded-lg">
                         <p className="text-xs text-muted-foreground mb-1">Llamadas registradas</p>
-                        <p className="text-2xl font-bold">
+                        <p className="text-xl font-bold">
                           {activityStatsLoading ? '...' : (
                             (activityStats?.activitiesByType?.Call ??
                               activityStats?.activitiesByType?.Calls ??
@@ -2582,13 +2582,13 @@ export default function ZohoCRMPage() {
 
                       <div className="p-4 border rounded-lg">
                         <p className="text-xs text-muted-foreground mb-1">Notas (Leads)</p>
-                        <p className="text-2xl font-bold">{notesInsights.totalLeadNotes}</p>
+                        <p className="text-xl font-bold">{notesInsights.totalLeadNotes}</p>
                         <p className="text-xs text-muted-foreground mt-1">Notas encontradas en el periodo</p>
                       </div>
 
                       <div className="p-4 border rounded-lg">
                         <p className="text-xs text-muted-foreground mb-1">Notas (Deals)</p>
-                        <p className="text-2xl font-bold">{notesInsights.totalDealNotes}</p>
+                        <p className="text-xl font-bold">{notesInsights.totalDealNotes}</p>
                         <p className="text-xs text-muted-foreground mt-1">Notas encontradas en el periodo</p>
                       </div>
                     </div>
@@ -2849,7 +2849,7 @@ export default function ZohoCRMPage() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium">Leads de Calidad</span>
-                          <Badge variant="default" className="text-lg px-3 py-1">
+                          <Badge variant="default" className="text-xs px-3 py-1">
                             {displayedStats.qualityLeads || 0}
                           </Badge>
                         </div>
@@ -3437,7 +3437,7 @@ export default function ZohoCRMPage() {
                             </h3>
                             <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                               {deal.Amount && (
-                                <p className="text-lg font-semibold text-primary">
+                                <p className="text-sm font-semibold text-primary">
                                   {formatCurrency(deal.Amount)}
                                 </p>
                               )}

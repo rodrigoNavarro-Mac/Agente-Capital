@@ -194,7 +194,7 @@ export default function LogsPage() {
   return (
     <div className="space-y-8">
       <div className="pl-4">
-        <h1 className="text-3xl font-bold navy-text">Logs</h1>
+        <h1 className="text-lg font-bold navy-text">Logs</h1>
         <p className="text-muted-foreground">
           Historial completo de acciones y consultas del sistema
         </p>
@@ -410,7 +410,7 @@ export default function LogsPage() {
               {/* Header */}
               <div className="flex items-center justify-between p-6 border-b">
                 <div>
-                  <h2 className="text-xl font-semibold">
+                  <h2 className="text-sm font-semibold">
                     {selectedLog.type === 'query' ? 'Detalles de la Consulta' : 'Detalles de la Acción'}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">

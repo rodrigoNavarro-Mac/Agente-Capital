@@ -61,33 +61,78 @@ function isServerlessEnvironment(): boolean {
  * Configuración del pool de conexiones PostgreSQL.
  * 
  * Soporta múltiples formas de configuración (en orden de prioridad):
- * 1. DATABASE_URL: ⭐ PRIORIDAD - Configuración manual desde Supabase Dashboard
- *    (RECOMENDADO: obtener "Direct connection" desde Supabase Settings > Database)
- * 2. POSTGRES_URL_NON_POOLING: Variable de integración Vercel (puede estar mal configurada)
- * 3. POSTGRES_PRISMA_URL: Variable alternativa de la integración de Supabase
- * 4. POSTGRES_URL: Pooler de Supabase (⚠️ puede causar "Tenant not found" en serverless)
+ * 1. POSTGRES_URL: ⭐ PRIORIDAD - Pooler de Supabase (Transaction mode) - RECOMENDADO
+ *    Permite más conexiones simultáneas y evita "MaxClientsInSessionMode"
+ * 2. DATABASE_URL: Configuración manual desde Supabase Dashboard
+ * 3. POSTGRES_URL_NON_POOLING: Variable de integración Vercel (Session mode - limitado)
+ * 4. POSTGRES_PRISMA_URL: Variable alternativa de la integración de Supabase
  * 5. Variables individuales: POSTGRES_HOST, POSTGRES_PORT, etc.
  *    (útil para desarrollo local)
  * 
- * NOTA: La integración automática de Supabase en Vercel a veces configura mal las variables,
- * por eso priorizamos DATABASE_URL configurada manualmente desde Supabase Dashboard.
+ * IMPORTANTE SOBRE SUPABASE:
+ * - Session mode (POSTGRES_URL_NON_POOLING): Límite de 4-10 conexiones según plan
+ * - Transaction mode (POSTGRES_URL): Permite hasta 200 conexiones simultáneas
  * 
- * Para obtener la cadena correcta:
- * Supabase Dashboard > Settings > Database > Connection String > "Direct connection"
+ * Para obtener las cadenas de conexión:
+ * Supabase Dashboard > Settings > Database > Connection String
+ * - "Connection pooling" (Transaction mode) → POSTGRES_URL
+ * - "Direct connection" (Session mode) → POSTGRES_URL_NON_POOLING
  * 
  * OPTIMIZACIONES PARA SERVERLESS:
  * - Max connections reducido (5 en lugar de 20) para evitar agotamiento
  * - Timeouts aumentados (20s connection, 30s idle) para cold starts
  * - Circuit breaker integrado para prevenir reconexiones fallidas
+ * - Detección automática de Supabase y ajuste del pool
  */
 function getPoolConfig() {
   const isServerless = isServerlessEnvironment();
   
-  // Configuración adaptativa según el entorno
-  // Aumentado para desarrollo local para soportar navegación normal sin agotar conexiones
-  const maxConnections = isServerless 
-    ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10) // Reducido para serverless
-    : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '50', 10); // Aumentado para desarrollo (20 -> 50)
+  // Intentar obtener la cadena de conexión en orden de prioridad
+  // PRIORIDAD: POSTGRES_URL (Transaction mode) sobre conexión directa
+  // Esto evita el error "MaxClientsInSessionMode" de Supabase
+  const connectionString =
+    process.env.POSTGRES_URL ||              // ⭐ PRIORIDAD: Pooler (Transaction mode) - RECOMENDADO
+    process.env.DATABASE_URL ||              // Configuración manual
+    process.env.POSTGRES_URL_NON_POOLING ||  // Session mode (limitado)
+    process.env.POSTGRES_PRISMA_URL;         // Variable alternativa
+  
+  // Detectar si estamos usando Supabase y qué modo
+  const isSupabasePooler = !!process.env.POSTGRES_URL;
+  const isSupabaseDirect = !!process.env.POSTGRES_URL_NON_POOLING || 
+                          !!process.env.POSTGRES_PRISMA_URL;
+  const isSupabase = isSupabasePooler || isSupabaseDirect;
+  
+  // Determinar el tamaño máximo del pool según el entorno y tipo de conexión
+  let maxConnections: number;
+  
+  if (isSupabase) {
+    if (isSupabasePooler) {
+      // Transaction mode: Permite más conexiones (hasta 200 según plan)
+      maxConnections = isServerless
+        ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10)
+        : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '10', 10); // Conservador para desarrollo
+    } else {
+      // Session mode: Límite muy bajo (4-10 según plan de Supabase)
+      // Reducir drásticamente para evitar "MaxClientsInSessionMode"
+      maxConnections = isServerless
+        ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '3', 10) // Muy bajo para serverless
+        : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '4', 10); // Muy bajo para desarrollo
+      
+      // Advertir sobre el uso de Session mode
+      if (process.env.NODE_ENV !== 'production') {
+        logger.warn(
+          '⚠️ Usando Supabase Session mode (conexión directa). Límite de conexiones muy bajo.',
+          { maxConnections, recommendation: 'Usa POSTGRES_URL (Transaction mode) para más conexiones' },
+          'postgres'
+        );
+      }
+    }
+  } else {
+    // No es Supabase: usar configuración estándar
+    maxConnections = isServerless
+      ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10)
+      : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20', 10);
+  }
   
   const connectionTimeout = isServerless
     ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '20000', 10) // 20s para cold starts
@@ -96,14 +141,6 @@ function getPoolConfig() {
   const idleTimeout = isServerless
     ? parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10) // 30s para serverless
     : parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10); // 30s para desarrollo
-  // Intentar obtener la cadena de conexión en orden de prioridad
-  // IMPORTANTE: DATABASE_URL (manual) tiene MÁS prioridad que las variables automáticas
-  // porque la integración de Vercel a veces configura incorrectamente POSTGRES_URL_NON_POOLING
-  const connectionString =
-    process.env.DATABASE_URL ||               // ⭐ PRIORIDAD: Configuración manual (correcta)
-    process.env.POSTGRES_URL_NON_POOLING ||  // Variables de integración Vercel (pueden estar mal)
-    process.env.POSTGRES_PRISMA_URL ||        // Variable alternativa de Supabase
-    process.env.POSTGRES_URL;                 // Pooler (último recurso, puede fallar en serverless)
 
   // Si encontramos una cadena de conexión, usarla
   if (connectionString) {
@@ -118,52 +155,53 @@ function getPoolConfig() {
       throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
     
-    // Extraer hostname para logging (sin exponer credenciales)
-    let isSupabase = false;
-    let hostname = 'unknown';
-    let parsedUrl: URL | null = null;
-    
-    try {
-      parsedUrl = new URL(connectionString);
-      hostname = parsedUrl.hostname;
-      // Detectar si es Supabase por hostname o por variables de entorno
-      isSupabase = hostname.includes('supabase.co') || 
-                   hostname.includes('supabase') ||
-                   !!process.env.POSTGRES_URL || 
-                   !!process.env.POSTGRES_PRISMA_URL ||
-                   !!process.env.POSTGRES_URL_NON_POOLING;
+      // Extraer hostname para logging (sin exponer credenciales)
+      let hostname = 'unknown';
+      let parsedUrl: URL | null = null;
       
-      // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
-      // Esto asegura que la configuración SSL se aplique correctamente
-      if (isSupabase && parsedUrl) {
-        const password = parsedUrl.password || '';
-        const username = parsedUrl.username || 'postgres';
-        const database = parsedUrl.pathname.slice(1) || 'postgres';
-        const port = parseInt(parsedUrl.port || '5432');
+      try {
+        parsedUrl = new URL(connectionString);
+        hostname = parsedUrl.hostname;
         
-        return {
-          host: hostname,
-          port: port,
-          user: username,
-          password: password,
-          database: database,
-          max: maxConnections,
-          idleTimeoutMillis: idleTimeout,
-          connectionTimeoutMillis: connectionTimeout,
-          // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
-          family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
-          ssl: {
-            rejectUnauthorized: false, // Necesario para Supabase en Vercel
-          },
-        };
+        // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
+        // Esto asegura que la configuración SSL se aplique correctamente
+        if (isSupabase && parsedUrl) {
+          const password = parsedUrl.password || '';
+          const username = parsedUrl.username || 'postgres';
+          const database = parsedUrl.pathname.slice(1) || 'postgres';
+          const port = parseInt(parsedUrl.port || '5432');
+          
+          // Log de configuración para debugging
+          if (process.env.NODE_ENV !== 'production') {
+            logger.info('Configuración del pool de conexiones', {
+              maxConnections,
+              isSupabase,
+              isSupabasePooler,
+              isSupabaseDirect,
+              connectionMode: isSupabasePooler ? 'Transaction (Pooler)' : isSupabaseDirect ? 'Session (Direct)' : 'Standard',
+              hostname: hostname.substring(0, 20) + '...'
+            }, 'postgres');
+          }
+          
+          return {
+            host: hostname,
+            port: port,
+            user: username,
+            password: password,
+            database: database,
+            max: maxConnections,
+            idleTimeoutMillis: idleTimeout,
+            connectionTimeoutMillis: connectionTimeout,
+            // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
+            family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
+            ssl: {
+              rejectUnauthorized: false, // Necesario para Supabase en Vercel
+            },
+          };
+        }
+      } catch (e) {
+        logger.error('Error parseando cadena de conexión', e, undefined, 'postgres');
       }
-    } catch (e) {
-      logger.error('Error parseando cadena de conexión', e, undefined, 'postgres');
-      // Si no podemos parsear, asumir que es Supabase si viene de variables de Vercel
-      isSupabase = !!process.env.POSTGRES_URL || 
-                   !!process.env.POSTGRES_PRISMA_URL ||
-                   !!process.env.POSTGRES_URL_NON_POOLING;
-    }
     
     // Para conexiones no-Supabase, usar connectionString normalmente
     // Configurar SSL para otras conexiones remotas
@@ -172,6 +210,15 @@ function getPoolConfig() {
           rejectUnauthorized: false // Para conexiones remotas
         }
       : undefined; // Sin SSL para localhost
+    
+    // Log de configuración para debugging (solo si no es Supabase, ya que Supabase se loguea arriba)
+    if (process.env.NODE_ENV !== 'production' && !isSupabase) {
+      logger.info('Configuración del pool de conexiones', {
+        maxConnections,
+        connectionMode: 'Standard',
+        hostname: hostname !== 'unknown' ? hostname.substring(0, 20) + '...' : 'local'
+      }, 'postgres');
+    }
     
     return {
       connectionString: connectionString,
@@ -224,6 +271,19 @@ pool.on('error', (err: Error & { code?: string }) => {
   
   // Registrar fallo en circuit breaker
   recordFailure(err);
+  
+  // Detectar error específico de límite de conexiones de Supabase
+  if (err.message && (
+      err.message.includes('MaxClientsInSessionMode') || 
+      err.message.includes('max clients reached') ||
+      err.message.includes('max clients are limited to pool_size'))) {
+    logger.error('⚠️ ERROR CRÍTICO: Límite de conexiones de Supabase alcanzado', err, {}, 'postgres-pool');
+    logger.error('   Esto ocurre cuando usas Session mode (conexión directa) con muchas conexiones', undefined, undefined, 'postgres-pool');
+    logger.error('   SOLUCIÓN: Configura POSTGRES_URL (Transaction mode) en lugar de POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres-pool');
+    logger.error('   Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres-pool');
+    logger.error('   Usa la cadena de "Connection pooling" (Transaction mode)', undefined, undefined, 'postgres-pool');
+    return; // No reintentar inmediatamente, el usuario debe cambiar la configuración
+  }
   
   // Detectar errores específicos de terminación de conexión
   if (err.code === 'XX000' || 
@@ -313,6 +373,25 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
       // Si no es un error de conexión o se agotaron los intentos, loggear y lanzar
       logger.error('Error en query', error, { text, params }, 'postgres');
       
+      // Detectar error específico de Supabase Session mode
+      const isMaxClientsError = error instanceof Error && 
+        (error.message.includes('MaxClientsInSessionMode') || 
+         error.message.includes('max clients reached') ||
+         error.message.includes('max clients are limited to pool_size'));
+      
+      if (isMaxClientsError) {
+        logger.error('⚠️ ERROR: Límite de conexiones de Supabase alcanzado (Session mode)', error, {}, 'postgres');
+        logger.error('   SOLUCIÓN RECOMENDADA:', undefined, undefined, 'postgres');
+        logger.error('   1. Usa el pooler de Supabase (Transaction mode) en lugar de conexión directa', undefined, undefined, 'postgres');
+        logger.error('   2. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
+        logger.error('   3. Copia la cadena de "Connection pooling" (Transaction mode)', undefined, undefined, 'postgres');
+        logger.error('   4. Configúrala como POSTGRES_URL en tus variables de entorno', undefined, undefined, 'postgres');
+        logger.error('   5. Esto permite hasta 200 conexiones simultáneas vs 4-10 en Session mode', undefined, undefined, 'postgres');
+        logger.error('', undefined, undefined, 'postgres');
+        logger.error('   ALTERNATIVA: Si debes usar Session mode, reduce POSTGRES_MAX_CONNECTIONS a 3-4', undefined, undefined, 'postgres');
+        throw error;
+      }
+      
       // Mensajes más descriptivos para errores de conexión
       if (error instanceof Error) {
         const isLocalDev = process.env.NODE_ENV !== 'production' && 
@@ -371,6 +450,23 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 
 /**
  * Obtiene un cliente del pool para transacciones
+ * 
+ * IMPORTANTE: Siempre libera el cliente con client.release() después de usarlo
+ * 
+ * Ejemplo de uso:
+ * ```typescript
+ * const client = await getClient();
+ * try {
+ *   await client.query('BEGIN');
+ *   // ... operaciones ...
+ *   await client.query('COMMIT');
+ * } catch (error) {
+ *   await client.query('ROLLBACK');
+ *   throw error;
+ * } finally {
+ *   client.release(); // ⚠️ SIEMPRE liberar la conexión
+ * }
+ * ```
  */
 export async function getClient(): Promise<PoolClient> {
   return withCircuitBreaker(
@@ -378,15 +474,64 @@ export async function getClient(): Promise<PoolClient> {
       try {
         const client = await pool.connect();
         recordSuccess();
+        
+        // Agregar listener para detectar si el cliente se cierra inesperadamente
+        client.on('error', (err) => {
+          logger.warn(
+            'Error en cliente del pool, liberando conexión',
+            { error: err instanceof Error ? err.message : String(err) },
+            'postgres'
+          );
+        });
+        
         return client;
       } catch (error) {
         recordFailure(error);
+        
+        // Detectar error específico de límite de conexiones
+        if (error instanceof Error && 
+            (error.message.includes('MaxClientsInSessionMode') || 
+             error.message.includes('max clients reached'))) {
+          logger.error('⚠️ Límite de conexiones alcanzado. Considera usar POSTGRES_URL (Transaction mode)', error, {}, 'postgres');
+        }
+        
         logger.error('Error obteniendo cliente del pool', error, {}, 'postgres');
         throw error;
       }
     },
     'get database client'
   );
+}
+
+/**
+ * Ejecuta una función con un cliente del pool, garantizando que se libere
+ * 
+ * Esta función es útil para transacciones que deben garantizar la liberación
+ * de la conexión incluso si hay errores.
+ * 
+ * @param fn - Función que recibe el cliente y retorna un Promise
+ * @returns El resultado de la función
+ * 
+ * Ejemplo de uso:
+ * ```typescript
+ * const result = await withClient(async (client) => {
+ *   await client.query('BEGIN');
+ *   const result = await client.query('INSERT INTO ...');
+ *   await client.query('COMMIT');
+ *   return result;
+ * });
+ * ```
+ */
+export async function withClient<T>(
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await getClient();
+  try {
+    return await fn(client);
+  } finally {
+    // Garantizar que la conexión siempre se libere
+    client.release();
+  }
 }
 
 /**
