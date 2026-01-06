@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye } from 'lucide-react';
+import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { decodeAccessToken } from '@/lib/auth';
 import { DEVELOPMENTS } from '@/lib/constants';
@@ -3084,6 +3084,14 @@ function DashboardTab({
   }>>([]);
   const [loadingPartnerCommissions, setLoadingPartnerCommissions] = useState(false);
   const { toast } = useToast();
+  
+  // Estados para controlar la visibilidad de las tablas
+  const [monthlyStatsVisible, setMonthlyStatsVisible] = useState(true);
+  const [monthlyMetricsVisible, setMonthlyMetricsVisible] = useState(true);
+  const [commissionByDevelopmentVisible, setCommissionByDevelopmentVisible] = useState(true);
+  const [commissionBySalespersonVisible, setCommissionBySalespersonVisible] = useState(true);
+  const [distributionsVisible, setDistributionsVisible] = useState(true);
+  const [partnerCommissionsVisible, setPartnerCommissionsVisible] = useState(true);
 
   /**
    * Determina el color del semáforo según el porcentaje de cumplimiento
@@ -3478,7 +3486,22 @@ function DashboardTab({
               
               {/* Tabla mensual con estado de pago */}
               <div className="space-y-1.5">
-                <h3 className="text-sm font-semibold">Comisiones por Mes</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                  <h3 className="text-sm font-semibold text-yellow-600">Comisiones por Mes</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMonthlyStatsVisible(!monthlyStatsVisible)}
+                    className="h-6 w-6 p-0"
+                  >
+                    {monthlyStatsVisible ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {monthlyStatsVisible && (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -3516,13 +3539,29 @@ function DashboardTab({
                     </TableBody>
                   </Table>
                 </div>
+                )}
               </div>
             </div>
           ) : generalDashboard ? (
             <div className="space-y-3">
               {/* Tabla 1: Datos mensuales Capital Plus */}
               <div className="space-y-1.5">
-                <h3 className="text-sm font-semibold">Datos mensuales Capital Plus</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                  <h3 className="text-sm font-semibold text-yellow-600">Datos mensuales Capital Plus</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMonthlyMetricsVisible(!monthlyMetricsVisible)}
+                    className="h-6 w-6 p-0"
+                  >
+                    {monthlyMetricsVisible ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {monthlyMetricsVisible && (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -3637,11 +3676,27 @@ function DashboardTab({
                     </TableBody>
                   </Table>
                 </div>
+                )}
               </div>
 
               {/* Tabla 2: Comisión por desarrollo */}
               <div className="space-y-1.5">
-                <h3 className="text-sm font-semibold">→ Comisión por desarrollo</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                  <h3 className="text-sm font-semibold text-yellow-600">→ Comisión por desarrollo</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCommissionByDevelopmentVisible(!commissionByDevelopmentVisible)}
+                    className="h-6 w-6 p-0"
+                  >
+                    {commissionByDevelopmentVisible ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {commissionByDevelopmentVisible && (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -3694,11 +3749,27 @@ function DashboardTab({
                     </TableBody>
                   </Table>
                 </div>
+                )}
               </div>
 
               {/* Tabla 3: Comisión por vendedor */}
               <div className="space-y-1.5">
-                <h3 className="text-sm font-semibold">→ Comisión por vendedor</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                  <h3 className="text-sm font-semibold text-yellow-600">→ Comisión por vendedor</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCommissionBySalespersonVisible(!commissionBySalespersonVisible)}
+                    className="h-6 w-6 p-0"
+                  >
+                    {commissionBySalespersonVisible ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {commissionBySalespersonVisible && (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -3749,6 +3820,7 @@ function DashboardTab({
                     </TableBody>
                   </Table>
                 </div>
+                )}
               </div>
             </div>
           ) : (
@@ -3758,12 +3830,26 @@ function DashboardTab({
           {/* Tabla de Comisiones a Pagar */}
           <Card className="mt-4">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Comisiones a Pagar</CardTitle>
-                  <CardDescription className="text-xs">
-                    Lista detallada de todas las comisiones con su estado de pago
-                  </CardDescription>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                  <div>
+                    <CardTitle className="text-lg text-yellow-600">Comisiones a Pagar</CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      Lista detallada de todas las comisiones con su estado de pago
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDistributionsVisible(!distributionsVisible)}
+                    className="h-6 w-6 p-0"
+                  >
+                    {distributionsVisible ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
                 <div className="flex gap-2">
                   <Select
@@ -3803,6 +3889,7 @@ function DashboardTab({
                 </div>
               </div>
             </CardHeader>
+            {distributionsVisible && (
             <CardContent className="pt-3">
               {loadingDistributions ? (
                 <div className="flex items-center justify-center p-4">
@@ -3865,9 +3952,9 @@ function DashboardTab({
 
                       return (
                         <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
-                          <div className="flex items-center justify-between pb-2 border-b">
+                          <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
                             <div className="flex items-center gap-3">
-                              <h3 className="text-base font-bold">{monthNames[month - 1]} {selectedYear}</h3>
+                              <h3 className="text-base font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
                               <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
                                 {monthYear}
                               </span>
@@ -4082,18 +4169,32 @@ function DashboardTab({
                 );
               })()}
             </CardContent>
+            )}
           </Card>
 
           {/* Tabla de Comisiones por Socio */}
           <Card className="mt-4">
             <CardHeader className="pb-3">
-              <div>
-                <CardTitle className="text-lg">Comisiones por Socio</CardTitle>
-                <CardDescription className="text-xs">
-                  Total de comisiones que se deben cobrar a cada socio (100% de fase venta + fase posventa)
-                </CardDescription>
+              <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                <CardTitle className="text-lg text-yellow-600">Comisiones por Socio</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPartnerCommissionsVisible(!partnerCommissionsVisible)}
+                  className="h-6 w-6 p-0"
+                >
+                  {partnerCommissionsVisible ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
+              <CardDescription className="text-xs mt-2">
+                Total de comisiones que se deben cobrar a cada socio (100% de fase venta + fase posventa)
+              </CardDescription>
             </CardHeader>
+            {partnerCommissionsVisible && (
             <CardContent className="pt-3">
               {loadingPartnerCommissions ? (
                 <div className="flex items-center justify-center p-4">
@@ -4149,9 +4250,9 @@ function DashboardTab({
 
                       return (
                         <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
-                          <div className="flex items-center justify-between pb-2 border-b">
+                          <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
                             <div className="flex items-center gap-3">
-                              <h3 className="text-base font-bold">{monthNames[month - 1]} {selectedYear}</h3>
+                              <h3 className="text-base font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
                               <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
                                 {monthYear}
                               </span>
@@ -4191,7 +4292,7 @@ function DashboardTab({
                           </div>
 
                           {/* Mostrar comisiones por socio dentro del mes */}
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {Object.keys(groupedBySocio).sort().map(socioName => {
                               const socioCommissions = groupedBySocio[socioName];
                               const totalSocio = socioCommissions.reduce((sum, c) => sum + c.total_comision, 0);
@@ -4199,9 +4300,9 @@ function DashboardTab({
                               const totalConIvaSocio = socioCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
 
                               return (
-                                <div key={`${month}-${socioName}`} className="space-y-1.5">
-                                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                    <h4 className="text-sm font-semibold">{socioName}</h4>
+                                <div key={`${month}-${socioName}`} className="space-y-1.5 border border-slate-300 rounded-lg p-2.5 bg-white shadow-sm">
+                                  <div className="flex items-center justify-between p-2 bg-yellow-50 border-l-4 border-yellow-500 rounded-md">
+                                    <h4 className="text-sm font-bold text-slate-800">{socioName}</h4>
                                     <div className="flex items-center gap-3 text-right">
                                       <div>
                                         <div className="text-[10px] text-muted-foreground">Subtotal</div>
@@ -4290,6 +4391,7 @@ function DashboardTab({
                 </div>
               )}
             </CardContent>
+            )}
           </Card>
         </CardContent>
       </Card>

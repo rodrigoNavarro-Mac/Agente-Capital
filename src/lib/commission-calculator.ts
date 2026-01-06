@@ -647,15 +647,6 @@ export function validateCommissionConfig(config: CommissionConfigInput): {
     }
   }
 
-  // Validar que Gerente de Ventas y Propietario del Deal tengan porcentajes
-  if (config.sale_manager_percent <= 0) {
-    errors.push('El porcentaje de Gerente de Ventas debe ser mayor a 0 (obligatorio)');
-  }
-
-  if (config.deal_owner_percent <= 0) {
-    errors.push('El porcentaje de Propietario del Deal debe ser mayor a 0 (obligatorio)');
-  }
-
   // Los porcentajes de postventa base (legal_manager_percent, post_sale_coordinator_percent)
   // ahora se configuran globalmente, no se validan aquí
 
