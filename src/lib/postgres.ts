@@ -24,6 +24,7 @@ import type {
 import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
 import { logger } from '@/lib/logger';
 import { withCircuitBreaker, recordFailure, recordSuccess } from '@/lib/circuit-breaker';
+import { normalizeDevelopmentDisplay } from '@/lib/utils';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -922,6 +923,7 @@ export async function deleteConfig(key: string): Promise<boolean> {
 
 /**
  * Obtiene todos los desarrollos agrupados por zona
+ * Los nombres de desarrollos se normalizan para mostrar con la primera letra en mayúscula
  */
 export async function getDevelopmentsByZone(): Promise<Record<string, string[]>> {
   const result = await query<{ zone: string; developments: string[] }>(
@@ -932,7 +934,10 @@ export async function getDevelopmentsByZone(): Promise<Record<string, string[]>>
   
   const developmentsByZone: Record<string, string[]> = {};
   result.rows.forEach(row => {
-    developmentsByZone[row.zone] = row.developments;
+    // Normalizar cada desarrollo para mostrar con primera letra en mayúscula
+    developmentsByZone[row.zone] = row.developments.map(dev => 
+      normalizeDevelopmentDisplay(dev)
+    );
   });
   
   return developmentsByZone;
@@ -940,9 +945,10 @@ export async function getDevelopmentsByZone(): Promise<Record<string, string[]>>
 
 /**
  * Obtiene desarrollos predefinidos (hardcoded para inicio rápido)
+ * Los nombres se normalizan para mostrar con la primera letra en mayúscula
  */
 export function getStaticDevelopments(): Record<string, string[]> {
-  return {
+  const rawDevelopments = {
     yucatan: [
       'riviera',
       'campo_magno',
@@ -974,6 +980,14 @@ export function getStaticDevelopments(): Record<string, string[]> {
       'carretera_nacional'
     ]
   };
+
+  // Normalizar todos los desarrollos
+  const normalized: Record<string, string[]> = {};
+  Object.entries(rawDevelopments).forEach(([zone, devs]) => {
+    normalized[zone] = devs.map(dev => normalizeDevelopmentDisplay(dev));
+  });
+
+  return normalized;
 }
 
 // =====================================================

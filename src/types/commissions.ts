@@ -170,6 +170,28 @@ export interface CommissionSaleInput {
 }
 
 // =====================================================
+// SOCIOS DEL PRODUCTO
+// =====================================================
+
+export interface ProductPartner {
+  id: number;
+  commission_sale_id: number;
+  zoho_product_id: string | null;
+  socio_name: string;
+  participacion: number;
+  synced_from_zoho_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductPartnerInput {
+  commission_sale_id: number;
+  zoho_product_id?: string | null;
+  socio_name: string;
+  participacion: number;
+}
+
+// =====================================================
 // DISTRIBUCIÓN DE COMISIONES
 // =====================================================
 

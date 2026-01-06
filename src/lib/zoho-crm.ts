@@ -1777,6 +1777,479 @@ export async function getZohoStatsLastMonth(
 }
 
 /**
+ * Obtiene el subformulario "Socios_del_Producto" de un producto en Zoho CRM
+ * @param productId ID del producto en Zoho (puede incluir o no el prefijo "zcrm_")
+ * @returns Lista de filas del subformulario con los socios y su participación
+ */
+export async function getProductSubformData(
+  productId: string,
+  subformName: string = 'Socios_del_Producto'
+): Promise<Array<Record<string, any>>> {
+  try {
+    // Limpiar el ID del producto (remover prefijo zcrm_ si existe)
+    const cleanId = productId.replace(/^zcrm_/, '');
+    
+    // Construir URL del producto
+    const productUrl = `/Products/${cleanId}`;
+    
+    // Parámetros para incluir el subformulario en la respuesta
+    const params = new URLSearchParams({
+      fields: subformName,
+    });
+    
+    // Realizar petición GET
+    const response = await zohoRequest<{
+      data: Array<{
+        [key: string]: any;
+      }>;
+    }>(`${productUrl}?${params.toString()}`);
+    
+    // El subformulario viene como una lista dentro del producto
+    const productData = response.data?.[0];
+    if (!productData) {
+      logger.warn(`Producto ${cleanId} no encontrado`, {}, 'zoho-product-subform');
+      return [];
+    }
+    
+    const subformData = productData[subformName] || [];
+    
+    logger.debug(`Subformulario ${subformName} obtenido`, {
+      productId: cleanId,
+      rows: subformData.length,
+    }, 'zoho-product-subform');
+    
+    return Array.isArray(subformData) ? subformData : [];
+  } catch (error) {
+    logger.error(`Error obteniendo subformulario ${subformName} del producto`, error, {
+      productId,
+    }, 'zoho-product-subform');
+    // Retornar array vacío en caso de error para no romper el flujo
+    return [];
+  }
+}
+
+/**
+ * Obtiene el producto relacionado con un deal y luego obtiene sus socios
+ * @param dealId ID del deal en Zoho
+ * @returns Lista de socios del producto con su participación
+ */
+export async function getProductPartnersFromDeal(dealId: string): Promise<Array<{
+  socio: string;
+  participacion: number;
+}>> {
+  try {
+    logger.info(`Obteniendo socios del producto para deal ${dealId}`, {
+      dealId,
+    }, 'zoho-product-partners');
+    
+    // Obtener el deal completo desde Zoho (sin especificar fields para obtener todos los campos)
+    const dealUrl = `/Deals/${dealId.replace(/^zcrm_/, '')}`;
+    
+    const dealResponse = await zohoRequest<{
+      data: Array<{
+        id: string;
+        Product_Name?: {
+          id: string;
+          name: string;
+        } | Array<{
+          id: string;
+          name: string;
+        }>;
+        Product_ID?: {
+          id: string;
+          name: string;
+        } | Array<{
+          id: string;
+          name: string;
+        }>;
+        Products?: {
+          id: string;
+          name: string;
+        } | Array<{
+          id: string;
+          name: string;
+        }>;
+        [key: string]: any;
+      }>;
+    }>(dealUrl, {}, false); // Obtener deal completo
+    
+    const dealData = dealResponse.data?.[0];
+    if (!dealData) {
+      logger.warn(`No se encontró deal ${dealId} en Zoho`, {
+        dealId,
+      }, 'zoho-product-partners');
+      return [];
+    }
+    
+    logger.info(`Deal obtenido desde Zoho`, {
+      dealId,
+      dealKeys: Object.keys(dealData),
+      hasProductName: !!(dealData.Product_Name),
+      hasProductId: !!(dealData.Product_ID),
+      hasProducts: !!(dealData.Products),
+      hasProductosDeInteres: !!(dealData.Productos_de_interes),
+      productosDeInteres: dealData.Productos_de_interes,
+    }, 'zoho-product-partners');
+    
+    // Buscar el producto en diferentes campos posibles
+    // Prioridad: Product_Name > Product_ID > Products > Productos_de_interes
+    let productField = dealData.Product_Name || dealData.Product_ID || dealData.Products;
+    
+    // Si no hay producto directo, buscar en Productos_de_interes
+    // Productos_de_interes puede ser un string (número del producto) o un objeto/array
+    if (!productField && dealData.Productos_de_interes) {
+      const desarrollo = dealData.Desarrollo || dealData.Desarollo;
+      
+      if (typeof dealData.Productos_de_interes === 'string') {
+        // Si es string, es el número del producto - buscar por desarrollo y número
+        const productoNumero = dealData.Productos_de_interes.trim();
+        logger.info(`Productos_de_interes es string (número del producto): ${productoNumero}`, {
+          dealId,
+          productoNumero,
+          desarrollo,
+        }, 'zoho-product-partners');
+        
+        if (desarrollo && productoNumero) {
+          try {
+            // Buscar productos por desarrollo
+            const productsResponse = await zohoRequest<{
+              data: Array<{
+                id: string;
+                Product_Name?: string;
+                Desarrollo?: string;
+                [key: string]: any;
+              }>;
+            }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
+            
+            if (productsResponse.data && productsResponse.data.length > 0) {
+              // Buscar el producto que coincida con el número
+              // El número puede estar en Product_Name o en algún campo de número
+              const matchingProduct = productsResponse.data.find(p => {
+                const productName = p.Product_Name || '';
+                // Buscar si el número está en el nombre del producto
+                return productName.includes(productoNumero) || 
+                       productName === productoNumero ||
+                       productName.startsWith(productoNumero + ' ') ||
+                       productName.endsWith(' ' + productoNumero);
+              });
+              
+              if (matchingProduct) {
+                productField = { 
+                  id: matchingProduct.id,
+                  name: matchingProduct.Product_Name || 'Producto sin nombre'
+                };
+                logger.info(`Producto encontrado por número y desarrollo`, {
+                  dealId,
+                  productId: matchingProduct.id,
+                  productName: matchingProduct.Product_Name,
+                  productoNumero,
+                  desarrollo,
+                }, 'zoho-product-partners');
+              } else {
+                logger.warn(`No se encontró producto con número ${productoNumero} en desarrollo ${desarrollo}`, {
+                  dealId,
+                  productoNumero,
+                  desarrollo,
+                  availableProducts: productsResponse.data.map(p => ({
+                    id: p.id,
+                    name: p.Product_Name,
+                  })),
+                }, 'zoho-product-partners');
+              }
+            }
+          } catch (searchError) {
+            logger.error(`Error buscando producto por número y desarrollo`, searchError, {
+              dealId,
+              desarrollo,
+              productoNumero,
+            }, 'zoho-product-partners');
+          }
+        }
+      } else if (Array.isArray(dealData.Productos_de_interes) && dealData.Productos_de_interes.length > 0) {
+        // Si es array, puede contener objetos con id o strings
+        const firstItem = dealData.Productos_de_interes[0];
+        if (typeof firstItem === 'object' && firstItem !== null && 'id' in firstItem) {
+          productField = firstItem;
+        } else if (typeof firstItem === 'string') {
+          // Si es string, buscar por número
+          const productoNumero = firstItem.trim();
+          if (desarrollo) {
+            // Similar a la lógica anterior
+            try {
+              const productsResponse = await zohoRequest<{
+                data: Array<{
+                  id: string;
+                  Product_Name?: string;
+                  Desarrollo?: string;
+                  [key: string]: any;
+                }>;
+              }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
+              
+              if (productsResponse.data && productsResponse.data.length > 0) {
+                const matchingProduct = productsResponse.data.find(p => {
+                  const productName = p.Product_Name || '';
+                  return productName.includes(productoNumero) || 
+                         productName === productoNumero ||
+                         productName.startsWith(productoNumero + ' ') ||
+                         productName.endsWith(' ' + productoNumero);
+                });
+                
+                if (matchingProduct) {
+                  productField = { 
+                    id: matchingProduct.id,
+                    name: matchingProduct.Product_Name || 'Producto sin nombre'
+                  };
+                }
+              }
+            } catch (searchError) {
+              logger.error(`Error buscando producto desde array`, searchError, {
+                dealId,
+                desarrollo,
+                productoNumero,
+              }, 'zoho-product-partners');
+            }
+          }
+        } else {
+          productField = firstItem;
+        }
+        logger.info(`Usando primer elemento de Productos_de_interes (array)`, {
+          dealId,
+          productField,
+          productosDeInteresType: typeof firstItem,
+        }, 'zoho-product-partners');
+      } else if (typeof dealData.Productos_de_interes === 'object' && dealData.Productos_de_interes !== null) {
+        // Si es objeto, puede tener id directamente o estar anidado
+        if ('id' in dealData.Productos_de_interes) {
+          productField = dealData.Productos_de_interes;
+        } else if (Array.isArray(dealData.Productos_de_interes)) {
+          // Puede ser un array dentro del objeto
+          const firstItem = (dealData.Productos_de_interes as any[])[0];
+          if (firstItem && typeof firstItem === 'object' && 'id' in firstItem) {
+            productField = firstItem;
+          }
+        }
+        logger.info(`Usando Productos_de_interes (objeto)`, {
+          dealId,
+          productField,
+          productosDeInteresKeys: Object.keys(dealData.Productos_de_interes),
+        }, 'zoho-product-partners');
+      }
+    }
+    
+    if (!productField) {
+      logger.info(`Deal ${dealId} no tiene Product_Name, Product_ID, Products ni Productos_de_interes asociado`, {
+        dealId,
+        dealDataKeys: Object.keys(dealData),
+      }, 'zoho-product-partners');
+      
+      // Intentar buscar por desarrollo y número del producto desde el Deal_Name
+      // El Deal_Name tiene formato: "Cliente - Producto/Lote"
+      const dealName = dealData.Deal_Name;
+      const desarrollo = dealData.Desarrollo || dealData.Desarollo;
+      
+      if (dealName && desarrollo) {
+        logger.info(`Intentando buscar producto por desarrollo y nombre desde Deal_Name`, {
+          dealId,
+          dealName,
+          desarrollo,
+        }, 'zoho-product-partners');
+        
+        // Extraer el nombre del producto del Deal_Name
+        const parts = dealName.split(' - ');
+        if (parts.length >= 2) {
+          const productoName = parts.slice(1).join(' - ').trim();
+          logger.info(`Buscando producto por nombre y desarrollo`, {
+            dealId,
+            productoName,
+            desarrollo,
+          }, 'zoho-product-partners');
+          
+          // Buscar productos por desarrollo y nombre
+          try {
+            const productsResponse = await zohoRequest<{
+              data: Array<{
+                id: string;
+                Product_Name?: string;
+                Desarrollo?: string;
+                [key: string]: any;
+              }>;
+            }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
+            
+            if (productsResponse.data && productsResponse.data.length > 0) {
+              // Buscar el producto que coincida con el nombre
+              const matchingProduct = productsResponse.data.find(p => 
+                p.Product_Name && p.Product_Name.toLowerCase().includes(productoName.toLowerCase())
+              );
+              
+              if (matchingProduct) {
+                productField = { 
+                  id: matchingProduct.id,
+                  name: matchingProduct.Product_Name || 'Producto sin nombre'
+                };
+                logger.info(`Producto encontrado por búsqueda`, {
+                  dealId,
+                  productId: matchingProduct.id,
+                  productName: matchingProduct.Product_Name,
+                }, 'zoho-product-partners');
+              } else {
+                // Si no hay coincidencia exacta, usar el primer producto del desarrollo
+                productField = { 
+                  id: productsResponse.data[0].id,
+                  name: productsResponse.data[0].Product_Name || 'Producto sin nombre'
+                };
+                logger.info(`Usando primer producto del desarrollo (sin coincidencia exacta)`, {
+                  dealId,
+                  productId: productsResponse.data[0].id,
+                  productName: productsResponse.data[0].Product_Name,
+                }, 'zoho-product-partners');
+              }
+            }
+          } catch (searchError) {
+            logger.error(`Error buscando producto por desarrollo`, searchError, {
+              dealId,
+              desarrollo,
+              productoName,
+            }, 'zoho-product-partners');
+          }
+        }
+      }
+      
+      if (!productField) {
+        return [];
+      }
+    }
+    
+    logger.info(`Deal ${dealId} tiene campo de producto`, {
+      dealId,
+      productField,
+      productFieldType: Array.isArray(productField) ? 'array' : typeof productField,
+    }, 'zoho-product-partners');
+    
+    // Product_Name/Product_ID/Products/Productos_de_interes puede ser un objeto o un array
+    let productId: string | null = null;
+    if (Array.isArray(productField) && productField.length > 0) {
+      const firstItem = productField[0];
+      if (typeof firstItem === 'object' && firstItem !== null && 'id' in firstItem) {
+        productId = firstItem.id;
+      } else if (typeof firstItem === 'string') {
+        productId = firstItem;
+      }
+      logger.info(`Campo de producto es array, usando primer elemento`, {
+        dealId,
+        productId,
+        arrayLength: productField.length,
+        firstItemType: typeof firstItem,
+      }, 'zoho-product-partners');
+    } else if (productField && typeof productField === 'object' && productField !== null) {
+      if ('id' in productField) {
+        productId = (productField as { id: string }).id;
+      } else if ('product' in productField && typeof productField.product === 'object' && productField.product !== null && 'id' in productField.product) {
+        productId = (productField.product as { id: string }).id;
+      } else if ('Product' in productField && typeof productField.Product === 'object' && productField.Product !== null && 'id' in productField.Product) {
+        productId = (productField.Product as { id: string }).id;
+      }
+      logger.info(`Campo de producto es objeto, extrayendo ID`, {
+        dealId,
+        productId,
+        productFieldKeys: Object.keys(productField),
+      }, 'zoho-product-partners');
+    } else if (typeof productField === 'string') {
+      // Si es un string, puede ser el ID directamente
+      productId = productField;
+      logger.info(`Campo de producto es string (ID directo)`, {
+        dealId,
+        productId,
+      }, 'zoho-product-partners');
+    }
+    
+    if (!productId) {
+      logger.warn(`No se pudo extraer productId del campo de producto`, {
+        dealId,
+        productField,
+      }, 'zoho-product-partners');
+      return [];
+    }
+    
+    logger.info(`Obteniendo subformulario Socios_del_Producto para producto ${productId}`, {
+      dealId,
+      productId,
+    }, 'zoho-product-partners');
+    
+    // Obtener el subformulario de socios
+    const subformData = await getProductSubformData(productId, 'Socios_del_Producto');
+    
+    logger.info(`Subformulario obtenido para producto ${productId}`, {
+      dealId,
+      productId,
+      subformRows: subformData.length,
+      subformData: subformData,
+    }, 'zoho-product-partners');
+    
+    // Extraer socios y participación
+    const partners: Array<{ socio: string; participacion: number }> = [];
+    
+    for (const row of subformData) {
+      // Buscar el campo de socio (puede tener diferentes nombres)
+      let socioName = '';
+      let participacion = 0;
+      
+      // Buscar campos comunes para el nombre del socio
+      // El campo real en Zoho es 'Nombre_del_Socio'
+      const socioFields = ['Nombre_del_Socio', 'Socio', 'Nombre', 'Name', 'Socio_del_Producto', 'Contact_Name', 'Socio_del_Producto.name'];
+      for (const field of socioFields) {
+        if (row[field]) {
+          if (typeof row[field] === 'string') {
+            socioName = row[field];
+          } else if (typeof row[field] === 'object' && 'name' in row[field]) {
+            socioName = (row[field] as { name: string }).name;
+          }
+          if (socioName) break;
+        }
+      }
+      
+      // Buscar el campo de participación (puede tener diferentes nombres)
+      const participacionFields = ['Participaci_n', 'Participación', 'Participacion', 'Participaci_n_del_Producto', '% Participación', 'Porcentaje', 'Participaci_n_del_Producto'];
+      for (const field of participacionFields) {
+        if (row[field] !== undefined && row[field] !== null) {
+          participacion = parseFloat(String(row[field])) || 0;
+          if (participacion > 0) break;
+        }
+      }
+      
+      if (socioName) {
+        partners.push({
+          socio: socioName,
+          participacion,
+        });
+      } else {
+        logger.debug(`Fila del subformulario sin nombre de socio`, {
+          dealId,
+          productId,
+          rowKeys: Object.keys(row),
+          row,
+        }, 'zoho-product-partners');
+      }
+    }
+    
+    logger.info(`Socios extraídos para deal ${dealId}`, {
+      dealId,
+      productId,
+      partnersCount: partners.length,
+      partners,
+    }, 'zoho-product-partners');
+    
+    return partners;
+  } catch (error) {
+    logger.error('Error obteniendo socios del producto desde deal', error, {
+      dealId,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    }, 'zoho-product-partners');
+    return [];
+  }
+}
+
+/**
  * Verifica la conexión con ZOHO CRM
  */
 export async function testZohoConnection(): Promise<boolean> {

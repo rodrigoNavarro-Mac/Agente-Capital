@@ -1,28 +1,28 @@
 /**
  * =====================================================
- * API: Procesar Ventas Comisionables desde BD Local
+ * API: Comisiones por Socio
  * =====================================================
- * Endpoint para procesar deals cerrados-ganados desde la BD local (zoho_deals)
- * a la tabla de ventas comisionables.
- * NO llama a la API de Zoho, solo lee de la base de datos local.
+ * Endpoint para obtener las comisiones que se deben cobrar a cada socio
+ * (100% de fase venta + fase posventa)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { processClosedWonDealsFromLocalDB } from '@/lib/commission-db';
 import { logger } from '@/lib/logger';
+import { getCommissionsByPartner } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
 
-// Roles permitidos para procesar ventas
+// Roles permitidos
 const ALLOWED_ROLES = ['admin', 'ceo'];
 
 /**
- * POST /api/commissions/sync-sales
- * Procesa todos los deals cerrados-ganados desde la BD local a ventas comisionables
+ * GET /api/commissions/partner-commissions
+ * Obtiene las comisiones por socio
+ * Query params: ?desarrollo=xxx&year=2024 (ambos opcionales)
  */
-export async function POST(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
+export async function GET(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
     // Verificar autenticación
     const authHeader = request.headers.get('authorization');
@@ -51,26 +51,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    // Procesar deals desde BD local y sincronizar socios del producto desde Zoho
-    const result = await processClosedWonDealsFromLocalDB();
+    const { searchParams } = new URL(request.url);
+    const desarrollo = searchParams.get('desarrollo');
+    const year = searchParams.get('year') ? parseInt(searchParams.get('year')!, 10) : undefined;
+    const month = searchParams.get('month') ? parseInt(searchParams.get('month')!, 10) : undefined;
+
+    // Obtener comisiones por socio
+    const commissions = await getCommissionsByPartner({
+      desarrollo: desarrollo || undefined,
+      year,
+      month,
+    });
 
     return NextResponse.json({
       success: true,
-      data: {
-        processed: result.processed,
-        skipped: result.skipped,
-        errors: result.errors,
-        errorsList: result.errorsList,
-        partnersSynced: result.partnersSynced,
-        message: `Procesamiento completado: ${result.processed} ventas nuevas, ${result.skipped} actualizadas, ${result.partnersSynced} con socios sincronizados, ${result.errors} errores`,
-      },
+      data: commissions,
     });
   } catch (error) {
-    logger.error('Error procesando ventas comisionables desde BD local', error, {}, 'commissions-sync-sales');
+    logger.error('Error obteniendo comisiones por socio', error, {}, 'commissions-partner-commissions');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error procesando ventas',
+        error: error instanceof Error ? error.message : 'Error obteniendo comisiones por socio',
       },
       { status: 500 }
     );

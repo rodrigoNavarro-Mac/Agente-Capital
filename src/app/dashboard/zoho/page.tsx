@@ -819,11 +819,12 @@ export default function ZohoCRMPage() {
       ? totalDealValue / filteredDeals.length 
       : 0;
 
-    // Estadísticas por desarrollo
+    // Estadísticas por desarrollo (normalizar nombres para evitar duplicados)
     const leadsByDevelopment: Record<string, number> = {};
     filteredLeads.forEach(lead => {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
-      const desarrollo = lead.Desarrollo || (lead as any).Desarollo || 'Sin Desarrollo';
+      const desarrolloRaw = lead.Desarrollo || (lead as any).Desarollo || 'Sin Desarrollo';
+      const desarrollo = desarrolloRaw === 'Sin Desarrollo' ? 'Sin Desarrollo' : normalizeDevelopmentDisplay(desarrolloRaw);
       leadsByDevelopment[desarrollo] = (leadsByDevelopment[desarrollo] || 0) + 1;
     });
 
@@ -831,7 +832,8 @@ export default function ZohoCRMPage() {
     const dealValueByDevelopment: Record<string, number> = {};
     filteredDeals.forEach(deal => {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
-      const desarrollo = deal.Desarrollo || (deal as any).Desarollo || 'Sin Desarrollo';
+      const desarrolloRaw = deal.Desarrollo || (deal as any).Desarollo || 'Sin Desarrollo';
+      const desarrollo = desarrolloRaw === 'Sin Desarrollo' ? 'Sin Desarrollo' : normalizeDevelopmentDisplay(desarrolloRaw);
       dealsByDevelopment[desarrollo] = (dealsByDevelopment[desarrollo] || 0) + 1;
       if (deal.Amount) {
         dealValueByDevelopment[desarrollo] = (dealValueByDevelopment[desarrollo] || 0) + deal.Amount;
@@ -3262,7 +3264,7 @@ export default function ZohoCRMPage() {
                                 <p>Fuente: {lead.Lead_Source}</p>
                               )}
                               {(lead.Desarrollo || (lead as any).Desarollo) && (
-                                <p>Desarrollo: <Badge variant="secondary">{lead.Desarrollo || (lead as any).Desarollo}</Badge></p>
+                                <p>Desarrollo: <Badge variant="secondary">{normalizeDevelopmentDisplay(lead.Desarrollo || (lead as any).Desarollo)}</Badge></p>
                               )}
                               {lead.Motivo_Descarte && (
                                 <p className="text-orange-600">Motivo descarte: {lead.Motivo_Descarte}</p>
@@ -3454,7 +3456,7 @@ export default function ZohoCRMPage() {
                                 <p>Cuenta: {deal.Account_Name.name}</p>
                               )}
                               {(deal.Desarrollo || (deal as any).Desarollo) && (
-                                <p>Desarrollo: <Badge variant="secondary">{deal.Desarrollo || (deal as any).Desarollo}</Badge></p>
+                                <p>Desarrollo: <Badge variant="secondary">{normalizeDevelopmentDisplay(deal.Desarrollo || (deal as any).Desarollo)}</Badge></p>
                               )}
                               {deal.Motivo_Descarte && (
                                 <p className="text-orange-600">Motivo descarte: {deal.Motivo_Descarte}</p>

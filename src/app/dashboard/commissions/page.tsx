@@ -40,6 +40,7 @@ import type {
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
 import { logger } from '@/lib/logger';
+import { normalizeDevelopmentDisplay } from '@/lib/utils';
 
 export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
@@ -113,11 +114,13 @@ export default function CommissionsPage() {
       const loadedSales = data.data.sales || [];
       setSales(loadedSales);
       
-      // Obtener desarrollos únicos de las ventas para el filtro
+      // Obtener desarrollos únicos de las ventas para el filtro (normalizados)
       const devs = new Set<string>();
       loadedSales.forEach((sale: CommissionSale) => {
         if (sale.desarrollo) {
-          devs.add(sale.desarrollo);
+          // Normalizar el nombre del desarrollo para mostrar
+          const normalized = normalizeDevelopmentDisplay(sale.desarrollo);
+          devs.add(normalized);
         }
       });
       setAvailableDevelopmentsForFilter(Array.from(devs).sort());
@@ -353,22 +356,31 @@ function ConfigTab({
       Object.values(DEVELOPMENTS).forEach((zoneDevs) => {
         zoneDevs.forEach((dev) => {
           // DEVELOPMENTS tiene estructura { value: string, label: string }
-          allDevelopments.add(dev.value);
+          // Normalizar el nombre del desarrollo para mostrar
+          const normalized = normalizeDevelopmentDisplay(dev.value);
+          allDevelopments.add(normalized);
         });
       });
       
       // También agregar desarrollos de configuraciones existentes (por si hay alguno nuevo)
       configs.forEach((config) => {
-        allDevelopments.add(config.desarrollo);
+        if (config.desarrollo) {
+          // Normalizar también los desarrollos de las configuraciones
+          const normalized = normalizeDevelopmentDisplay(config.desarrollo);
+          allDevelopments.add(normalized);
+        }
       });
 
       // Ordenar alfabéticamente
       setAvailableDevelopments(Array.from(allDevelopments).sort());
     } catch (error) {
       logger.error('Error loading developments:', error);
-      // En caso de error, usar desarrollos de configuraciones existentes
-      const existingDevs = configs.map(c => c.desarrollo);
-      setAvailableDevelopments(existingDevs.sort());
+      // En caso de error, usar desarrollos de configuraciones existentes (normalizados)
+      const existingDevs = configs
+        .map(c => c.desarrollo)
+        .filter(d => d)
+        .map(d => normalizeDevelopmentDisplay(d));
+      setAvailableDevelopments(Array.from(new Set(existingDevs)).sort());
     } finally {
       setLoadingDevelopments(false);
     }
@@ -377,15 +389,21 @@ function ConfigTab({
   // Cargar configuración existente cuando se selecciona un desarrollo
   useEffect(() => {
     if (formData.desarrollo) {
-      // Buscar si existe configuración para este desarrollo
-      const existingConfig = configs.find(
-        (config) => config.desarrollo.toLowerCase().trim() === formData.desarrollo?.toLowerCase().trim()
-      );
+      // Normalizar el desarrollo seleccionado para comparar
+      const normalizedSelected = normalizeDevelopmentDisplay(formData.desarrollo);
+      
+      // Buscar si existe configuración para este desarrollo (comparación case-insensitive y normalizada)
+      const existingConfig = configs.find((config) => {
+        if (!config.desarrollo) return false;
+        const normalizedConfig = normalizeDevelopmentDisplay(config.desarrollo);
+        return normalizedConfig.toLowerCase() === normalizedSelected.toLowerCase();
+      });
       
       if (existingConfig) {
         // Cargar todos los valores de la configuración existente
+        // Usar el nombre normalizado del desarrollo
         setFormData({
-          desarrollo: existingConfig.desarrollo,
+          desarrollo: normalizeDevelopmentDisplay(existingConfig.desarrollo),
           phase_sale_percent: existingConfig.phase_sale_percent,
           phase_post_sale_percent: existingConfig.phase_post_sale_percent,
           sale_manager_percent: existingConfig.sale_manager_percent,
@@ -467,8 +485,9 @@ function ConfigTab({
     }
 
     // Convertir undefined a 0 para campos numéricos antes de enviar
+    // Normalizar el desarrollo antes de guardarlo
     const dataToSend: CommissionConfigInput = {
-      desarrollo: formData.desarrollo,
+      desarrollo: normalizeDevelopmentDisplay(formData.desarrollo),
       phase_sale_percent: formData.phase_sale_percent ?? 0,
       phase_post_sale_percent: formData.phase_post_sale_percent ?? 0,
       sale_manager_percent: formData.sale_manager_percent ?? 0,
@@ -790,143 +809,6 @@ function ConfigTab({
 
   return (
     <div className="space-y-4">
-      {/* Configuración Global - Separada por Fases */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Configuración Global</CardTitle>
-          <CardDescription>
-            Estos porcentajes se aplican a todos los desarrollos. Separados por fase de venta y fase postventa.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Fase Venta */}
-          <div className="space-y-4 border-l-4 border-blue-500 pl-4">
-            <h3 className="text-lg font-semibold text-blue-600">Fase Venta</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-                <Label>% Coordinador de Operaciones de Venta</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                    step="0.001"
-                  min="0"
-                  max="100"
-                  value={globalFormData.operations_coordinator_percent}
-                  onChange={(e) => setGlobalFormData({
-                    ...globalFormData,
-                    operations_coordinator_percent: parseFloat(e.target.value) || 0,
-                  })}
-                    placeholder="0.000"
-                />
-                <Button
-                  onClick={() => handleSaveGlobal('operations_coordinator_percent')}
-                  disabled={savingGlobal}
-                  variant="outline"
-                >
-                  {savingGlobal ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-                <Label>% Gerente de Marketing</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                    step="0.001"
-                  min="0"
-                  max="100"
-                  value={globalFormData.marketing_percent}
-                  onChange={(e) => setGlobalFormData({
-                    ...globalFormData,
-                    marketing_percent: parseFloat(e.target.value) || 0,
-                  })}
-                    placeholder="0.000"
-                />
-                <Button
-                  onClick={() => handleSaveGlobal('marketing_percent')}
-                  disabled={savingGlobal}
-                  variant="outline"
-                >
-                  {savingGlobal ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Fase Postventa */}
-          <div className="space-y-4 border-l-4 border-green-500 pl-4">
-            <h3 className="text-lg font-semibold text-green-600">Fase Postventa</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>% Gerente Legal</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    max="100"
-                    value={globalFormData.legal_manager_percent}
-                    onChange={(e) => setGlobalFormData({
-                      ...globalFormData,
-                      legal_manager_percent: parseFloat(e.target.value) || 0,
-                    })}
-                    placeholder="0.000"
-                  />
-                  <Button
-                    onClick={() => handleSaveGlobal('legal_manager_percent')}
-                    disabled={savingGlobal}
-                    variant="outline"
-                  >
-                    {savingGlobal ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>% Coordinador Postventas</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    max="100"
-                    value={globalFormData.post_sale_coordinator_percent}
-                    onChange={(e) => setGlobalFormData({
-                      ...globalFormData,
-                      post_sale_coordinator_percent: parseFloat(e.target.value) || 0,
-                    })}
-                    placeholder="0.000"
-                  />
-                  <Button
-                    onClick={() => handleSaveGlobal('post_sale_coordinator_percent')}
-                    disabled={savingGlobal}
-                    variant="outline"
-                  >
-                    {savingGlobal ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Configuración por Desarrollo - Separada por Fases */}
       <Card>
         <CardHeader>
@@ -948,7 +830,11 @@ function ConfigTab({
               ) : (
                 <Select
                   value={formData.desarrollo || ''}
-                  onValueChange={(value) => setFormData({ ...formData, desarrollo: value })}
+                  onValueChange={(value) => {
+                    // Normalizar el desarrollo al seleccionarlo
+                    const normalized = normalizeDevelopmentDisplay(value);
+                    setFormData({ ...formData, desarrollo: normalized });
+                  }}
                 >
                   <SelectTrigger className="mt-2">
                     <SelectValue placeholder="Selecciona un desarrollo" />
@@ -1206,7 +1092,7 @@ function ConfigTab({
               <TableBody>
                 {configs.map((config) => (
                   <TableRow key={config.id}>
-                    <TableCell>{config.desarrollo}</TableCell>
+                    <TableCell>{normalizeDevelopmentDisplay(config.desarrollo || '')}</TableCell>
                     <TableCell>{config.phase_sale_percent}%</TableCell>
                     <TableCell>{config.phase_post_sale_percent}%</TableCell>
                     <TableCell>{config.sale_pool_total_percent}%</TableCell>
@@ -1623,6 +1509,143 @@ function ConfigTab({
           </div>
         </CardContent>
       </Card>
+
+      {/* Configuración Global - Separada por Fases */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Configuración Global</CardTitle>
+          <CardDescription>
+            Estos porcentajes se aplican a todos los desarrollos. Separados por fase de venta y fase postventa.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Fase Venta */}
+          <div className="space-y-4 border-l-4 border-blue-500 pl-4">
+            <h3 className="text-lg font-semibold text-blue-600">Fase Venta</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+                <Label>% Coordinador de Operaciones de Venta</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                    step="0.001"
+                  min="0"
+                  max="100"
+                  value={globalFormData.operations_coordinator_percent}
+                  onChange={(e) => setGlobalFormData({
+                    ...globalFormData,
+                    operations_coordinator_percent: parseFloat(e.target.value) || 0,
+                  })}
+                    placeholder="0.000"
+                />
+                <Button
+                  onClick={() => handleSaveGlobal('operations_coordinator_percent')}
+                  disabled={savingGlobal}
+                  variant="outline"
+                >
+                  {savingGlobal ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+                <Label>% Gerente de Marketing</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                    step="0.001"
+                  min="0"
+                  max="100"
+                  value={globalFormData.marketing_percent}
+                  onChange={(e) => setGlobalFormData({
+                    ...globalFormData,
+                    marketing_percent: parseFloat(e.target.value) || 0,
+                  })}
+                    placeholder="0.000"
+                />
+                <Button
+                  onClick={() => handleSaveGlobal('marketing_percent')}
+                  disabled={savingGlobal}
+                  variant="outline"
+                >
+                  {savingGlobal ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Fase Postventa */}
+          <div className="space-y-4 border-l-4 border-green-500 pl-4">
+            <h3 className="text-lg font-semibold text-green-600">Fase Postventa</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>% Gerente Legal</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="100"
+                    value={globalFormData.legal_manager_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      legal_manager_percent: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('legal_manager_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>% Coordinador Postventas</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="100"
+                    value={globalFormData.post_sale_coordinator_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      post_sale_coordinator_percent: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('post_sale_coordinator_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -1647,7 +1670,93 @@ function SalesTab({
   availableDevelopments: string[];
 }) {
   const [syncing, setSyncing] = useState(false);
+  const [partnersMap, setPartnersMap] = useState<Record<number, Array<{ socio: string; participacion: number }>>>({});
+  const [loadingPartners, setLoadingPartners] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
+
+  // Cargar socios del producto para múltiples ventas en batch (optimización)
+  const loadPartnersBatch = useCallback(async (saleIds: number[]) => {
+    if (saleIds.length === 0) return;
+
+    // Marcar todas las ventas como cargando
+    setLoadingPartners(prev => {
+      const newState = { ...prev };
+      saleIds.forEach(id => {
+        newState[id] = true;
+      });
+      return newState;
+    });
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const saleIdsJson = JSON.stringify(saleIds);
+      const response = await fetch(`/api/commissions/product-partners?sale_ids=${encodeURIComponent(saleIdsJson)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        // data.data es un objeto con sale_id como clave
+        setPartnersMap(prev => {
+          const newState = { ...prev };
+          // Agregar los socios cargados
+          Object.entries(data.data || {}).forEach(([saleIdStr, partners]: [string, any]) => {
+            const saleIdNum = parseInt(saleIdStr, 10);
+            newState[saleIdNum] = partners || [];
+          });
+          // Para las ventas que no tienen socios, guardar array vacío
+          saleIds.forEach(id => {
+            if (newState[id] === undefined) {
+              newState[id] = [];
+            }
+          });
+          return newState;
+        });
+      } else {
+        // En caso de error, guardar arrays vacíos para todas las ventas
+        setPartnersMap(prev => {
+          const newState = { ...prev };
+          saleIds.forEach(id => {
+            newState[id] = [];
+          });
+          return newState;
+        });
+      }
+    } catch (error) {
+      logger.error('Error loading partners batch:', error);
+      // En caso de error, guardar arrays vacíos para todas las ventas
+      setPartnersMap(prev => {
+        const newState = { ...prev };
+        saleIds.forEach(id => {
+          newState[id] = [];
+        });
+        return newState;
+      });
+    } finally {
+      // Limpiar el estado de carga
+      setLoadingPartners(prev => {
+        const newState = { ...prev };
+        saleIds.forEach(id => {
+          delete newState[id];
+        });
+        return newState;
+      });
+    }
+  }, []);
+
+  // Cargar socios cuando se monta el componente o cambian las ventas (en batch)
+  useEffect(() => {
+    // Identificar ventas que necesitan cargar socios
+    const saleIdsToLoad = sales
+      .filter(sale => sale.zoho_deal_id && partnersMap[sale.id] === undefined && !loadingPartners[sale.id])
+      .map(sale => sale.id);
+
+    // Cargar todas las ventas pendientes en una sola llamada
+    if (saleIdsToLoad.length > 0) {
+      loadPartnersBatch(saleIdsToLoad);
+    }
+  }, [sales, loadPartnersBatch, partnersMap, loadingPartners]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -1667,6 +1776,8 @@ function SalesTab({
           title: 'Procesamiento completado',
           description: data.data.message || `${data.data.processed} ventas procesadas`,
         });
+        // Limpiar partnersMap para forzar recarga de socios
+        setPartnersMap({});
         onRefresh(); // Recargar ventas
       } else {
         logger.error('Error processing sales:', data.error);
@@ -1736,8 +1847,9 @@ function SalesTab({
               <TableRow>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Desarrollo</TableHead>
-                <TableHead>Propietario</TableHead>
+                <TableHead>Asesor</TableHead>
                 <TableHead>Producto</TableHead>
+                <TableHead>Socios del Producto</TableHead>
                 <TableHead>m²</TableHead>
                 <TableHead>Precio/m²</TableHead>
                 <TableHead>Valor Total</TableHead>
@@ -1749,7 +1861,7 @@ function SalesTab({
             <TableBody>
               {sales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center text-muted-foreground">
                     <div className="py-8 space-y-2">
                       <p>No hay ventas comisionables</p>
                       <p className="text-sm">Haz clic en &quot;Cargar Ventas desde BD&quot; para procesar los deals cerrados-ganados de la base de datos local</p>
@@ -1757,58 +1869,86 @@ function SalesTab({
                   </TableCell>
                 </TableRow>
               ) : (
-                sales.map((sale) => (
-                  <TableRow key={sale.id}>
-                    <TableCell>{sale.cliente_nombre}</TableCell>
-                    <TableCell>{sale.desarrollo}</TableCell>
-                    <TableCell>{sale.propietario_deal}</TableCell>
-                    <TableCell>{sale.producto || '-'}</TableCell>
-                    <TableCell>
-                      {sale.metros_cuadrados.toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      ${Number(sale.precio_por_m2).toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      ${Number(sale.valor_total).toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
-                      })}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {(() => {
-                        const total = sale.total_distributions ?? 0;
-                        const paid = sale.paid_distributions ?? 0;
-                        const allPaid = total > 0 && paid === total;
-                        const label = `${paid}/${total}`;
-
-                        return total === 0 ? (
-                          <span className="text-muted-foreground">{label}</span>
-                        ) : (
-                          <div className="flex justify-center">
-                            <Badge variant={allPaid ? 'default' : 'secondary'}>
-                            {label}
-                            </Badge>
+                sales.map((sale) => {
+                  const partners = partnersMap[sale.id] || [];
+                  const isLoading = loadingPartners[sale.id];
+                  
+                  return (
+                    <TableRow key={sale.id}>
+                      <TableCell>{sale.cliente_nombre}</TableCell>
+                      <TableCell>{normalizeDevelopmentDisplay(sale.desarrollo || '')}</TableCell>
+                      <TableCell>{sale.propietario_deal}</TableCell>
+                      <TableCell>{sale.producto || '-'}</TableCell>
+                      <TableCell className="max-w-[300px]">
+                        {isLoading ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span className="text-xs text-muted-foreground">Cargando...</span>
                           </div>
-                        );
-                      })()}
-                    </TableCell>
-                    <TableCell>{new Date(sale.fecha_firma).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      {sale.commission_calculated ? (
-                        <Badge variant="default">Calculada</Badge>
-                      ) : (
-                        <Badge variant="outline">Pendiente</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
+                        ) : partners.length > 0 ? (
+                          <div className="text-sm space-y-1">
+                            {partners.map((partner, idx) => (
+                              <div key={idx} className="flex items-center gap-1">
+                                <span className="font-medium">{partner.socio}</span>
+                                {partner.participacion > 0 && (
+                                  <span className="text-muted-foreground">
+                                    ({partner.participacion.toFixed(2)}%)
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {sale.metros_cuadrados.toLocaleString('es-MX', { 
+                          minimumFractionDigits: 2, 
+                          maximumFractionDigits: 2 
+                        })}
+                      </TableCell>
+                      <TableCell>
+                        ${Number(sale.precio_por_m2).toLocaleString('es-MX', { 
+                          minimumFractionDigits: 2, 
+                          maximumFractionDigits: 2 
+                        })}
+                      </TableCell>
+                      <TableCell>
+                        ${Number(sale.valor_total).toLocaleString('es-MX', { 
+                          minimumFractionDigits: 2, 
+                          maximumFractionDigits: 2 
+                        })}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {(() => {
+                          const total = sale.total_distributions ?? 0;
+                          const paid = sale.paid_distributions ?? 0;
+                          const allPaid = total > 0 && paid === total;
+                          const label = `${paid}/${total}`;
+
+                          return total === 0 ? (
+                            <span className="text-muted-foreground">{label}</span>
+                          ) : (
+                            <div className="flex justify-center">
+                              <Badge variant={allPaid ? 'default' : 'secondary'}>
+                              {label}
+                              </Badge>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell>{new Date(sale.fecha_firma).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        {sale.commission_calculated ? (
+                          <Badge variant="default">Calculada</Badge>
+                        ) : (
+                          <Badge variant="outline">Pendiente</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -2045,7 +2185,7 @@ function DistributionTab({
                           <div className="flex-1">
                             <p className="font-medium">{sale.cliente_nombre}</p>
                             <p className="text-sm text-muted-foreground">
-                              {sale.desarrollo} - {sale.producto || 'Sin producto'}
+                              {normalizeDevelopmentDisplay(sale.desarrollo || '')} - {sale.producto || 'Sin producto'}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               ${Number(sale.valor_total).toLocaleString('es-MX', { 
@@ -2582,6 +2722,22 @@ function DashboardTab({
   }>>([]);
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  const [personFilter, setPersonFilter] = useState<string>('all');
+  const [partnerCommissions, setPartnerCommissions] = useState<Array<{
+    socio_name: string;
+    concepto: string;
+    producto: string | null;
+    cliente_nombre: string;
+    desarrollo: string;
+    total_comision: number;
+    iva: number;
+    total_con_iva: number;
+    participacion: number;
+    sale_id: number;
+    month: number;
+    fecha_firma: string;
+  }>>([]);
+  const [loadingPartnerCommissions, setLoadingPartnerCommissions] = useState(false);
   const { toast } = useToast();
 
   /**
@@ -2638,6 +2794,44 @@ function DashboardTab({
   useEffect(() => {
     loadDistributions();
   }, [loadDistributions]);
+
+  // Cargar comisiones por socio
+  const loadPartnerCommissions = useCallback(async () => {
+    setLoadingPartnerCommissions(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const params = new URLSearchParams();
+      params.append('year', selectedYear.toString());
+      if (selectedDesarrollo !== 'all') {
+        params.append('desarrollo', selectedDesarrollo);
+      }
+      
+      const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setPartnerCommissions(data.data || []);
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al cargar comisiones por socio',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      logger.error('Error loading partner commissions:', error);
+    } finally {
+      setLoadingPartnerCommissions(false);
+    }
+  }, [selectedDesarrollo, selectedYear, toast]);
+
+  // Cargar comisiones por socio cuando cambian los filtros
+  useEffect(() => {
+    loadPartnerCommissions();
+  }, [loadPartnerCommissions]);
 
   // Estados para manejo de facturas
   const [uploadingInvoice, setUploadingInvoice] = useState<number | null>(null);
@@ -2793,6 +2987,52 @@ function DashboardTab({
     }
   };
 
+  // Manejar cambio de estado de pago
+  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid') => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/distributions', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          distribution_id: distributionId,
+          payment_status: newStatus,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Estado actualizado',
+          description: `La comisión ha sido marcada como ${newStatus === 'paid' ? 'pagada' : 'pendiente'}`,
+        });
+        // Recargar distribuciones para actualizar el estado
+        await loadDistributions();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al actualizar estado de pago',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      logger.error('Error updating payment status:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar estado de pago',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Calcular IVA (usando el mismo porcentaje que en comisiones por socio)
+  const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
+  const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
+  const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -2820,7 +3060,7 @@ function DashboardTab({
                       .sort()
                       .map((dev) => (
                         <SelectItem key={dev} value={dev}>
-                          {dev.charAt(0).toUpperCase() + dev.slice(1)}
+                          {normalizeDevelopmentDisplay(dev)}
                         </SelectItem>
                       ))}
                 </SelectContent>
@@ -3133,19 +3373,42 @@ function DashboardTab({
                     Lista detallada de todas las comisiones con su estado de pago
                   </CardDescription>
                 </div>
-                <Select
-                  value={paymentStatusFilter}
-                  onValueChange={(value: 'all' | 'pending' | 'paid') => setPaymentStatusFilter(value)}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="pending">Pendientes</SelectItem>
-                    <SelectItem value="paid">Pagadas</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select
+                    value={personFilter}
+                    onValueChange={(value: string) => setPersonFilter(value)}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Todas las personas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las personas</SelectItem>
+                      {(() => {
+                        // Obtener personas únicas de las distribuciones
+                        const uniquePersons = Array.from(new Set(distributions.map(d => d.person_name)))
+                          .sort();
+                        return uniquePersons.map(person => (
+                          <SelectItem key={person} value={person}>
+                            {person}
+                          </SelectItem>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={paymentStatusFilter}
+                    onValueChange={(value: 'all' | 'pending' | 'paid') => setPaymentStatusFilter(value)}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      <SelectItem value="pending">Pendientes</SelectItem>
+                      <SelectItem value="paid">Pagadas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -3153,132 +3416,460 @@ function DashboardTab({
                 <div className="flex items-center justify-center p-8">
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
-              ) : distributions.length === 0 ? (
+              ) : (() => {
+                // Aplicar filtros
+                const monthNames = [
+                  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                ];
+
+                let filteredDistributions = distributions;
+
+                // Filtrar por persona
+                if (personFilter !== 'all') {
+                  filteredDistributions = filteredDistributions.filter(d => d.person_name === personFilter);
+                }
+
+                // Filtrar por estado de pago
+                if (paymentStatusFilter !== 'all') {
+                  filteredDistributions = filteredDistributions.filter(d => d.payment_status === paymentStatusFilter);
+                }
+
+                if (filteredDistributions.length === 0) {
+                  return (
+                    <div className="text-center text-muted-foreground p-8">
+                      No hay comisiones disponibles con los filtros seleccionados
+                    </div>
+                  );
+                }
+
+                // Agrupar por mes
+                const groupedByMonth: Record<number, typeof filteredDistributions> = {};
+                filteredDistributions.forEach(dist => {
+                  const fechaFirma = new Date(dist.fecha_firma);
+                  const month = fechaFirma.getMonth() + 1;
+                  if (!groupedByMonth[month]) {
+                    groupedByMonth[month] = [];
+                  }
+                  groupedByMonth[month].push(dist);
+                });
+
+                // Ordenar meses
+                const sortedMonths = Object.keys(groupedByMonth)
+                  .map(m => parseInt(m, 10))
+                  .sort((a, b) => a - b);
+
+                return (
+                  <div className="space-y-6">
+                    {sortedMonths.map(month => {
+                      const monthDistributions = groupedByMonth[month];
+                      
+                      // Calcular totales del mes
+                      const totalMonth = monthDistributions.reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
+                      const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0)), 0);
+                      const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0)), 0);
+
+                      return (
+                        <div key={month} className="space-y-4 border rounded-lg p-4">
+                          <div className="flex items-center justify-between pb-2 border-b">
+                            <h3 className="text-xl font-bold">{monthNames[month - 1]}</h3>
+                            <div className="text-right space-y-1">
+                              <div>
+                                <div className="text-xs text-muted-foreground">Subtotal</div>
+                                <div className="text-lg font-semibold">
+                                  ${totalMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">IVA</div>
+                                <div className="text-lg font-semibold">
+                                  ${totalIvaMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">Total del Mes</div>
+                                <div className="text-2xl font-bold">
+                                  ${totalConIvaMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Producto</TableHead>
+                                  <TableHead>Cliente</TableHead>
+                                  <TableHead>Desarrollo</TableHead>
+                                  <TableHead>Fecha</TableHead>
+                                  <TableHead>Persona</TableHead>
+                                  <TableHead>Rol</TableHead>
+                                  <TableHead>Fase</TableHead>
+                                  <TableHead className="text-right">Monto de Comisión</TableHead>
+                                  <TableHead className="text-right">IVA</TableHead>
+                                  <TableHead className="text-right">Total a Facturar</TableHead>
+                                  <TableHead>Estado</TableHead>
+                                  <TableHead>Factura</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {monthDistributions.map((dist) => {
+                                  const amount = Number(dist.amount_calculated || 0);
+                                  const iva = calculateIva(amount);
+                                  const totalConIva = calculateTotalWithIva(amount);
+                                  
+                                  return (
+                                    <TableRow key={dist.id}>
+                                      <TableCell className="font-medium">
+                                        {dist.producto || '-'}
+                                      </TableCell>
+                                      <TableCell>{dist.cliente_nombre}</TableCell>
+                                      <TableCell>{dist.desarrollo}</TableCell>
+                                      <TableCell>
+                                        {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
+                                      </TableCell>
+                                      <TableCell>{dist.person_name}</TableCell>
+                                      <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline">
+                                          {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium">
+                                        ${amount.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        ${iva.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </TableCell>
+                                      <TableCell className="text-right font-bold">
+                                        ${totalConIva.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Select
+                                          value={dist.payment_status}
+                                          onValueChange={(value: 'pending' | 'paid') => handlePaymentStatusChange(dist.id, value)}
+                                        >
+                                          <SelectTrigger className="w-[140px]">
+                                            <SelectValue>
+                                              {dist.payment_status === 'paid' ? (
+                                                <div className="flex items-center gap-2">
+                                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                                  <span>Pagada</span>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center gap-2">
+                                                  <Clock className="h-4 w-4 text-yellow-600" />
+                                                  <span>Pendiente</span>
+                                                </div>
+                                              )}
+                                            </SelectValue>
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="pending">
+                                              <div className="flex items-center gap-2">
+                                                <Clock className="h-4 w-4 text-yellow-600" />
+                                                Pendiente
+                                              </div>
+                                            </SelectItem>
+                                            <SelectItem value="paid">
+                                              <div className="flex items-center gap-2">
+                                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                                Pagada
+                                              </div>
+                                            </SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          {dist.invoice_pdf_path ? (
+                                            <>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => handleViewInvoice(dist.id)}
+                                                title="Ver factura"
+                                              >
+                                                <Eye className="h-4 w-4" />
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => handleDownloadInvoice(dist.id)}
+                                                title="Descargar factura"
+                                              >
+                                                <Download className="h-4 w-4" />
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => handleDeleteInvoice(dist.id)}
+                                                title="Eliminar factura"
+                                              >
+                                                <X className="h-4 w-4 text-red-600" />
+                                              </Button>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <input
+                                                type="file"
+                                                accept=".pdf,application/pdf"
+                                                className="hidden"
+                                                id={`invoice-upload-${dist.id}`}
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file) {
+                                                    handleUploadInvoice(dist.id, file);
+                                                  }
+                                                }}
+                                                disabled={uploadingInvoice === dist.id}
+                                              />
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={uploadingInvoice === dist.id}
+                                                title="Subir factura PDF"
+                                                onClick={() => {
+                                                  const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
+                                                  input?.click();
+                                                }}
+                                              >
+                                                {uploadingInvoice === dist.id ? (
+                                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                  <Upload className="h-4 w-4" />
+                                                )}
+                                              </Button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Tabla de Comisiones por Socio */}
+          <Card className="mt-6">
+            <CardHeader>
+              <div>
+                <CardTitle>Comisiones por Socio</CardTitle>
+                <CardDescription>
+                  Total de comisiones que se deben cobrar a cada socio (100% de fase venta + fase posventa)
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingPartnerCommissions ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : partnerCommissions.length === 0 ? (
                 <div className="text-center text-muted-foreground p-8">
-                  No hay comisiones disponibles
+                  No hay comisiones por socio disponibles
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Producto</TableHead>
-                        <TableHead>Cliente</TableHead>
-                        <TableHead>Desarrollo</TableHead>
-                        <TableHead>Fecha</TableHead>
-                        <TableHead>Persona</TableHead>
-                        <TableHead>Rol</TableHead>
-                        <TableHead>Fase</TableHead>
-                        <TableHead className="text-right">Monto de Comisión</TableHead>
-                        <TableHead>Estado</TableHead>
-                        <TableHead>Factura</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {distributions.map((dist) => (
-                        <TableRow key={dist.id}>
-                          <TableCell className="font-medium">
-                            {dist.producto || '-'}
-                          </TableCell>
-                          <TableCell>{dist.cliente_nombre}</TableCell>
-                          <TableCell>{dist.desarrollo}</TableCell>
-                          <TableCell>
-                            {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
-                          </TableCell>
-                          <TableCell>{dist.person_name}</TableCell>
-                          <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                          <TableCell>
-                            {dist.payment_status === 'paid' ? (
-                              <Badge className="bg-green-600">
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Pagada
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="border-yellow-600 text-yellow-600">
-                                <Clock className="h-3 w-3 mr-1" />
-                                Pendiente
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {dist.invoice_pdf_path ? (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleViewInvoice(dist.id)}
-                                    title="Ver factura"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDownloadInvoice(dist.id)}
-                                    title="Descargar factura"
-                                  >
-                                    <Download className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteInvoice(dist.id)}
-                                    title="Eliminar factura"
-                                  >
-                                    <X className="h-4 w-4 text-red-600" />
-                                  </Button>
-                                </>
-                              ) : (
-                                <>
-                                  <input
-                                    type="file"
-                                    accept=".pdf,application/pdf"
-                                    className="hidden"
-                                    id={`invoice-upload-${dist.id}`}
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) {
-                                        handleUploadInvoice(dist.id, file);
-                                      }
-                                    }}
-                                    disabled={uploadingInvoice === dist.id}
-                                  />
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={uploadingInvoice === dist.id}
-                                    title="Subir factura PDF"
-                                    onClick={() => {
-                                      const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
-                                      input?.click();
-                                    }}
-                                  >
-                                    {uploadingInvoice === dist.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Upload className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                </>
-                              )}
+                <div className="space-y-6">
+                  {/* Agrupar por mes y luego por socio */}
+                  {(() => {
+                    const monthNames = [
+                      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                    ];
+
+                    // Primero agrupar por mes
+                    const groupedByMonth: Record<number, typeof partnerCommissions> = {};
+                    partnerCommissions.forEach(commission => {
+                      const month = commission.month;
+                      if (!groupedByMonth[month]) {
+                        groupedByMonth[month] = [];
+                      }
+                      groupedByMonth[month].push(commission);
+                    });
+
+                    // Ordenar meses
+                    const sortedMonths = Object.keys(groupedByMonth)
+                      .map(m => parseInt(m, 10))
+                      .sort((a, b) => a - b);
+
+                    return sortedMonths.map(month => {
+                      const monthCommissions = groupedByMonth[month];
+                      
+                      // Agrupar por socio dentro del mes
+                      const groupedBySocio: Record<string, typeof partnerCommissions> = {};
+                      monthCommissions.forEach(commission => {
+                        if (!groupedBySocio[commission.socio_name]) {
+                          groupedBySocio[commission.socio_name] = [];
+                        }
+                        groupedBySocio[commission.socio_name].push(commission);
+                      });
+
+                      // Calcular totales del mes
+                      const totalMonth = monthCommissions.reduce((sum, c) => sum + c.total_comision, 0);
+                      const totalIvaMonth = monthCommissions.reduce((sum, c) => sum + c.iva, 0);
+                      const totalConIvaMonth = monthCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
+
+                      return (
+                        <div key={month} className="space-y-4 border rounded-lg p-4">
+                          <div className="flex items-center justify-between pb-2 border-b">
+                            <h3 className="text-xl font-bold">{monthNames[month - 1]}</h3>
+                            <div className="text-right space-y-1">
+                              <div>
+                                <div className="text-xs text-muted-foreground">Subtotal</div>
+                                <div className="text-lg font-semibold">
+                                  ${totalMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">IVA</div>
+                                <div className="text-lg font-semibold">
+                                  ${totalIvaMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">Total del Mes</div>
+                                <div className="text-2xl font-bold">
+                                  ${totalConIvaMonth.toLocaleString('es-MX', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              </div>
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                          </div>
+
+                          {/* Mostrar comisiones por socio dentro del mes */}
+                          <div className="space-y-4">
+                            {Object.keys(groupedBySocio).sort().map(socioName => {
+                              const socioCommissions = groupedBySocio[socioName];
+                              const totalSocio = socioCommissions.reduce((sum, c) => sum + c.total_comision, 0);
+                              const totalIvaSocio = socioCommissions.reduce((sum, c) => sum + c.iva, 0);
+                              const totalConIvaSocio = socioCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
+
+                              return (
+                                <div key={`${month}-${socioName}`} className="space-y-2">
+                                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                                    <h4 className="text-lg font-semibold">{socioName}</h4>
+                                    <div className="text-right space-y-1">
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">Subtotal</div>
+                                        <div className="text-lg font-semibold">
+                                          ${totalSocio.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">IVA</div>
+                                        <div className="text-lg font-semibold">
+                                          ${totalIvaSocio.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">Total del Socio</div>
+                                        <div className="text-xl font-bold">
+                                          ${totalConIvaSocio.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Concepto</TableHead>
+                                          <TableHead>Lote (Producto)</TableHead>
+                                          <TableHead>Cliente</TableHead>
+                                          <TableHead className="text-right">Participación</TableHead>
+                                          <TableHead className="text-right">Total de Comisión</TableHead>
+                                          <TableHead className="text-right">IVA</TableHead>
+                                          <TableHead className="text-right">Total Factura + IVA</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {socioCommissions.map((commission, idx) => (
+                                          <TableRow key={`${commission.sale_id}-${idx}`}>
+                                            <TableCell className="font-medium">
+                                              {commission.concepto}
+                                            </TableCell>
+                                            <TableCell>{commission.producto || '-'}</TableCell>
+                                            <TableCell>{commission.cliente_nombre}</TableCell>
+                                            <TableCell className="text-right">
+                                              {commission.participacion.toFixed(2)}%
+                                            </TableCell>
+                                            <TableCell className="text-right font-medium">
+                                              ${commission.total_comision.toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              ${commission.iva.toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold">
+                                              ${commission.total_con_iva.toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </CardContent>

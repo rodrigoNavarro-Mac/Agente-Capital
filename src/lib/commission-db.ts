@@ -7,6 +7,7 @@
 
 import { query } from './postgres';
 import { logger } from '@/lib/logger';
+import { getProductPartnersFromDeal } from './zoho-crm';
 import type {
   CommissionConfig,
   CommissionConfigInput,
@@ -22,7 +23,30 @@ import type {
   CommissionRuleInput,
   CommissionBillingTarget,
   CommissionBillingTargetInput,
+  ProductPartner,
+  ProductPartnerInput,
 } from '@/types/commissions';
+
+// =====================================================
+// FUNCIONES AUXILIARES DE NORMALIZACIÓN
+// =====================================================
+
+/**
+ * Normaliza el nombre de un desarrollo para búsquedas en la base de datos
+ * Maneja casos especiales como "P. Quintana Roo" / "qroo" que deben ser tratados como el mismo desarrollo
+ * Esta función normaliza a un formato consistente para comparaciones en BD
+ */
+function normalizeDevelopmentForDB(desarrollo: string): string {
+  if (!desarrollo || typeof desarrollo !== 'string') return desarrollo;
+  const trimmed = desarrollo.trim().toLowerCase();
+  
+  // Caso especial: "qroo" y "P. Quintana Roo" se normalizan a "p. quintana roo"
+  if (trimmed === 'qroo' || trimmed === 'p. quintana roo' || trimmed === 'p quintana roo') {
+    return 'p. quintana roo';
+  }
+  
+  return trimmed;
+}
 
 // =====================================================
 // CONFIGURACIÓN
@@ -31,18 +55,34 @@ import type {
 /**
  * Obtiene la configuración de comisiones para un desarrollo
  * Normaliza el nombre del desarrollo para hacer la búsqueda case-insensitive
+ * Maneja casos especiales como "P. Quintana Roo" / "qroo"
  */
 export async function getCommissionConfig(
   desarrollo: string
 ): Promise<CommissionConfig | null> {
   try {
-    // Normalizar desarrollo: trim y lowercase para comparación
-    const normalizedDesarrollo = desarrollo.trim().toLowerCase();
+    // Normalizar desarrollo para búsqueda (incluye manejo de casos especiales)
+    const normalizedDesarrollo = normalizeDevelopmentForDB(desarrollo);
     
-    const result = await query<CommissionConfig>(
-      `SELECT * FROM commission_configs WHERE LOWER(TRIM(desarrollo)) = $1`,
+    // Buscar con normalización: primero intentar con el nombre normalizado exacto
+    // Luego buscar variaciones de "P. Quintana Roo" / "qroo"
+    let result = await query<CommissionConfig>(
+      `SELECT * FROM commission_configs 
+       WHERE LOWER(TRIM(desarrollo)) = $1 
+          OR (LOWER(TRIM(desarrollo)) IN ('qroo', 'p. quintana roo', 'p quintana roo') 
+              AND $1 IN ('qroo', 'p. quintana roo', 'p quintana roo'))`,
       [normalizedDesarrollo]
     );
+    
+    // Si no se encontró, intentar buscar cualquier variación de "P. Quintana Roo" / "qroo"
+    if (result.rows.length === 0 && normalizedDesarrollo === 'p. quintana roo') {
+      result = await query<CommissionConfig>(
+        `SELECT * FROM commission_configs 
+         WHERE LOWER(TRIM(desarrollo)) IN ('qroo', 'p. quintana roo', 'p quintana roo')`,
+        []
+      );
+    }
+    
     return result.rows[0] || null;
   } catch (error) {
     logger.error('Error obteniendo configuración de comisiones', error, {}, 'commission-db');
@@ -371,7 +411,55 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
       asesor_externo_id: asesorExternoId,
     };
 
-    return await upsertCommissionSale(saleInput);
+    const sale = await upsertCommissionSale(saleInput);
+
+    // Sincronizar socios del producto (en segundo plano, no bloquear si falla)
+    try {
+      logger.info(`Intentando obtener socios del producto para deal ${zohoDealId}`, {
+        saleId: sale.id,
+        zohoDealId,
+        dealHasProductName: !!(deal.Product_Name || deal.Product_ID || deal.Products),
+        productName: deal.Product_Name || deal.Product_ID || deal.Products,
+      }, 'commission-db');
+      
+      const partners = await getProductPartnersFromDeal(zohoDealId);
+      
+      logger.info(`Socios obtenidos desde Zoho para deal ${zohoDealId}`, {
+        saleId: sale.id,
+        zohoDealId,
+        partnersCount: partners?.length || 0,
+        partners: partners,
+      }, 'commission-db');
+      
+      if (partners && partners.length > 0) {
+        const partnerInputs: ProductPartnerInput[] = partners.map(p => ({
+          commission_sale_id: sale.id,
+          socio_name: p.socio,
+          participacion: p.participacion,
+        }));
+        await upsertProductPartners(sale.id, partnerInputs);
+        logger.info(`Socios del producto sincronizados para venta ${sale.id}`, {
+          saleId: sale.id,
+          zohoDealId,
+          partnersCount: partners.length,
+        }, 'commission-db');
+      } else {
+        logger.info(`No se encontraron socios para deal ${zohoDealId}`, {
+          saleId: sale.id,
+          zohoDealId,
+        }, 'commission-db');
+      }
+    } catch (partnerError) {
+      // No fallar la sincronización si no se pueden obtener los socios
+      logger.error('Error sincronizando socios del producto (no crítico)', partnerError, {
+        saleId: sale.id,
+        zohoDealId,
+        errorMessage: partnerError instanceof Error ? partnerError.message : String(partnerError),
+        errorStack: partnerError instanceof Error ? partnerError.stack : undefined,
+      }, 'commission-db');
+    }
+
+    return sale;
   } catch (error) {
     logger.error('Error sincronizando deal a venta comisionable', error, {}, 'commission-db');
     throw error;
@@ -380,19 +468,21 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
 
 /**
  * Procesa todos los deals cerrados-ganados desde la BD local (zoho_deals) a commission_sales
- * NO llama a la API de Zoho, solo lee de la base de datos local
+ * También sincroniza los socios del producto desde Zoho para cada venta
  */
 export async function processClosedWonDealsFromLocalDB(): Promise<{
   processed: number;
   errors: number;
   errorsList: string[];
   skipped: number; // Deals que ya estaban sincronizados
+  partnersSynced: number; // Número de ventas con socios sincronizados
 }> {
   try {
     const deals = await getClosedWonDealsFromDB(10000); // Obtener hasta 10000 deals desde BD local
     let processed = 0;
     let errors = 0;
     let skipped = 0;
+    let partnersSynced = 0;
     const errorsList: string[] = [];
 
     for (const deal of deals) {
@@ -400,13 +490,25 @@ export async function processClosedWonDealsFromLocalDB(): Promise<{
         // Verificar si ya existe en commission_sales
         const existing = await getCommissionSaleByZohoDealId(deal.id);
         if (existing) {
-          // Actualizar datos si el deal cambió
-          await syncDealToCommissionSale(deal);
+          // Actualizar datos si el deal cambió (incluye sincronización de socios)
+          const sale = await syncDealToCommissionSale(deal);
           skipped++; // Ya existía, pero se actualizó
+          
+          // Verificar si se sincronizaron socios
+          const partners = await getProductPartners(sale.id);
+          if (partners.length > 0) {
+            partnersSynced++;
+          }
         } else {
-          // Crear nuevo registro
-          await syncDealToCommissionSale(deal);
+          // Crear nuevo registro (incluye sincronización de socios)
+          const sale = await syncDealToCommissionSale(deal);
           processed++;
+          
+          // Verificar si se sincronizaron socios
+          const partners = await getProductPartners(sale.id);
+          if (partners.length > 0) {
+            partnersSynced++;
+          }
         }
       } catch (error) {
         errors++;
@@ -416,7 +518,14 @@ export async function processClosedWonDealsFromLocalDB(): Promise<{
       }
     }
 
-    return { processed, errors, errorsList, skipped };
+    logger.info(`Sincronización completada: ${processed} nuevas, ${skipped} actualizadas, ${partnersSynced} con socios`, {
+      processed,
+      skipped,
+      errors,
+      partnersSynced,
+    }, 'commission-db');
+
+    return { processed, errors, errorsList, skipped, partnersSynced };
   } catch (error) {
     logger.error('Error procesando deals cerrados-ganados desde BD local', error, {}, 'commission-db');
     throw error;
@@ -920,6 +1029,7 @@ export async function getCommissionAdjustments(
 
 /**
  * Obtiene todas las reglas de comisión para un desarrollo
+ * Maneja casos especiales como "P. Quintana Roo" / "qroo"
  */
 export async function getCommissionRules(desarrollo?: string): Promise<CommissionRule[]> {
   try {
@@ -927,8 +1037,19 @@ export async function getCommissionRules(desarrollo?: string): Promise<Commissio
     const params: any[] = [];
     
     if (desarrollo) {
-      sqlQuery += ' WHERE LOWER(TRIM(desarrollo)) = LOWER(TRIM($1))';
-      params.push(desarrollo);
+      const normalizedDesarrollo = normalizeDevelopmentForDB(desarrollo);
+      // Buscar con normalización, incluyendo variaciones de "P. Quintana Roo" / "qroo"
+      sqlQuery += ` WHERE (LOWER(TRIM(desarrollo)) = $1 
+                OR (LOWER(TRIM(desarrollo)) IN ('qroo', 'p. quintana roo', 'p quintana roo') 
+                    AND $1 IN ('qroo', 'p. quintana roo', 'p quintana roo')))`;
+      params.push(normalizedDesarrollo);
+      
+      // Si es "P. Quintana Roo", también buscar variaciones
+      if (normalizedDesarrollo === 'p. quintana roo') {
+        sqlQuery = 'SELECT * FROM commission_rules WHERE LOWER(TRIM(desarrollo)) IN ($1, $2, $3)';
+        params.length = 0;
+        params.push('qroo', 'p. quintana roo', 'p quintana roo');
+      }
     }
     
     sqlQuery += ' ORDER BY prioridad DESC, periodo_value DESC, created_at DESC';
@@ -1180,9 +1301,9 @@ export async function countUnidadesVendidasEnPeriodo(
   periodoType: 'trimestre' | 'mensual' | 'anual'
 ): Promise<number> {
   try {
-    const normalizedDesarrollo = desarrollo.trim().toLowerCase();
+    const normalizedDesarrollo = normalizeDevelopmentForDB(desarrollo);
     let dateCondition = '';
-    const params: any[] = [normalizedDesarrollo];
+    const params: any[] = [];
     
     // Construir condición de fecha según el tipo de período
     if (periodoType === 'trimestre') {
@@ -1197,10 +1318,8 @@ export async function countUnidadesVendidasEnPeriodo(
       // Calcular rango de meses: Q1 = 1-3, Q2 = 4-6, Q3 = 7-9, Q4 = 10-12
       const mesInicio = (trimestre - 1) * 3 + 1;
       const mesFin = trimestre * 3;
-      dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2 
-                       AND EXTRACT(MONTH FROM fecha_firma) >= $3 
-                       AND EXTRACT(MONTH FROM fecha_firma) <= $4`;
       params.push(año, mesInicio, mesFin);
+      // dateCondition se construirá después con los índices correctos
     } else if (periodoType === 'mensual') {
       // Formato: "2025-01" -> año 2025, mes 1
       const match = periodoValue.match(/^(\d{4})-(\d{2})$/);
@@ -1210,8 +1329,6 @@ export async function countUnidadesVendidasEnPeriodo(
       }
       const año = parseInt(match[1], 10);
       const mes = parseInt(match[2], 10);
-      dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2 
-                       AND EXTRACT(MONTH FROM fecha_firma) = $3`;
       params.push(año, mes);
     } else if (periodoType === 'anual') {
       // Formato: "2025" -> año 2025
@@ -1220,7 +1337,6 @@ export async function countUnidadesVendidasEnPeriodo(
         logger.warn(`Formato de período anual inválido: ${periodoValue}`, {}, 'commission-db');
         return 0;
       }
-      dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2`;
       params.push(año);
     } else {
       logger.warn(`Tipo de período desconocido: ${periodoType}`, {}, 'commission-db');
@@ -1233,14 +1349,62 @@ export async function countUnidadesVendidasEnPeriodo(
     const fechaActual = new Date();
     fechaActual.setHours(23, 59, 59, 999); // Incluir todo el día actual
     
-    const result = await query<{ count: string }>(
-      `SELECT COUNT(*) as count
-       FROM commission_sales
-       WHERE LOWER(TRIM(desarrollo)) = $1
-         AND ${dateCondition}
-         AND fecha_firma <= $${params.length + 1}::date`,
-      [...params, fechaActual.toISOString().split('T')[0]]
-    );
+    // Manejar casos especiales como "P. Quintana Roo" / "qroo"
+    let result;
+    if (normalizedDesarrollo === 'p. quintana roo') {
+      // Construir parámetros para la consulta con variaciones de "P. Quintana Roo"
+      const desarrolloParams = ['qroo', 'p. quintana roo', 'p quintana roo'];
+      const desarrolloPlaceholders = desarrolloParams.map((_, i) => `$${i + 1}`).join(', ');
+      const desarrolloParamCount = desarrolloParams.length;
+      
+      // Construir dateCondition con los índices correctos (después de los parámetros de desarrollo)
+      if (periodoType === 'trimestre') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $${desarrolloParamCount + 1} 
+                         AND EXTRACT(MONTH FROM fecha_firma) >= $${desarrolloParamCount + 2} 
+                         AND EXTRACT(MONTH FROM fecha_firma) <= $${desarrolloParamCount + 3}`;
+      } else if (periodoType === 'mensual') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $${desarrolloParamCount + 1} 
+                         AND EXTRACT(MONTH FROM fecha_firma) = $${desarrolloParamCount + 2}`;
+      } else if (periodoType === 'anual') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $${desarrolloParamCount + 1}`;
+      }
+      
+      const allParams = [...desarrolloParams, ...params, fechaActual.toISOString().split('T')[0]];
+      const fechaParamIndex = allParams.length;
+      
+      result = await query<{ count: string }>(
+        `SELECT COUNT(*) as count
+         FROM commission_sales
+         WHERE LOWER(TRIM(desarrollo)) IN (${desarrolloPlaceholders})
+           AND ${dateCondition}
+           AND fecha_firma <= $${fechaParamIndex}::date`,
+        allParams
+      );
+    } else {
+      // Construir dateCondition con los índices correctos (después del parámetro de desarrollo)
+      if (periodoType === 'trimestre') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2 
+                         AND EXTRACT(MONTH FROM fecha_firma) >= $3 
+                         AND EXTRACT(MONTH FROM fecha_firma) <= $4`;
+      } else if (periodoType === 'mensual') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2 
+                         AND EXTRACT(MONTH FROM fecha_firma) = $3`;
+      } else if (periodoType === 'anual') {
+        dateCondition = `EXTRACT(YEAR FROM fecha_firma) = $2`;
+      }
+      
+      const allParams = [normalizedDesarrollo, ...params, fechaActual.toISOString().split('T')[0]];
+      const fechaParamIndex = allParams.length;
+      
+      result = await query<{ count: string }>(
+        `SELECT COUNT(*) as count
+         FROM commission_sales
+         WHERE LOWER(TRIM(desarrollo)) = $1
+           AND ${dateCondition}
+           AND fecha_firma <= $${fechaParamIndex}::date`,
+        allParams
+      );
+    }
     
     return parseInt(result.rows[0]?.count || '0', 10);
   } catch (error) {
@@ -1266,7 +1430,7 @@ export async function getApplicableCommissionRules(
   fechaFirma: string
 ): Promise<CommissionRule[]> {
   try {
-    const normalizedDesarrollo = desarrollo.trim().toLowerCase();
+    const normalizedDesarrollo = normalizeDevelopmentForDB(desarrollo);
     
     // Usar la fecha ACTUAL (hoy) para determinar el período vigente
     const fechaActual = new Date();
@@ -1284,13 +1448,26 @@ export async function getApplicableCommissionRules(
     // Las reglas de tipo "trimestre" tienen periodo_value = año (ej: "2025")
     // Las reglas de tipo "mensual" tienen periodo_value = año-mes (ej: "2025-01")
     // Las reglas de tipo "anual" tienen periodo_value = año (ej: "2025")
-    const rulesResult = await query<CommissionRule>(
-      `SELECT * FROM commission_rules
-       WHERE LOWER(TRIM(desarrollo)) = $1
-         AND activo = TRUE
-       ORDER BY unidades_vendidas DESC, created_at DESC`,
-      [normalizedDesarrollo]
-    );
+    // Manejar casos especiales como "P. Quintana Roo" / "qroo"
+    let rulesResult;
+    if (normalizedDesarrollo === 'p. quintana roo') {
+      // Buscar todas las variaciones de "P. Quintana Roo" / "qroo"
+      rulesResult = await query<CommissionRule>(
+        `SELECT * FROM commission_rules
+         WHERE LOWER(TRIM(desarrollo)) IN ('qroo', 'p. quintana roo', 'p quintana roo')
+           AND activo = TRUE
+         ORDER BY unidades_vendidas DESC, created_at DESC`,
+        []
+      );
+    } else {
+      rulesResult = await query<CommissionRule>(
+        `SELECT * FROM commission_rules
+         WHERE LOWER(TRIM(desarrollo)) = $1
+           AND activo = TRUE
+         ORDER BY unidades_vendidas DESC, created_at DESC`,
+        [normalizedDesarrollo]
+      );
+    }
     
     const allRules = rulesResult.rows;
     const applicableRules: CommissionRule[] = [];
@@ -1391,7 +1568,7 @@ export async function getRuleUnitsCountMap(
   fechaFirma: string
 ): Promise<Map<number, number>> {
   try {
-    const normalizedDesarrollo = desarrollo.trim().toLowerCase();
+    const normalizedDesarrollo = normalizeDevelopmentForDB(desarrollo);
     
     // Determinar el trimestre/mes/año de la fecha de firma del deal
     const fechaFirmaObj = new Date(fechaFirma);
@@ -1400,13 +1577,25 @@ export async function getRuleUnitsCountMap(
     const trimestreFirma = Math.ceil(mesFirma / 3); // 1-4
     
     // Obtener todas las reglas activas del desarrollo
-    const rulesResult = await query<CommissionRule>(
-      `SELECT * FROM commission_rules
-       WHERE LOWER(TRIM(desarrollo)) = $1
-         AND activo = TRUE
-       ORDER BY unidades_vendidas DESC, created_at DESC`,
-      [normalizedDesarrollo]
-    );
+    // Manejar casos especiales como "P. Quintana Roo" / "qroo"
+    let rulesResult;
+    if (normalizedDesarrollo === 'p. quintana roo') {
+      rulesResult = await query<CommissionRule>(
+        `SELECT * FROM commission_rules
+         WHERE LOWER(TRIM(desarrollo)) IN ('qroo', 'p. quintana roo', 'p quintana roo')
+           AND activo = TRUE
+         ORDER BY unidades_vendidas DESC, created_at DESC`,
+        []
+      );
+    } else {
+      rulesResult = await query<CommissionRule>(
+        `SELECT * FROM commission_rules
+         WHERE LOWER(TRIM(desarrollo)) = $1
+           AND activo = TRUE
+         ORDER BY unidades_vendidas DESC, created_at DESC`,
+        [normalizedDesarrollo]
+      );
+    }
     
     const allRules = rulesResult.rows;
     const unitsCountMap = new Map<number, number>();
@@ -1560,6 +1749,241 @@ export async function deleteCommissionBillingTarget(
     return (result.rowCount || 0) > 0;
   } catch (error) {
     logger.error('Error eliminando meta de facturación', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+// =====================================================
+// SOCIOS DEL PRODUCTO
+// =====================================================
+
+/**
+ * Guarda o actualiza los socios del producto para una venta comisionable
+ */
+export async function upsertProductPartners(
+  saleId: number,
+  partners: ProductPartnerInput[]
+): Promise<ProductPartner[]> {
+  try {
+    // Primero, eliminar los socios existentes para esta venta
+    await query(
+      `DELETE FROM commission_product_partners WHERE commission_sale_id = $1`,
+      [saleId]
+    );
+
+    // Si no hay socios, retornar array vacío
+    if (!partners || partners.length === 0) {
+      return [];
+    }
+
+    // Insertar los nuevos socios
+    const values: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    for (const partner of partners) {
+      values.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3})`);
+      params.push(
+        saleId,
+        partner.zoho_product_id || null,
+        partner.socio_name,
+        partner.participacion
+      );
+      paramIndex += 4;
+    }
+
+    const result = await query<ProductPartner>(
+      `INSERT INTO commission_product_partners (
+        commission_sale_id, zoho_product_id, socio_name, participacion
+      ) VALUES ${values.join(', ')}
+      RETURNING *`,
+      params
+    );
+
+    return result.rows;
+  } catch (error) {
+    logger.error('Error guardando socios del producto', error, { saleId }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Obtiene los socios del producto para una venta comisionable
+ */
+export async function getProductPartners(
+  saleId: number
+): Promise<ProductPartner[]> {
+  try {
+    const result = await query<ProductPartner>(
+      `SELECT * FROM commission_product_partners
+       WHERE commission_sale_id = $1
+       ORDER BY participacion DESC, socio_name ASC`,
+      [saleId]
+    );
+    return result.rows;
+  } catch (error) {
+    logger.error('Error obteniendo socios del producto', error, { saleId }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Obtiene los socios del producto para múltiples ventas
+ */
+export async function getProductPartnersForSales(
+  saleIds: number[]
+): Promise<Record<number, ProductPartner[]>> {
+  try {
+    if (saleIds.length === 0) {
+      return {};
+    }
+
+    const result = await query<ProductPartner>(
+      `SELECT * FROM commission_product_partners
+       WHERE commission_sale_id = ANY($1::int[])
+       ORDER BY commission_sale_id, participacion DESC, socio_name ASC`,
+      [saleIds]
+    );
+
+    // Agrupar por sale_id
+    const partnersMap: Record<number, ProductPartner[]> = {};
+    for (const partner of result.rows) {
+      if (!partnersMap[partner.commission_sale_id]) {
+        partnersMap[partner.commission_sale_id] = [];
+      }
+      partnersMap[partner.commission_sale_id].push(partner);
+    }
+
+    return partnersMap;
+  } catch (error) {
+    logger.error('Error obteniendo socios del producto para múltiples ventas', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Obtiene las comisiones por socio (100% de venta + posventa)
+ * Retorna un array con las comisiones que se deben cobrar a cada socio
+ */
+export async function getCommissionsByPartner(
+  filters?: {
+    desarrollo?: string;
+    year?: number;
+    month?: number;
+  }
+): Promise<Array<{
+  socio_name: string;
+  concepto: string;
+  producto: string | null;
+  cliente_nombre: string;
+  desarrollo: string;
+  total_comision: number;
+  iva: number;
+  total_con_iva: number;
+  participacion: number;
+  sale_id: number;
+  month: number;
+  fecha_firma: string;
+}>> {
+  try {
+    // Construir query base para obtener ventas con comisiones calculadas
+    let queryText = `
+      SELECT 
+        cs.id as sale_id,
+        cs.cliente_nombre,
+        cs.desarrollo,
+        cs.producto,
+        cs.commission_sale_phase,
+        cs.commission_post_sale_phase,
+        cs.fecha_firma,
+        EXTRACT(MONTH FROM cs.fecha_firma)::INTEGER as month,
+        cpp.socio_name,
+        cpp.participacion
+      FROM commission_sales cs
+      INNER JOIN commission_product_partners cpp ON cs.id = cpp.commission_sale_id
+      WHERE cs.commission_calculated = true
+    `;
+    
+    const params: any[] = [];
+    let paramIndex = 1;
+    
+    // Agregar filtros
+    if (filters?.desarrollo) {
+      queryText += ` AND cs.desarrollo = $${paramIndex}`;
+      params.push(filters.desarrollo);
+      paramIndex++;
+    }
+    
+    if (filters?.year) {
+      queryText += ` AND EXTRACT(YEAR FROM cs.fecha_firma) = $${paramIndex}`;
+      params.push(filters.year);
+      paramIndex++;
+    }
+    
+    if (filters?.month) {
+      queryText += ` AND EXTRACT(MONTH FROM cs.fecha_firma) = $${paramIndex}`;
+      params.push(filters.month);
+      paramIndex++;
+    }
+    
+    queryText += ` ORDER BY month, cpp.socio_name, cs.fecha_firma`;
+    
+    const result = await query<{
+      sale_id: number;
+      cliente_nombre: string;
+      desarrollo: string;
+      producto: string | null;
+      commission_sale_phase: number;
+      commission_post_sale_phase: number;
+      socio_name: string;
+      participacion: number;
+      month: number;
+      fecha_firma: string;
+    }>(queryText, params);
+    
+    // Obtener porcentaje de IVA (por defecto 16% - IVA estándar en México)
+    // Se puede configurar con la variable de entorno IVA_PERCENT, por defecto 16
+    const ivaPercent = parseFloat(process.env.IVA_PERCENT || '16');
+    
+    // Calcular comisiones por socio
+    const commissionsByPartner = result.rows.map(row => {
+      // Calcular el total de comisión (venta + posventa)
+      const totalCommission = Number(row.commission_sale_phase || 0) + Number(row.commission_post_sale_phase || 0);
+      
+      // Calcular la comisión que corresponde al socio según su participación
+      const participacion = Number(row.participacion || 0);
+      const comisionSocio = Number(((totalCommission * participacion) / 100).toFixed(2));
+      
+      // Calcular IVA sobre la comisión del socio
+      const iva = Number(((comisionSocio * ivaPercent) / 100).toFixed(2));
+      
+      // Calcular total con IVA
+      const totalConIva = Number((comisionSocio + iva).toFixed(2));
+      
+      // Generar el concepto: "Comisión por venta {Producto} de desarrollo {Desarrollo}"
+      const producto = row.producto || 'N/A';
+      const desarrollo = row.desarrollo || 'N/A';
+      const concepto = `Comisión por venta ${producto} de desarrollo ${desarrollo}`;
+      
+      return {
+        socio_name: row.socio_name,
+        concepto,
+        producto: row.producto,
+        cliente_nombre: row.cliente_nombre,
+        desarrollo: row.desarrollo,
+        total_comision: comisionSocio,
+        iva: iva,
+        total_con_iva: totalConIva,
+        participacion,
+        sale_id: row.sale_id,
+        month: row.month,
+        fecha_firma: row.fecha_firma,
+      };
+    });
+    
+    return commissionsByPartner;
+  } catch (error) {
+    logger.error('Error obteniendo comisiones por socio', error, filters, 'commission-db');
     throw error;
   }
 }

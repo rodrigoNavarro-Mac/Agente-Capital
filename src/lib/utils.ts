@@ -73,7 +73,48 @@ export function truncate(text: string, maxLength: number): string {
  * Capitaliza primera letra
  */
 export function capitalize(text: string): string {
+  if (!text || text.trim().length === 0) return text;
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Normaliza el nombre de un desarrollo para mostrar (capitaliza primera letra)
+ * Esta función asegura que los nombres de desarrollos siempre se muestren
+ * con la primera letra en mayúscula, independientemente de cómo estén guardados
+ * en la base de datos o en Zoho.
+ * 
+ * También maneja casos especiales:
+ * - "qroo" y "P. Quintana Roo" se normalizan a "P. Quintana Roo"
+ * 
+ * Ejemplos:
+ * - "fuego" -> "Fuego"
+ * - "FUEGO" -> "Fuego"
+ * - "hazul" -> "Hazul"
+ * - "hazúl" -> "Hazúl"
+ * - "11-11-11" -> "11-11-11" (números no se modifican)
+ * - "111" -> "111" (números no se modifican)
+ * - "qroo" -> "P. Quintana Roo"
+ * - "Qroo" -> "P. Quintana Roo"
+ * - "P. Quintana Roo" -> "P. Quintana Roo" (ya tiene mayúscula)
+ */
+export function normalizeDevelopmentDisplay(name: string): string {
+  if (!name || typeof name !== 'string') return name;
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return trimmed;
+  
+  // Caso especial: "qroo" (en cualquier variación) se normaliza a "P. Quintana Roo"
+  const lowerTrimmed = trimmed.toLowerCase();
+  if (lowerTrimmed === 'qroo' || lowerTrimmed === 'p. quintana roo' || lowerTrimmed === 'p quintana roo') {
+    return 'P. Quintana Roo';
+  }
+  
+  // Si el nombre comienza con un número, no capitalizar (ej: "111", "777", "11-11-11")
+  if (/^\d/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // Capitalizar primera letra y dejar el resto en minúsculas
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 /**

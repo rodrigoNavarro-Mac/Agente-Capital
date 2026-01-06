@@ -11,6 +11,7 @@ import { getDevelopmentsByZone, getStaticDevelopments } from '@/lib/postgres';
 import { memoryCache } from '@/lib/memory-cache';
 import { logger } from '@/lib/logger';
 import { validateRequest, developmentRequestSchema } from '@/lib/validation';
+import { normalizeDevelopmentDisplay } from '@/lib/utils';
 
 import type { DevelopmentsByZone, APIResponse } from '@/types/documents';
 
@@ -85,23 +86,33 @@ export async function GET(
 
 /**
  * Combina desarrollos estáticos con los de la base de datos
+ * Normaliza todos los nombres de desarrollos para mostrar con primera letra en mayúscula
  */
 function mergeDevs(
   staticDevs: DevelopmentsByZone,
   dbDevs: DevelopmentsByZone
 ): DevelopmentsByZone {
-  const merged: DevelopmentsByZone = { ...staticDevs };
+  const merged: DevelopmentsByZone = {};
 
-  // Agregar zonas y desarrollos de la base de datos
+  // Normalizar y agregar desarrollos estáticos
+  Object.entries(staticDevs).forEach(([zone, developments]) => {
+    merged[zone] = developments.map(dev => normalizeDevelopmentDisplay(dev));
+  });
+
+  // Agregar zonas y desarrollos de la base de datos (ya vienen normalizados desde getDevelopmentsByZone)
   Object.entries(dbDevs).forEach(([zone, developments]) => {
     if (!merged[zone]) {
       merged[zone] = [];
     }
     
-    // Agregar desarrollos que no estén ya incluidos
+    // Agregar desarrollos que no estén ya incluidos (comparación case-insensitive)
     developments.forEach((dev) => {
-      if (!merged[zone].includes(dev)) {
-        merged[zone].push(dev);
+      const normalizedDev = normalizeDevelopmentDisplay(dev);
+      const exists = merged[zone].some(existing => 
+        normalizeDevelopmentDisplay(existing).toLowerCase() === normalizedDev.toLowerCase()
+      );
+      if (!exists) {
+        merged[zone].push(normalizedDev);
       }
     });
   });
