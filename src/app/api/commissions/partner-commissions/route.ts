@@ -10,10 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/commission-db';
-import { calculatePartnerCommissionsForSale } from '@/lib/commission-calculator';
-import { getCommissionConfig } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
-import type { PartnerCommission, CommissionSalesFilters, CommissionConfig } from '@/types/commissions';
+import type { CommissionSalesFilters } from '@/types/commissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +86,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
           try {
             await calculatePartnerCommissions(sale.id, payload.userId);
           } catch (error) {
-            logger.warn(`Error calculando comisiones para venta ${sale.id}`, error, {}, 'commissions-partner-commissions');
+            logger.warn(
+              `Error calculando comisiones para venta ${sale.id}`,
+              { error: error instanceof Error ? error.message : String(error) },
+              'commissions-partner-commissions'
+            );
             // Continuar con las demás ventas aunque falle una
           }
         }

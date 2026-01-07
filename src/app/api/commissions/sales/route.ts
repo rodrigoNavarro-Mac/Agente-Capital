@@ -195,9 +195,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       precio_por_m2: precioPorM2,
     };
 
-    // Si se permite la actualización cuando está calculado, pasar el flag
-    const allowUpdateWhenCalculated = (rawBody as any).allow_update_when_calculated === true;
-    const sale = await upsertCommissionSale(saleInputWithPrice, allowUpdateWhenCalculated);
+    // La validación de allow_update_when_calculated ya se hizo arriba
+    const sale = await upsertCommissionSale(saleInputWithPrice);
 
     return NextResponse.json({
       success: true,

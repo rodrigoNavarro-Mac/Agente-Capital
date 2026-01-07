@@ -777,7 +777,9 @@ export async function updateCommissionSaleCalculation(
   saleId: number,
   commissionTotal: number,
   commissionSalePhase: number,
-  commissionPostSalePhase: number
+  commissionPostSalePhase: number,
+  phaseSalePercent?: number | null,
+  phasePostSalePercent?: number | null
 ): Promise<void> {
   try {
     await query(
@@ -786,9 +788,11 @@ export async function updateCommissionSaleCalculation(
            commission_total = $1,
            commission_sale_phase = $2,
            commission_post_sale_phase = $3,
+           calculated_phase_sale_percent = $5,
+           calculated_phase_post_sale_percent = $6,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $4`,
-      [commissionTotal, commissionSalePhase, commissionPostSalePhase, saleId]
+      [commissionTotal, commissionSalePhase, commissionPostSalePhase, saleId, phaseSalePercent ?? null, phasePostSalePercent ?? null]
     );
   } catch (error) {
     logger.error('Error actualizando cálculo de comisión', error, {}, 'commission-db');
@@ -2215,7 +2219,7 @@ export async function processZohoProjectsEvent(
     commission_sale_id?: number;
     event_data?: any;
   },
-  processedBy: number
+  _processedBy: number
 ): Promise<{
   event_id: number;
   processed: boolean;

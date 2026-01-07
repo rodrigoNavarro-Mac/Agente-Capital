@@ -4357,7 +4357,7 @@ function PartnersTab({
           variant: 'destructive',
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Error al subir la factura',
