@@ -696,12 +696,15 @@ export async function upsertCommissionSale(
 
 /**
  * Actualiza el estado de cálculo de comisión de una venta
+ * También guarda los porcentajes de fase usados para que queden estáticos
  */
 export async function updateCommissionSaleCalculation(
   saleId: number,
   commissionTotal: number,
   commissionSalePhase: number,
-  commissionPostSalePhase: number
+  commissionPostSalePhase: number,
+  phaseSalePercent: number,
+  phasePostSalePercent: number
 ): Promise<void> {
   try {
     await query(
@@ -710,9 +713,11 @@ export async function updateCommissionSaleCalculation(
            commission_total = $1,
            commission_sale_phase = $2,
            commission_post_sale_phase = $3,
+           calculated_phase_sale_percent = $4,
+           calculated_phase_post_sale_percent = $5,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4`,
-      [commissionTotal, commissionSalePhase, commissionPostSalePhase, saleId]
+       WHERE id = $6`,
+      [commissionTotal, commissionSalePhase, commissionPostSalePhase, phaseSalePercent, phasePostSalePercent, saleId]
     );
   } catch (error) {
     logger.error('Error actualizando cálculo de comisión', error, {}, 'commission-db');
@@ -962,13 +967,15 @@ export async function deleteCommissionDistributions(saleId: number): Promise<voi
       [saleId]
     );
     
-    // Resetear estado de cálculo de la venta
+    // Resetear estado de cálculo de la venta (también limpiar porcentajes guardados)
     await query(
       `UPDATE commission_sales
        SET commission_calculated = false,
            commission_total = 0,
            commission_sale_phase = 0,
            commission_post_sale_phase = 0,
+           calculated_phase_sale_percent = NULL,
+           calculated_phase_post_sale_percent = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [saleId]

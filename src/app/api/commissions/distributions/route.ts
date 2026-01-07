@@ -213,12 +213,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // Guardar distribuciones
     const distributions = await createCommissionDistributions(calculation.distributions);
 
-    // Actualizar estado de la venta
+    // Actualizar estado de la venta (guardando también los porcentajes de fase usados)
     await updateCommissionSaleCalculation(
       sale.id,
       calculation.commission_total,
       calculation.commission_sale_phase,
-      calculation.commission_post_sale_phase
+      calculation.commission_post_sale_phase,
+      config.phase_sale_percent,
+      config.phase_post_sale_percent
     );
 
     return NextResponse.json({

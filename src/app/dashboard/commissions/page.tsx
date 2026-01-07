@@ -2767,19 +2767,28 @@ function DistributionTab({
                               .filter(d => d.phase === 'post_sale')
                               .reduce((sum, d) => sum + (Number(d.amount_calculated) || 0), 0);
                             
-                            // Obtener configuración del desarrollo para calcular totales de fase
-                            const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
-                            
                             // Calcular comisión base (100% del valor total por defecto)
                             const commissionBase = Number(selectedSale.valor_total);
                             
-                            // Calcular totales de fase desde la configuración
-                            const salePhaseTotal = config 
-                              ? Number(((commissionBase * config.phase_sale_percent) / 100).toFixed(2))
-                              : 0;
-                            const postSalePhaseTotal = config
-                              ? Number(((commissionBase * config.phase_post_sale_percent) / 100).toFixed(2))
-                              : 0;
+                            // Usar porcentajes guardados cuando se calculó (estáticos) si están disponibles,
+                            // de lo contrario usar los de la configuración actual
+                            const salePhasePercent = selectedSale.calculated_phase_sale_percent !== null && selectedSale.calculated_phase_sale_percent !== undefined
+                              ? Number(selectedSale.calculated_phase_sale_percent)
+                              : (() => {
+                                  const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
+                                  return config ? Number(config.phase_sale_percent) : 0;
+                                })();
+                            
+                            const postSalePhasePercent = selectedSale.calculated_phase_post_sale_percent !== null && selectedSale.calculated_phase_post_sale_percent !== undefined
+                              ? Number(selectedSale.calculated_phase_post_sale_percent)
+                              : (() => {
+                                  const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
+                                  return config ? Number(config.phase_post_sale_percent) : 0;
+                                })();
+                            
+                            // Calcular totales de fase usando los porcentajes (guardados o de configuración)
+                            const salePhaseTotal = Number(((commissionBase * salePhasePercent) / 100).toFixed(2));
+                            const postSalePhaseTotal = Number(((commissionBase * postSalePhasePercent) / 100).toFixed(2));
                             
                             // Total de comisiones pagadas
                             const totalCommissionsPaid = salePaid + postSalePaid;

@@ -178,6 +178,10 @@ export interface CommissionSale {
   commission_total: number;
   commission_sale_phase: number;
   commission_post_sale_phase: number;
+  
+  // Porcentajes de fase usados cuando se calculó (estáticos, no cambian aunque se actualice la configuración)
+  calculated_phase_sale_percent: number | null;
+  calculated_phase_post_sale_percent: number | null;
 
   // Estados independientes por flujo financiero
   internal_sale_phase_status: InternalSalePhaseStatus;
