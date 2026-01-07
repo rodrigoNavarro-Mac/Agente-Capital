@@ -11,6 +11,7 @@ import {
   getCommissionSales,
   getCommissionSale,
   upsertCommissionSale,
+  getCommissionSaleByZohoDealId,
 } from '@/lib/commission-db';
 import { logger } from '@/lib/logger';
 import { validateRequest, commissionSaleInputSchema } from '@/lib/validation';
@@ -165,6 +166,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     
     const saleInput = validation.data;
 
+    // Verificar si la venta ya existe y tiene comisiones calculadas
+    // Si existe, verificar si tiene comisiones calculadas antes de permitir la actualización
+    const existingSale = await getCommissionSaleByZohoDealId(saleInput.zoho_deal_id);
+    if (existingSale && existingSale.commission_calculated) {
+      // Verificar si se está permitiendo la actualización explícitamente (para recalcular)
+      const allowUpdate = (rawBody as any).allow_update_when_calculated === true;
+      if (!allowUpdate) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No se puede actualizar esta venta porque ya tiene comisiones calculadas. ' +
+                   'Debe usar el botón "Recalcular" para eliminar las distribuciones y permitir la edición.',
+          },
+          { status: 409 } // 409 Conflict
+        );
+      }
+    }
+
     // Calcular precio por m² si no se proporciona
     const precioPorM2 = saleInput.precio_por_m2 && saleInput.precio_por_m2 > 0
       ? saleInput.precio_por_m2
@@ -176,7 +195,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       precio_por_m2: precioPorM2,
     };
 
-    const sale = await upsertCommissionSale(saleInputWithPrice);
+    // Si se permite la actualización cuando está calculado, pasar el flag
+    const allowUpdateWhenCalculated = (rawBody as any).allow_update_when_calculated === true;
+    const sale = await upsertCommissionSale(saleInputWithPrice, allowUpdateWhenCalculated);
 
     return NextResponse.json({
       success: true,

@@ -413,7 +413,8 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
       asesor_externo_id: asesorExternoId,
     };
 
-    const sale = await upsertCommissionSale(saleInput);
+    // Permitir actualización cuando se sincroniza desde Zoho (sincronización automática)
+    const sale = await upsertCommissionSale(saleInput, true);
 
     // Sincronizar socios del producto (en segundo plano, no bloquear si falla)
     try {
@@ -622,11 +623,27 @@ export async function getCommissionSales(
 
 /**
  * Crea o actualiza una venta comisionable
+ * @param sale - Datos de la venta comisionable
+ * @param allowUpdateWhenCalculated - Si es true, permite actualizar incluso si commission_calculated = true (para sincronización automática)
+ * @throws Error si la venta tiene comisiones calculadas y allowUpdateWhenCalculated es false
  */
 export async function upsertCommissionSale(
-  sale: CommissionSaleInput
+  sale: CommissionSaleInput,
+  allowUpdateWhenCalculated: boolean = false
 ): Promise<CommissionSale> {
   try {
+    // Si no se permite actualizar cuando está calculado, verificar primero
+    if (!allowUpdateWhenCalculated) {
+      // Verificar si la venta ya existe y tiene comisiones calculadas
+      const existingSale = await getCommissionSaleByZohoDealId(sale.zoho_deal_id);
+      if (existingSale && existingSale.commission_calculated) {
+        throw new Error(
+          'No se puede actualizar esta venta porque ya tiene comisiones calculadas. ' +
+          'Debe usar el botón "Recalcular" para eliminar las distribuciones y permitir la edición.'
+        );
+      }
+    }
+
     const result = await query<CommissionSale>(
       `INSERT INTO commission_sales (
         zoho_deal_id, deal_name, cliente_nombre, desarrollo,
