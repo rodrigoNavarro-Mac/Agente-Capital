@@ -95,12 +95,27 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     });
   } catch (error) {
     logger.error('Error obteniendo ventas comisionables', error, {}, 'commissions-sales');
+    
+    // Detectar errores específicos y proporcionar mensajes más claros
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    let userMessage = 'Error obteniendo ventas comisionables';
+    let statusCode = 500;
+    
+    if (errorMessage.includes('Circuit breaker is OPEN')) {
+      userMessage = 'La base de datos está temporalmente no disponible. Por favor, intenta de nuevo en unos momentos.';
+      statusCode = 503; // Service Unavailable
+    } else if (errorMessage.includes('Tenant or user not found')) {
+      userMessage = 'Error de configuración de la base de datos. Contacta al administrador del sistema.';
+      statusCode = 500;
+    }
+    
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error obteniendo ventas',
+        error: userMessage,
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

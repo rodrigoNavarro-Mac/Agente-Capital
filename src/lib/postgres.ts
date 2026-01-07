@@ -155,6 +155,28 @@ function getPoolConfig() {
       throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
     
+    // Validar que la cadena de conexión no esté vacía o mal formada
+    try {
+      const testUrl = new URL(connectionString);
+      if (!testUrl.hostname || !testUrl.pathname) {
+        throw new Error('URL de conexión incompleta');
+      }
+    } catch (urlError) {
+      logger.error(
+        'Error parseando cadena de conexión. Verifica que POSTGRES_URL o DATABASE_URL esté configurada correctamente en Vercel.',
+        urlError,
+        { 
+          hasPostgresUrl: !!process.env.POSTGRES_URL,
+          hasDatabaseUrl: !!process.env.DATABASE_URL,
+          hasPostgresUrlNonPooling: !!process.env.POSTGRES_URL_NON_POOLING,
+          isVercel: !!process.env.VERCEL,
+          nodeEnv: process.env.NODE_ENV,
+        },
+        'postgres'
+      );
+      throw new Error('Cadena de conexión inválida. Verifica las variables de entorno en Vercel (POSTGRES_URL o DATABASE_URL)');
+    }
+    
       // Extraer hostname para logging (sin exponer credenciales)
       let hostname = 'unknown';
       let parsedUrl: URL | null = null;
@@ -263,11 +285,65 @@ function getPoolConfig() {
   };
 }
 
-const pool = new Pool(getPoolConfig());
+// Validar configuración antes de crear el pool
+let poolConfig: ReturnType<typeof getPoolConfig>;
+try {
+  poolConfig = getPoolConfig();
+  
+  // Log de diagnóstico en producción para ayudar a identificar problemas
+  if (process.env.VERCEL && process.env.NODE_ENV === 'production') {
+    logger.info('Configuración del pool de PostgreSQL (Vercel)', {
+      hasPostgresUrl: !!process.env.POSTGRES_URL,
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      hasPostgresUrlNonPooling: !!process.env.POSTGRES_URL_NON_POOLING,
+      maxConnections: poolConfig.max,
+      hasConnectionString: !!(poolConfig as any).connectionString,
+      hasHost: !!(poolConfig as any).host,
+    }, 'postgres');
+  }
+} catch (configError) {
+  logger.error(
+    'Error en configuración del pool de PostgreSQL',
+    configError,
+    {
+      isVercel: !!process.env.VERCEL,
+      nodeEnv: process.env.NODE_ENV,
+      hasPostgresUrl: !!process.env.POSTGRES_URL,
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      hasPostgresUrlNonPooling: !!process.env.POSTGRES_URL_NON_POOLING,
+    },
+    'postgres'
+  );
+  throw configError;
+}
+
+const pool = new Pool(poolConfig);
 
 // Manejar errores del pool
 pool.on('error', (err: Error & { code?: string }) => {
-  logger.error('Error inesperado en el pool de PostgreSQL', err, {}, 'postgres-pool');
+  logger.error('Error inesperado en el pool de PostgreSQL', err, {
+    isVercel: !!process.env.VERCEL,
+    nodeEnv: process.env.NODE_ENV,
+    errorCode: err.code,
+    errorMessage: err.message?.substring(0, 200),
+  }, 'postgres-pool');
+  
+  // Detectar error específico de "Tenant or user not found" (problema de configuración de Supabase)
+  if (err.message && (
+      err.message.includes('Tenant or user not found') ||
+      err.message.includes('password authentication failed') ||
+      err.message.includes('authentication failed'))) {
+    logger.error('⚠️ ERROR CRÍTICO: Problema de autenticación con Supabase', err, {}, 'postgres-pool');
+    logger.error('   Esto indica que las credenciales en la cadena de conexión son incorrectas', undefined, undefined, 'postgres-pool');
+    logger.error('   SOLUCIÓN PARA VERCEL:', undefined, undefined, 'postgres-pool');
+    logger.error('   1. Ve a Vercel Dashboard > Tu Proyecto > Settings > Environment Variables', undefined, undefined, 'postgres-pool');
+    logger.error('   2. Verifica que POSTGRES_URL o DATABASE_URL esté configurada', undefined, undefined, 'postgres-pool');
+    logger.error('   3. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres-pool');
+    logger.error('   4. Copia la cadena de "Connection pooling" (Transaction mode) y pégala en POSTGRES_URL', undefined, undefined, 'postgres-pool');
+    logger.error('   5. Asegúrate de que la contraseña en la URL sea correcta', undefined, undefined, 'postgres-pool');
+    logger.error('   6. Reinicia el deployment en Vercel después de cambiar las variables', undefined, undefined, 'postgres-pool');
+    return; // No reintentar inmediatamente, el usuario debe cambiar la configuración
+  }
   
   // Registrar fallo en circuit breaker
   recordFailure(err);
@@ -331,7 +407,8 @@ pool.on('error', (err: Error & { code?: string }) => {
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string, 
   params?: unknown[],
-  retries: number = 1
+  retries: number = 1,
+  allowRetry: boolean = false
 ): Promise<QueryResult<T>> {
   return withCircuitBreaker(
     async () => {
@@ -444,7 +521,8 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   // Esto no debería ejecutarse, pero TypeScript lo requiere
   throw lastError;
     },
-    'database query'
+    'database query',
+    allowRetry
   );
 }
 
@@ -569,12 +647,15 @@ export async function getUserById(id: number): Promise<User | null> {
  * Obtiene un usuario por email
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
+  // Operación crítica para login - permitir recuperación automática
   const result = await query<User>(
     `SELECT u.*, r.name as role 
      FROM users u 
      LEFT JOIN roles r ON u.role_id = r.id 
      WHERE u.email = $1`,
-    [email]
+    [email],
+    1, // retries
+    true // allowRetry - operación crítica
   );
   return result.rows[0] || null;
 }
@@ -1687,10 +1768,13 @@ export async function createUserSession(
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> {
+  // Operación crítica para login - permitir recuperación automática
   await query(
     `INSERT INTO user_sessions (user_id, session_token, refresh_token, expires_at, ip_address, user_agent)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, sessionToken, refreshToken, expiresAt, ipAddress || null, userAgent || null]
+    [userId, sessionToken, refreshToken, expiresAt, ipAddress || null, userAgent || null],
+    1, // retries
+    true // allowRetry - operación crítica
   );
 }
 
@@ -1760,11 +1844,14 @@ export async function updateLastLogin(userId: number): Promise<void> {
  * Incrementa el contador de intentos fallidos de login
  */
 export async function incrementFailedLoginAttempts(userId: number): Promise<void> {
+  // Operación crítica para login - permitir recuperación automática
   await query(
     `UPDATE users 
      SET failed_login_attempts = failed_login_attempts + 1
      WHERE id = $1`,
-    [userId]
+    [userId],
+    1, // retries
+    true // allowRetry - operación crítica
   );
 }
 
@@ -1787,11 +1874,14 @@ export async function lockUserAccount(userId: number, minutes: number = 5): Prom
   const lockedUntil = new Date();
   lockedUntil.setMinutes(lockedUntil.getMinutes() + minutes);
   
+  // Operación crítica para login - permitir recuperación automática
   await query(
     `UPDATE users 
      SET locked_until = $1
      WHERE id = $2`,
-    [lockedUntil, userId]
+    [lockedUntil, userId],
+    1, // retries
+    true // allowRetry - operación crítica
   );
 }
 

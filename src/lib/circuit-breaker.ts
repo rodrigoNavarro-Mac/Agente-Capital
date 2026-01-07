@@ -26,7 +26,8 @@ const CIRCUIT_BREAKER_CONFIG = {
   FAILURE_THRESHOLD: isLocalDev ? 15 : 5,
   
   // Tiempo en ms que el circuito permanece abierto antes de intentar half-open
-  TIMEOUT: 30000, // 30 segundos
+  // Reducido a 15 segundos para recuperación más rápida
+  TIMEOUT: 15000, // 15 segundos (reducido de 30s para recuperación más rápida)
   
   // Tiempo en ms para esperar antes de reintentar después de un fallo
   RESET_TIMEOUT: 10000, // 10 segundos
@@ -62,9 +63,10 @@ const postgresCircuitBreaker: CircuitBreakerState = {
 
 /**
  * Verifica si el circuito está abierto y debe rechazar la operación
+ * @param allowRetry - Si es true, permite un intento incluso si está OPEN (útil para operaciones críticas)
  * @returns true si el circuito está abierto y debe rechazar
  */
-export function isCircuitOpen(): boolean {
+export function isCircuitOpen(allowRetry: boolean = false): boolean {
   const now = Date.now();
   
   // Si está CLOSED, permitir
@@ -82,6 +84,17 @@ export function isCircuitOpen(): boolean {
       logger.info('Circuit breaker: OPEN -> HALF_OPEN (probando recuperación)', {}, 'circuit-breaker');
       return false; // Permitir un intento
     }
+    
+    // Si allowRetry es true y han pasado al menos 5 segundos desde el último fallo,
+    // permitir un intento de recuperación (útil para operaciones críticas como login)
+    if (allowRetry && postgresCircuitBreaker.lastFailureTime && 
+        (now - postgresCircuitBreaker.lastFailureTime) >= 5000) {
+      logger.info('Circuit breaker: Permitido intento de recuperación (operación crítica)', {
+        timeSinceLastFailure: now - postgresCircuitBreaker.lastFailureTime
+      }, 'circuit-breaker');
+      return false; // Permitir intento
+    }
+    
     return true; // Rechazar
   }
   
@@ -122,6 +135,25 @@ export function recordFailure(error: unknown): void {
   postgresCircuitBreaker.lastFailureTime = now;
   
   const errorMessage = error instanceof Error ? error.message : String(error);
+  
+  // Verificar si es un error de configuración (NO debe abrir el circuit breaker)
+  const isConfigurationError = error instanceof Error && (
+    error.message.includes('Tenant or user not found') ||
+    error.message.includes('invalid oauth token') ||
+    error.message.includes('authentication failed') ||
+    error.message.includes('password authentication failed') ||
+    error.message.includes('role') && error.message.includes('does not exist')
+  );
+  
+  // Si es un error de configuración, no afectar el circuit breaker
+  // Estos errores indican problemas de configuración, no de disponibilidad de la BD
+  if (isConfigurationError) {
+    logger.warn('Circuit breaker: Error de configuración detectado (no afecta circuit breaker)', { 
+      error: errorMessage.substring(0, 150),
+      state: postgresCircuitBreaker.state,
+    }, 'circuit-breaker');
+    return; // No contar este fallo en el circuit breaker
+  }
   
   // Verificar si es un error de conexión
   const isConnectionError = error instanceof Error && (
@@ -213,27 +245,56 @@ export function getCircuitState(): CircuitState {
  * Resetea el circuit breaker manualmente (útil para testing o recuperación manual)
  */
 export function resetCircuitBreaker(): void {
+  const previousState = postgresCircuitBreaker.state;
   postgresCircuitBreaker.state = 'CLOSED';
   postgresCircuitBreaker.failureCount = 0;
   postgresCircuitBreaker.lastFailureTime = null;
   postgresCircuitBreaker.successCount = 0;
-  logger.info('Circuit breaker: Reset manual', {}, 'circuit-breaker');
+  logger.info('Circuit breaker: Reset manual', { previousState }, 'circuit-breaker');
+}
+
+/**
+ * Obtiene información detallada del estado del circuit breaker
+ */
+export function getCircuitBreakerInfo(): {
+  state: CircuitState;
+  failureCount: number;
+  lastFailureTime: number | null;
+  successCount: number;
+  isOpen: boolean;
+} {
+  return {
+    state: postgresCircuitBreaker.state,
+    failureCount: postgresCircuitBreaker.failureCount,
+    lastFailureTime: postgresCircuitBreaker.lastFailureTime,
+    successCount: postgresCircuitBreaker.successCount,
+    isOpen: isCircuitOpen(),
+  };
 }
 
 /**
  * Wrapper para ejecutar operaciones con circuit breaker
  * @param operation - Operación a ejecutar
  * @param operationName - Nombre de la operación (para logging)
+ * @param allowRetry - Si es true, permite un intento incluso si está OPEN (útil para operaciones críticas como login)
  * @returns Resultado de la operación
  */
 export async function withCircuitBreaker<T>(
   operation: () => Promise<T>,
-  operationName: string = 'database operation'
+  operationName: string = 'database operation',
+  allowRetry: boolean = false
 ): Promise<T> {
   // Verificar si el circuito está abierto
-  if (isCircuitOpen()) {
+  if (isCircuitOpen(allowRetry)) {
     const error = new Error(`Circuit breaker is OPEN. ${operationName} rejected. The database may be unavailable.`);
-    logger.error('Circuit breaker: Operación rechazada', undefined, { operationName, state: postgresCircuitBreaker.state }, 'circuit-breaker');
+    logger.error('Circuit breaker: Operación rechazada', undefined, { 
+      operationName, 
+      state: postgresCircuitBreaker.state,
+      allowRetry,
+      timeSinceLastFailure: postgresCircuitBreaker.lastFailureTime 
+        ? Date.now() - postgresCircuitBreaker.lastFailureTime 
+        : null
+    }, 'circuit-breaker');
     throw error;
   }
   

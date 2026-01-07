@@ -186,12 +186,47 @@ export async function POST(
   } catch (error) {
     logger.error('Error en login', error, {}, 'auth-login');
 
+    // Detectar errores específicos y proporcionar mensajes más claros
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    let userMessage = 'Error al iniciar sesión';
+    let statusCode = 500;
+    
+    // Error de circuit breaker abierto
+    if (errorMessage.includes('Circuit breaker is OPEN')) {
+      userMessage = 'El servicio está temporalmente no disponible. Por favor, espera unos momentos e intenta de nuevo.';
+      statusCode = 503; // Service Unavailable
+    } 
+    // Error de configuración de base de datos
+    else if (errorMessage.includes('Tenant or user not found') || 
+             errorMessage.includes('password authentication failed') ||
+             errorMessage.includes('authentication failed')) {
+      userMessage = 'Error de conexión con la base de datos. Por favor, contacta al administrador del sistema.';
+      statusCode = 503; // Service Unavailable
+    }
+    // Error de conexión
+    else if (errorMessage.includes('Connection') || 
+             errorMessage.includes('ECONNREFUSED') ||
+             errorMessage.includes('ETIMEDOUT')) {
+      userMessage = 'No se pudo conectar con el servidor. Por favor, intenta de nuevo en unos momentos.';
+      statusCode = 503; // Service Unavailable
+    }
+    // Otros errores
+    else {
+      // En desarrollo, mostrar el error completo para debugging
+      // En producción, mostrar mensaje genérico
+      if (process.env.NODE_ENV === 'development') {
+        userMessage = errorMessage;
+      }
+    }
+
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error al iniciar sesión',
+        error: userMessage,
+        // Solo incluir detalles técnicos en desarrollo
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }
