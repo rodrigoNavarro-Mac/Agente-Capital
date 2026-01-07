@@ -31,3 +31,4 @@ COMMENT ON COLUMN commission_sales_targets.target_amount IS 'Monto objetivo de v
 -- Índice para búsquedas rápidas por año y mes
 CREATE INDEX IF NOT EXISTS idx_commission_sales_targets_year_month ON commission_sales_targets(year, month);
 
+

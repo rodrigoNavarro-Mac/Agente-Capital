@@ -5,7 +5,7 @@
  * Funciones para interactuar con las tablas de comisiones
  */
 
-import { query } from './postgres';
+import { query, getClient } from './postgres';
 import { logger } from '@/lib/logger';
 import { getProductPartnersFromDeal } from './zoho-crm';
 import type {
@@ -760,18 +760,17 @@ export async function createCommissionDistribution(
 
 /**
  * Crea múltiples distribuciones de comisión
+ * NOTA: Esta función asume que las distribuciones existentes ya fueron eliminadas
+ * si es necesario. No elimina distribuciones existentes automáticamente para
+ * proteger las distribuciones ya calculadas de cambios en la configuración.
  */
 export async function createCommissionDistributions(
   distributions: CommissionDistributionInput[]
 ): Promise<CommissionDistribution[]> {
   try {
-    // Eliminar distribuciones existentes para esta venta
-    if (distributions.length > 0) {
-      await query(
-        `DELETE FROM commission_distributions WHERE sale_id = $1`,
-        [distributions[0].sale_id]
-      );
-    }
+    // NO eliminar distribuciones existentes automáticamente
+    // Esto debe hacerse explícitamente antes de llamar a esta función
+    // para proteger las distribuciones ya calculadas de cambios en la configuración
 
     // Insertar nuevas distribuciones
     const created: CommissionDistribution[] = [];
@@ -2076,6 +2075,351 @@ export async function getCommissionsByPartner(
     return commissionsByPartner;
   } catch (error) {
     logger.error('Error obteniendo comisiones por socio', error, filters, 'commission-db');
+    throw error;
+  }
+}
+
+// =====================================================
+// FUNCIONES PARA FLUJOS SEPARADOS (NUEVO)
+// =====================================================
+
+/**
+ * Procesa un evento de Zoho Projects
+ */
+export async function processZohoProjectsEvent(
+  eventData: {
+    event_type: 'post_sale_trigger';
+    zoho_project_id?: string;
+    zoho_task_id?: string;
+    commission_sale_id?: number;
+    event_data?: any;
+  },
+  _processedBy: number
+): Promise<{
+  event_id: number;
+  processed: boolean;
+  message: string;
+}> {
+  try {
+    const client = await getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      // Insertar el evento
+      const eventResult = await client.query(`
+        INSERT INTO zoho_projects_events (
+          event_type, zoho_project_id, zoho_task_id,
+          commission_sale_id, event_data, processing_status
+        ) VALUES ($1, $2, $3, $4, $5, 'pending')
+        RETURNING id
+      `, [
+        eventData.event_type,
+        eventData.zoho_project_id || null,
+        eventData.zoho_task_id || null,
+        eventData.commission_sale_id || null,
+        eventData.event_data ? JSON.stringify(eventData.event_data) : null
+      ]);
+
+      const eventId = eventResult.rows[0].id;
+      let processed = false;
+      let message = 'Evento registrado pero no procesado';
+
+      // Procesar según el tipo de evento
+      if (eventData.event_type === 'post_sale_trigger' && eventData.commission_sale_id) {
+        try {
+          // Llamar a la función de PostgreSQL para procesar el trigger
+          const triggerResult = await client.query(`
+            SELECT process_post_sale_trigger($1, 'zoho_projects') as processed
+          `, [eventData.commission_sale_id]);
+
+          processed = triggerResult.rows[0].processed;
+
+          if (processed) {
+            message = 'Postventa activada correctamente por Zoho Projects';
+          } else {
+            message = 'La postventa ya estaba activada';
+          }
+
+          // Marcar evento como procesado
+          await client.query(`
+            UPDATE zoho_projects_events
+            SET processing_status = 'processed', processed_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+          `, [eventId]);
+
+        } catch (triggerError) {
+          // Marcar evento como fallido
+          await client.query(`
+            UPDATE zoho_projects_events
+            SET processing_status = 'failed',
+                processing_error = $2,
+                processed_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+          `, [eventId, triggerError instanceof Error ? triggerError.message : 'Error desconocido']);
+
+          throw triggerError;
+        }
+      }
+
+      await client.query('COMMIT');
+
+      return {
+        event_id: eventId,
+        processed,
+        message
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    logger.error('Error procesando evento de Zoho Projects', error, eventData, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Calcula comisiones para socios (flujo de ingresos)
+ */
+export async function calculatePartnerCommissions(
+  saleId: number,
+  calculatedBy?: number
+): Promise<{
+  partner_commissions: Array<{
+    socio_name: string;
+    participacion: number;
+    total_commission_amount: number;
+    collection_status: string;
+  }>;
+  total_partners: number;
+}> {
+  try {
+    const client = await getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      // Llamar a la función de PostgreSQL
+      const result = await client.query(`
+        SELECT calculate_partner_commissions($1, $2) as partners_count
+      `, [saleId, calculatedBy || null]);
+
+      const partnersCount = result.rows[0].partners_count;
+
+      // Obtener las comisiones calculadas
+      const commissionsResult = await client.query(`
+        SELECT
+          socio_name,
+          participacion,
+          total_commission_amount,
+          collection_status
+        FROM partner_commissions
+        WHERE commission_sale_id = $1
+        ORDER BY socio_name
+      `, [saleId]);
+
+      await client.query('COMMIT');
+
+      return {
+        partner_commissions: commissionsResult.rows,
+        total_partners: partnersCount
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    logger.error('Error calculando comisiones para socios', error, { saleId, calculatedBy }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Obtiene comisiones de socios con información completa
+ */
+export async function getPartnerCommissions(
+  filters?: {
+    commission_sale_id?: number;
+    socio_name?: string;
+    collection_status?: string;
+  }
+): Promise<Array<{
+  id: number;
+  commission_sale_id: number;
+  socio_name: string;
+  participacion: number;
+  total_commission_amount: number;
+  sale_phase_amount: number;
+  post_sale_phase_amount: number;
+  collection_status: string;
+  calculated_at: string;
+  sale_info?: {
+    cliente_nombre: string;
+    desarrollo: string;
+    fecha_firma: string;
+  };
+}>> {
+  try {
+    const client = await getClient();
+
+    let queryText = `
+      SELECT
+        pc.*,
+        cs.cliente_nombre,
+        cs.desarrollo,
+        cs.fecha_firma
+      FROM partner_commissions pc
+      INNER JOIN commission_sales cs ON pc.commission_sale_id = cs.id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters?.commission_sale_id) {
+      queryText += ` AND pc.commission_sale_id = $${paramIndex}`;
+      params.push(filters.commission_sale_id);
+      paramIndex++;
+    }
+
+    if (filters?.socio_name) {
+      queryText += ` AND pc.socio_name ILIKE $${paramIndex}`;
+      params.push(`%${filters.socio_name}%`);
+      paramIndex++;
+    }
+
+    if (filters?.collection_status) {
+      queryText += ` AND pc.collection_status = $${paramIndex}`;
+      params.push(filters.collection_status);
+      paramIndex++;
+    }
+
+    queryText += ` ORDER BY pc.created_at DESC`;
+
+    const result = await client.query(queryText, params);
+    client.release();
+
+    return result.rows.map(row => ({
+      id: row.id,
+      commission_sale_id: row.commission_sale_id,
+      socio_name: row.socio_name,
+      participacion: Number(row.participacion),
+      total_commission_amount: Number(row.total_commission_amount),
+      sale_phase_amount: Number(row.sale_phase_amount),
+      post_sale_phase_amount: Number(row.post_sale_phase_amount),
+      collection_status: row.collection_status,
+      calculated_at: row.calculated_at,
+      sale_info: {
+        cliente_nombre: row.cliente_nombre,
+        desarrollo: row.desarrollo,
+        fecha_firma: row.fecha_firma
+      }
+    }));
+
+  } catch (error) {
+    logger.error('Error obteniendo comisiones de socios', error, filters, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Actualiza el estado de cobro de una comisión a socio
+ */
+export async function updatePartnerCommissionStatus(
+  partnerCommissionId: number,
+  newStatus: 'pending_invoice' | 'invoiced' | 'collected',
+  updatedBy: number
+): Promise<void> {
+  try {
+    const client = await getClient();
+
+    await client.query(`
+      UPDATE partner_commissions
+      SET collection_status = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+    `, [newStatus, partnerCommissionId]);
+
+    client.release();
+
+    logger.info('Estado de comisión a socio actualizado', {
+      partnerCommissionId,
+      newStatus,
+      updatedBy
+    }, 'commission-db');
+
+  } catch (error) {
+    logger.error('Error actualizando estado de comisión a socio', error, {
+      partnerCommissionId,
+      newStatus,
+      updatedBy
+    }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Crea una factura para una comisión a socio
+ */
+export async function createPartnerInvoice(
+  invoiceData: {
+    partner_commission_id: number;
+    invoice_number?: string;
+    invoice_date: string;
+    due_date?: string;
+    invoice_amount: number;
+    iva_amount?: number;
+    invoice_pdf_path?: string;
+  },
+  createdBy: number
+): Promise<{ invoice_id: number }> {
+  try {
+    const client = await getClient();
+
+    const result = await client.query(`
+      INSERT INTO partner_invoices (
+        partner_commission_id, invoice_number, invoice_date, due_date,
+        invoice_amount, iva_amount, total_amount,
+        invoice_pdf_path, invoice_pdf_uploaded_at, created_by
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6,
+        $5 + COALESCE($6, 0),
+        $7, CASE WHEN $7 IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
+        $8
+      )
+      RETURNING id
+    `, [
+      invoiceData.partner_commission_id,
+      invoiceData.invoice_number || null,
+      invoiceData.invoice_date,
+      invoiceData.due_date || null,
+      invoiceData.invoice_amount,
+      invoiceData.iva_amount || 0,
+      invoiceData.invoice_pdf_path || null,
+      createdBy
+    ]);
+
+    // Actualizar estado de la comisión a "invoiced"
+    await client.query(`
+      UPDATE partner_commissions
+      SET collection_status = 'invoiced', updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `, [invoiceData.partner_commission_id]);
+
+    client.release();
+
+    return { invoice_id: result.rows[0].id };
+
+  } catch (error) {
+    logger.error('Error creando factura para socio', error, invoiceData, 'commission-db');
     throw error;
   }
 }

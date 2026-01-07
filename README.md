@@ -475,15 +475,90 @@ El sistema aprende de feedback positivo:
 
 ## 💰 Módulo de Comisiones
 
-Sistema completo para calcular, auditar y dar seguimiento a comisiones de ventas.
+Sistema financiero dual para gestión de comisiones inmobiliarias, separando claramente flujos de ingresos y egresos derivados de la misma transacción de venta.
 
+### Arquitectura General
+
+El módulo maneja **dos flujos financieros independientes** derivados de cada venta (deal):
+
+1. **Comisiones Internas (Egresos)**: Dinero que la empresa paga a su equipo interno
+2. **Comisiones a Socios (Ingresos)**: Dinero que la empresa cobra a los socios del lote
+
+Ambos flujos se calculan desde la misma venta pero mantienen estados, reglas de visibilidad y ciclos de pago completamente independientes.
+
+### Flujo 1: Comisiones Internas (Egresos)
+
+Sistema de pagos a equipo interno dividido en dos fases con estados independientes:
+
+#### Estados de Fase Venta (Interna)
+- **`visible`**: Siempre visible desde el momento del cálculo
+- **`pending`**: Pendiente de pago
+- **`paid`**: Pagado completamente
+
+#### Estados de Fase Postventa (Interna)
+- **`hidden`**: Oculta hasta activación externa
+- **`upcoming`**: Activada por Zoho Projects, visible pero no pagable
+- **`payable`**: Disponible para pago
+- **`paid`**: Pagada completamente
+
+#### Componentes del Sistema Interno
 - **UI dedicada** (`/dashboard/commissions`): 4 pestañas (Configuración, Ventas comisionables, Distribución, Dashboard). Solo accesible para roles `admin` y `ceo`.
 - **Configuración por desarrollo** (`/api/commissions/config`): porcentajes de fases (venta/postventa), roles directos, pool opcional, roles opcionales de postventa y configuración global para roles indirectos (operaciones, marketing, legal, postventa).
 - **Ventas comisionables** (`/api/commissions/sales`): CRUD de deals cerrados-ganados con filtros por desarrollo, asesor y fechas. Sync masivo desde la BD local de Zoho (`/api/commissions/sync-sales`) sin llamar a la API externa.
-- **Cálculo y distribución** (`/api/commissions/distributions`): calcula comisiones por fases y roles usando `commission-calculator`, aplica reglas por desarrollo (`/api/commissions/rules`), permite recalcular, registrar ajustes manuales auditables (`/api/commissions/adjustments`) y marcar pagos por distribución (`pending` | `paid`).
+- **Distribución de pagos** (`/api/commissions/distributions`): calcula comisiones por fases y roles usando `commission-calculator`, aplica reglas por desarrollo (`/api/commissions/rules`), permite recalcular, registrar ajustes manuales auditables (`/api/commissions/adjustments`) y marcar pagos por distribución.
 - **Facturas e invoices PDF** (`/api/commissions/invoices`): subir, reemplazar, descargar y eliminar facturas asociadas a cada distribución con validación de tamaño y tipo.
 - **Metas y dashboard** (`/api/commissions/billing-targets`, `/api/commissions/dashboard`): metas mensuales de comisión (suma de fase ventas + fase postventa), métricas anuales y por desarrollo (pagado vs pendiente, ticket promedio, cumplimiento de meta, por asesor y por desarrollo).
-- **Tablas clave**: `commission_configs`, `commission_global_configs`, `commission_sales`, `commission_distributions`, `commission_adjustments`, `commission_rules`, `commission_billing_targets`.
+
+### Flujo 2: Comisiones a Socios (Ingresos)
+
+Sistema de cobros a socios externos con estados de facturación independientes:
+
+#### Estados de Cobro a Socios
+- **`pending_invoice`**: Pendiente de facturación
+- **`invoiced`**: Facturado, pendiente de cobro
+- **`collected`**: Cobrado completamente
+
+#### Componentes del Sistema de Socios
+- **Cálculo de comisiones a socios** (`/api/commissions/partner-commissions`): calcula el 100% del valor de comisión (fase venta + postventa) proporcional a la participación de cada socio en el lote.
+- **Socios del producto** (`commission_product_partners`): tabla que asocia ventas con socios y sus porcentajes de participación.
+- **Facturación independiente**: proceso de emisión de facturas a socios, completamente separado del sistema de pagos internos.
+
+### Integración con Zoho Projects
+
+Zoho Projects cumple un rol específico y limitado en el flujo de postventa interna:
+
+#### Rol de Zoho Projects
+- **NO calcula** montos de comisión
+- **NO maneja** fechas de pago
+- **NO paga** comisiones
+- **SÓLO emite** un evento `POST_SALE_TRIGGER` cuando se completa una tarea específica en un proyecto
+
+#### Evento POST_SALE_TRIGGER
+- Cambia el estado de postventa interna de `hidden` → `upcoming`
+- Hace visible la postventa en el sistema de comisiones
+- No afecta estados de venta interna ni comisiones a socios
+
+### Trazabilidad Financiera
+
+- **Egresos (Comisiones Internas)**: `commission_distributions` registra pagos reales a equipo interno
+- **Ingresos (Comisiones a Socios)**: `commission_product_partners` + proceso de facturación registra cobros a socios
+- **Separación estricta**: ambos flujos derivan del mismo deal pero nunca comparten estados, tablas de pagos ni lógica de cálculo
+
+### Tablas Clave
+
+#### Flujo Interno (Egresos)
+- `commission_configs`: Configuración por desarrollo
+- `commission_global_configs`: Configuración global de roles
+- `commission_sales`: Ventas comisionables
+- `commission_distributions`: Distribuciones de pago a equipo interno
+- `commission_adjustments`: Auditoría de ajustes manuales
+- `commission_rules`: Reglas de incentivos
+- `commission_billing_targets`: Metas de facturación
+
+#### Flujo Socios (Ingresos)
+- `commission_product_partners`: Socios y participaciones por venta
+- `partner_invoices`: Facturas emitidas a socios (futuro)
+- `partner_collections`: Cobros realizados (futuro)
 
 ## 🗄️ Base de Datos y Optimizaciones
 

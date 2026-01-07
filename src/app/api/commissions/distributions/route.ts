@@ -139,8 +139,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     
     const { sale_id, commission_percent, recalculate } = validation.data;
     
+    // Verificar si ya existen distribuciones calculadas para esta venta
+    const existingDistributions = await getCommissionDistributions(sale_id);
+    
+    // Si ya existen distribuciones y no se solicita recalcular explícitamente,
+    // devolver un error para proteger las distribuciones ya calculadas
+    if (existingDistributions.length > 0 && !recalculate) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Ya existen distribuciones calculadas para esta venta. Use el parámetro recalculate=true para recalcular con la nueva configuración.',
+          data: { existing_distributions: existingDistributions }
+        },
+        { status: 409 } // 409 Conflict - indica que hay un conflicto con el estado actual
+      );
+    }
+    
     // Si se solicita recalcular, eliminar distribuciones existentes primero
-    if (recalculate) {
+    if (recalculate && existingDistributions.length > 0) {
       await deleteCommissionDistributions(sale_id);
     }
 

@@ -79,19 +79,19 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-[#fdc23e] rounded-lg mb-4 sm:mb-6 shadow-lg">
             <Building2 className="h-6 w-6 sm:h-8 sm:w-8 text-[#153356]" />
           </div>
-          <h1 className="text-lg font-bold text-white mb-2 tracking-tight font-heading">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight font-heading">
             Capital <span className="text-[#fdc23e]">Plus</span>
           </h1>
-          <p className="text-xs text-white/70 font-medium">Agente de IA</p>
+          <p className="text-xs sm:text-sm text-white/70 font-medium">Agente de IA</p>
         </div>
 
         {/* Login Card profesional */}
         <Card className="shadow-xl border border-[#1e3d5c] bg-[#153356]">
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-white font-heading">
+            <CardTitle className="text-xl sm:text-2xl font-semibold text-white font-heading">
               Iniciar Sesión
             </CardTitle>
-            <CardDescription className="text-xs text-white/70">
+            <CardDescription className="text-sm text-white/70">
               Ingresa tus credenciales para acceder al sistema
             </CardDescription>
           </CardHeader>

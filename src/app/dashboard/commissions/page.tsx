@@ -38,6 +38,8 @@ import type {
   CommissionRulePeriodType,
   CommissionBillingTarget,
   CommissionSalesTarget,
+  PartnerCommission,
+  PartnerInvoice,
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
 import { logger } from '@/lib/logger';
@@ -54,6 +56,8 @@ export default function CommissionsPage() {
   const [globalConfigs, setGlobalConfigs] = useState<any[]>([]);
   const [sales, setSales] = useState<CommissionSale[]>([]);
   const [distributions, _setDistributions] = useState<Record<number, CommissionDistribution[]>>({});
+  const [partnerCommissions, setPartnerCommissions] = useState<PartnerCommission[]>([]);
+  const [partnerInvoices, setPartnerInvoices] = useState<PartnerInvoice[]>([]);
   const [developmentDashboard, setDevelopmentDashboard] = useState<CommissionDevelopmentDashboard | null>(null);
   const [generalDashboard, setGeneralDashboard] = useState<CommissionGeneralDashboard | null>(null);
   const [availableDevelopmentsForFilter, setAvailableDevelopmentsForFilter] = useState<string[]>([]);
@@ -150,6 +154,43 @@ export default function CommissionsPage() {
     }
   }, [selectedDesarrollo, selectedYear]);
 
+  const loadPartnerCommissions = useCallback(async () => {
+    const token = localStorage.getItem('accessToken');
+    const params = new URLSearchParams();
+    params.append('year', selectedYear.toString());
+    if (selectedDesarrollo !== 'all') {
+      params.append('desarrollo', selectedDesarrollo);
+    }
+    const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (data.success) {
+      setPartnerCommissions(data.data || []);
+    } else {
+      toast({
+        title: 'Error',
+        description: data.error || 'Error al cargar comisiones por socio',
+        variant: 'destructive',
+      });
+    }
+  }, [selectedDesarrollo, selectedYear, toast]);
+
+  const loadPartnerInvoices = useCallback(async () => {
+    const token = localStorage.getItem('accessToken');
+    const response = await fetch('/api/commissions/partner-invoices', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (data.success) {
+      setPartnerInvoices(data.data || []);
+    }
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     try {
@@ -162,6 +203,9 @@ export default function CommissionsPage() {
         await loadSales();
       } else if (activeTab === 'distribution') {
         await loadSales();
+      } else if (activeTab === 'partners') {
+        await loadPartnerCommissions();
+        await loadPartnerInvoices();
       } else if (activeTab === 'dashboard') {
         await loadDashboard();
       }
@@ -175,7 +219,7 @@ export default function CommissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, toast, loadConfigs, loadSales, loadDashboard]);
+  }, [activeTab, toast, loadConfigs, loadSales, loadPartnerCommissions, loadPartnerInvoices, loadDashboard]);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -215,7 +259,7 @@ export default function CommissionsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="config">
             <Settings className="mr-2 h-4 w-4" />
             Configuración
@@ -226,7 +270,11 @@ export default function CommissionsPage() {
           </TabsTrigger>
           <TabsTrigger value="distribution">
             <PieChart className="mr-2 h-4 w-4" />
-            Distribución
+            Distribución Interna
+          </TabsTrigger>
+          <TabsTrigger value="partners">
+            <BarChart3 className="mr-2 h-4 w-4" />
+            Comisiones Socios
           </TabsTrigger>
           <TabsTrigger value="dashboard">
             <BarChart3 className="mr-2 h-4 w-4" />
@@ -267,6 +315,25 @@ export default function CommissionsPage() {
             loading={loading}
             availableDevelopments={availableDevelopmentsForFilter}
             configs={configs}
+          />
+        </TabsContent>
+
+        {/* Pestaña: Comisiones Socios */}
+        <TabsContent value="partners" className="space-y-4">
+          <PartnersTab
+            partnerCommissions={partnerCommissions}
+            partnerInvoices={partnerInvoices}
+            sales={sales}
+            selectedDesarrollo={selectedDesarrollo}
+            selectedYear={selectedYear}
+            onDesarrolloChange={setSelectedDesarrollo}
+            onYearChange={setSelectedYear}
+            onRefresh={() => {
+              loadPartnerCommissions();
+              loadPartnerInvoices();
+            }}
+            loading={loading}
+            availableDevelopments={availableDevelopmentsForFilter}
           />
         </TabsContent>
 
@@ -2200,13 +2267,15 @@ function SalesTab({
                 <TableHead>Valor Total</TableHead>
                 <TableHead className="text-center">Pagadas/Total</TableHead>
                 <TableHead>Fecha Firma</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead>Comisión Interna</TableHead>
+                <TableHead>Estado Postventa</TableHead>
+                <TableHead>Comisión Socios</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center text-muted-foreground">
+                  <TableCell colSpan={13} className="text-center text-muted-foreground">
                     <div className="py-8 space-y-2">
                       <p>No hay ventas comisionables</p>
                       <p className="text-sm">Haz clic en &quot;Cargar Ventas desde BD&quot; para procesar los deals cerrados-ganados de la base de datos local</p>
@@ -2285,11 +2354,39 @@ function SalesTab({
                       </TableCell>
                       <TableCell>{new Date(sale.fecha_firma).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        {sale.commission_calculated ? (
-                          <Badge variant="default">Calculada</Badge>
-                        ) : (
-                          <Badge variant="outline">Pendiente</Badge>
-                        )}
+                        <Badge variant={
+                          sale.internal_sale_phase_status === 'paid' ? 'default' :
+                          sale.internal_sale_phase_status === 'pending' ? 'secondary' :
+                          'outline'
+                        }>
+                          {sale.internal_sale_phase_status === 'visible' ? 'Visible' :
+                           sale.internal_sale_phase_status === 'pending' ? 'Pendiente' :
+                           'Pagada'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          sale.internal_post_sale_phase_status === 'paid' ? 'default' :
+                          sale.internal_post_sale_phase_status === 'payable' ? 'secondary' :
+                          sale.internal_post_sale_phase_status === 'upcoming' ? 'outline' :
+                          'destructive'
+                        }>
+                          {sale.internal_post_sale_phase_status === 'hidden' ? 'Oculto' :
+                           sale.internal_post_sale_phase_status === 'upcoming' ? 'Activado' :
+                           sale.internal_post_sale_phase_status === 'payable' ? 'Pagable' :
+                           'Pagado'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          sale.partner_commission_status === 'collected' ? 'default' :
+                          sale.partner_commission_status === 'invoiced' ? 'secondary' :
+                          'outline'
+                        }>
+                          {sale.partner_commission_status === 'pending_invoice' ? 'Pend. Facturar' :
+                           sale.partner_commission_status === 'invoiced' ? 'Facturado' :
+                           'Cobrado'}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );
@@ -2392,7 +2489,18 @@ function DistributionTab({
         await loadDistributions(saleId);
         onRefresh(); // Recargar ventas para actualizar estado
       } else {
+        // Mostrar mensaje de error al usuario
+        toast({
+          title: 'Error al calcular comisiones',
+          description: data.error || 'Ocurrió un error al calcular las comisiones',
+          variant: 'destructive',
+        });
         logger.error('Error calculating commissions:', data.error);
+        
+        // Si el error es que ya existen distribuciones, cargar las existentes
+        if (response.status === 409 && data.data?.existing_distributions) {
+          setSaleDistributions(data.data.existing_distributions);
+        }
       }
     } catch (error) {
       logger.error('Error calculating commissions:', error);
@@ -3068,21 +3176,6 @@ function DashboardTab({
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [personFilter, setPersonFilter] = useState<string>('all');
-  const [partnerCommissions, setPartnerCommissions] = useState<Array<{
-    socio_name: string;
-    concepto: string;
-    producto: string | null;
-    cliente_nombre: string;
-    desarrollo: string;
-    total_comision: number;
-    iva: number;
-    total_con_iva: number;
-    participacion: number;
-    sale_id: number;
-    month: number;
-    fecha_firma: string;
-  }>>([]);
-  const [loadingPartnerCommissions, setLoadingPartnerCommissions] = useState(false);
   const { toast } = useToast();
   
   // Estados para controlar la visibilidad de las tablas
@@ -3091,7 +3184,6 @@ function DashboardTab({
   const [commissionByDevelopmentVisible, setCommissionByDevelopmentVisible] = useState(true);
   const [commissionBySalespersonVisible, setCommissionBySalespersonVisible] = useState(true);
   const [distributionsVisible, setDistributionsVisible] = useState(true);
-  const [partnerCommissionsVisible, setPartnerCommissionsVisible] = useState(true);
 
   /**
    * Determina el color del semáforo según el porcentaje de cumplimiento
@@ -3148,43 +3240,6 @@ function DashboardTab({
     loadDistributions();
   }, [loadDistributions]);
 
-  // Cargar comisiones por socio
-  const loadPartnerCommissions = useCallback(async () => {
-    setLoadingPartnerCommissions(true);
-    try {
-      const token = localStorage.getItem('accessToken');
-      const params = new URLSearchParams();
-      params.append('year', selectedYear.toString());
-      if (selectedDesarrollo !== 'all') {
-        params.append('desarrollo', selectedDesarrollo);
-      }
-      
-      const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
-      if (data.success) {
-        setPartnerCommissions(data.data || []);
-      } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Error al cargar comisiones por socio',
-          variant: 'destructive',
-        });
-      }
-    } catch (error) {
-      logger.error('Error loading partner commissions:', error);
-    } finally {
-      setLoadingPartnerCommissions(false);
-    }
-  }, [selectedDesarrollo, selectedYear, toast]);
-
-  // Cargar comisiones por socio cuando cambian los filtros
-  useEffect(() => {
-    loadPartnerCommissions();
-  }, [loadPartnerCommissions]);
 
   // Estados para manejo de facturas
   const [uploadingInvoice, setUploadingInvoice] = useState<number | null>(null);
@@ -4171,230 +4226,733 @@ function DashboardTab({
             </CardContent>
             )}
           </Card>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+// =====================================================
+// COMPONENTE: Pestaña de Comisiones a Socios
+// =====================================================
+function PartnersTab({
+  partnerCommissions,
+  partnerInvoices,
+  sales,
+  selectedDesarrollo,
+  selectedYear,
+  onDesarrolloChange,
+  onYearChange,
+  onRefresh,
+  loading,
+  availableDevelopments
+}: {
+  partnerCommissions: PartnerCommission[];
+  partnerInvoices: PartnerInvoice[];
+  sales: CommissionSale[];
+  selectedDesarrollo: string;
+  selectedYear: number;
+  onDesarrolloChange: (value: string) => void;
+  onYearChange: (value: number) => void;
+  onRefresh: () => void;
+  loading: boolean;
+  availableDevelopments: string[];
+}) {
+  const { toast } = useToast();
+  const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
 
-          {/* Tabla de Comisiones por Socio */}
-          <Card className="mt-4">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
-                <CardTitle className="text-yellow-600">Comisiones por Socio</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPartnerCommissionsVisible(!partnerCommissionsVisible)}
-                  className="h-6 w-6 p-0"
-                >
-                  {partnerCommissionsVisible ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              <CardDescription className="text-xs mt-2">
-                Total de comisiones que se deben cobrar a cada socio (100% de fase venta + fase posventa)
+  const handleStatusChange = async (commissionId: number, newStatus: 'pending_invoice' | 'invoiced' | 'collected') => {
+    setUpdatingStatus(commissionId);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/partner-commissions', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: commissionId,
+          collection_status: newStatus
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        toast({
+          title: 'Estado actualizado',
+          description: 'El estado de la comisión se ha actualizado correctamente',
+        });
+        onRefresh();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al actualizar el estado',
+          variant: 'destructive',
+        });
+      }
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar el estado de la comisión',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+  return (
+    <div className="space-y-4">
+      {/* Header con filtros */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Comisiones a Socios
+              </CardTitle>
+              <CardDescription>
+                Gestión de comisiones a cobrar a socios (flujo de ingresos)
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRefresh}
+                disabled={loading}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="year-filter-partners">Año:</Label>
+              <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value))}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Seleccionar año" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 5 }, (_, i) => {
+                    const year = new Date().getFullYear() - 2 + i;
+                    return (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="desarrollo-filter-partners">Desarrollo:</Label>
+              <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Seleccionar desarrollo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los desarrollos</SelectItem>
+                  {availableDevelopments.map((dev) => (
+                    <SelectItem key={dev} value={dev}>
+                      {dev}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs para Fase Venta y Fase Postventa */}
+      <Tabs defaultValue="sale-phase" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="sale-phase">Fase Venta</TabsTrigger>
+          <TabsTrigger value="post-sale-phase">Fase Postventa</TabsTrigger>
+        </TabsList>
+
+        {/* Tabla de Fase Venta */}
+        <TabsContent value="sale-phase" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Comisiones Fase Venta por Mes</CardTitle>
+              <CardDescription>
+                Comisiones de fase venta agrupadas por mes según fecha de firma
               </CardDescription>
             </CardHeader>
-            {partnerCommissionsVisible && (
-            <CardContent className="pt-3">
-              {loadingPartnerCommissions ? (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="h-5 w-5 animate-spin" />
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span className="ml-2">Cargando comisiones...</span>
                 </div>
               ) : partnerCommissions.length === 0 ? (
-                <div className="text-center text-muted-foreground p-4 text-sm">
-                  No hay comisiones por socio disponibles
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No hay comisiones de socios para mostrar</p>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Agrupar por mes y luego por socio */}
-                  {(() => {
-                    const monthNames = [
-                      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-                    ];
+              ) : (() => {
+                // Agrupar comisiones por mes y luego por socio usando fecha de firma para fase venta
+                const commissionsByMonth = partnerCommissions.reduce((acc, commission) => {
+                  const saleInfo = sales.find(s => s.id === commission.commission_sale_id);
+                  
+                  // Intentar obtener fecha_firma de saleInfo o sale_info
+                  const saleInfoData = saleInfo || (commission as any).sale_info;
+                  const fechaFirmaStr = saleInfoData?.fecha_firma || saleInfo?.fecha_firma;
+                  
+                  // Si no hay fecha_firma, usar calculated_at como fallback
+                  if (!fechaFirmaStr) {
+                    const fechaFirma = new Date(commission.calculated_at);
+                    const monthKey = `${fechaFirma.getFullYear()}-${String(fechaFirma.getMonth() + 1).padStart(2, '0')}`;
 
-                    // Primero agrupar por mes
-                    const groupedByMonth: Record<number, typeof partnerCommissions> = {};
-                    partnerCommissions.forEach(commission => {
-                      const month = commission.month;
-                      if (!groupedByMonth[month]) {
-                        groupedByMonth[month] = [];
+                    if (Number(commission.sale_phase_amount || 0) > 0) {
+                      if (!acc[monthKey]) {
+                        acc[monthKey] = {};
                       }
-                      groupedByMonth[month].push(commission);
-                    });
+                      const socioName = commission.socio_name || 'Sin nombre';
+                      if (!acc[monthKey][socioName]) {
+                        acc[monthKey][socioName] = [];
+                      }
+                      acc[monthKey][socioName].push({ ...commission, saleInfo: saleInfo || null, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}) } as any);
+                    }
+                    return acc;
+                  }
+                  
+                  const fechaFirma = new Date(fechaFirmaStr);
+                  const monthKey = `${fechaFirma.getFullYear()}-${String(fechaFirma.getMonth() + 1).padStart(2, '0')}`;
 
-                    // Ordenar meses
-                    const sortedMonths = Object.keys(groupedByMonth)
-                      .map(m => parseInt(m, 10))
-                      .sort((a, b) => a - b);
+                  // Solo incluir si tiene monto de fase venta
+                  if (Number(commission.sale_phase_amount || 0) > 0) {
+                    if (!acc[monthKey]) {
+                      acc[monthKey] = {};
+                    }
+                    const socioName = commission.socio_name || 'Sin nombre';
+                    if (!acc[monthKey][socioName]) {
+                      acc[monthKey][socioName] = [];
+                    }
+                    acc[monthKey][socioName].push({ ...commission, saleInfo, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}) } as any);
+                  }
+                  return acc;
+                }, {} as Record<string, Record<string, (typeof partnerCommissions[0] & { saleInfo?: any })[]>>);
 
-                    return sortedMonths.map(month => {
-                      const monthCommissions = groupedByMonth[month];
+                const sortedMonths = Object.keys(commissionsByMonth).sort();
+
+                return sortedMonths.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>No hay comisiones de fase venta para mostrar</p>
+                    <p className="text-xs mt-2">Total de comisiones recibidas: {partnerCommissions.length}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {sortedMonths.map(monthKey => {
+                      const [year, month] = monthKey.split('-');
+                      const monthData = commissionsByMonth[monthKey];
+                      const socios = Object.keys(monthData).sort();
                       
-                      // Agrupar por socio dentro del mes
-                      const groupedBySocio: Record<string, typeof partnerCommissions> = {};
-                      monthCommissions.forEach(commission => {
-                        if (!groupedBySocio[commission.socio_name]) {
-                          groupedBySocio[commission.socio_name] = [];
-                        }
-                        groupedBySocio[commission.socio_name].push(commission);
-                      });
+                      // Calcular total del mes
+                      const _totalMonthAmount = socios.reduce((sum, socio) => {
+                        return sum + monthData[socio].reduce((s, c) => s + Number(c.sale_phase_amount || 0), 0);
+                      }, 0);
+                      
+                      // Contar socios y transacciones
+                      const totalSocios = socios.length;
+                      const totalTransacciones = socios.reduce((sum, socio) => sum + monthData[socio].length, 0);
 
-                      // Calcular totales del mes
-                      const totalMonth = monthCommissions.reduce((sum, c) => sum + c.total_comision, 0);
-                      const totalIvaMonth = monthCommissions.reduce((sum, c) => sum + c.iva, 0);
-                      const totalConIvaMonth = monthCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
-                      const numSocios = Object.keys(groupedBySocio).length;
-                      const numTransacciones = monthCommissions.length;
-                      const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
+                      // Capitalizar primera letra del mes
+                      const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('es-MX', {
+                        year: 'numeric',
+                        month: 'long'
+                      });
+                      const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
 
                       return (
-                        <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
-                          <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
-                            <div className="flex items-center gap-3">
-                              <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
-                              <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
-                                {monthYear}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {numSocios} {numSocios === 1 ? 'socio' : 'socios'} • {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-4 text-right">
+                        <Card key={monthKey}>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
                               <div>
-                                <div className="text-[10px] text-muted-foreground">Subtotal</div>
-                                <div className="text-sm font-semibold">
-                                  ${totalMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-muted-foreground">IVA</div>
-                                <div className="text-sm font-semibold">
-                                  ${totalIvaMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-muted-foreground">Total Mes</div>
-                                <div className="text-xl font-bold">
-                                  ${totalConIvaMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
+                                <CardTitle className="text-lg">
+                                  {capitalizedMonth}
+                                </CardTitle>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Badge variant="outline" className="text-xs bg-yellow-500 text-white border-yellow-500">
+                                    {monthKey}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {totalSocios} {totalSocios === 1 ? 'socio' : 'socios'} • {totalTransacciones} {totalTransacciones === 1 ? 'transacción' : 'transacciones'}
+                                  </span>
                                 </div>
                               </div>
                             </div>
-                          </div>
-
-                          {/* Mostrar comisiones por socio dentro del mes */}
-                          <div className="space-y-3">
-                            {Object.keys(groupedBySocio).sort().map(socioName => {
-                              const socioCommissions = groupedBySocio[socioName];
-                              const totalSocio = socioCommissions.reduce((sum, c) => sum + c.total_comision, 0);
-                              const totalIvaSocio = socioCommissions.reduce((sum, c) => sum + c.iva, 0);
-                              const totalConIvaSocio = socioCommissions.reduce((sum, c) => sum + c.total_con_iva, 0);
+                          </CardHeader>
+                          <CardContent className="space-y-6">
+                            {socios.map(socioName => {
+                              const socioCommissions = monthData[socioName];
+                              const _totalSocioAmount = socioCommissions.reduce((sum, c) => sum + Number(c.sale_phase_amount || 0), 0);
 
                               return (
-                                <div key={`${month}-${socioName}`} className="space-y-1.5 border border-slate-300 rounded-lg p-2.5 bg-white shadow-sm">
-                                  <div className="flex items-center justify-between p-2 bg-yellow-50 border-l-4 border-yellow-500 rounded-md">
-                                    <h4 className="text-sm font-bold text-slate-800">{socioName}</h4>
-                                    <div className="flex items-center gap-3 text-right">
-                                      <div>
-                                        <div className="text-[10px] text-muted-foreground">Subtotal</div>
-                                        <div className="text-xs font-semibold">
-                                          ${totalSocio.toLocaleString('es-MX', {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          })}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[10px] text-muted-foreground">IVA</div>
-                                        <div className="text-xs font-semibold">
-                                          ${totalIvaSocio.toLocaleString('es-MX', {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          })}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[10px] text-muted-foreground">Total Socio</div>
-                                        <div className="text-sm font-bold">
-                                          ${totalConIvaSocio.toLocaleString('es-MX', {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          })}
-                                        </div>
-                                      </div>
+                                <div key={socioName} className="space-y-2">
+                                  <div className="flex items-center justify-between pb-2 border-b">
+                                    <div className="px-3 py-1 rounded-lg bg-yellow-50 border border-yellow-200">
+                                      <h4 className="font-semibold text-base">{socioName}</h4>
                                     </div>
+                                    <span className="text-sm text-muted-foreground">
+                                      {socioCommissions.length} {socioCommissions.length === 1 ? 'transacción' : 'transacciones'}
+                                    </span>
                                   </div>
-                                  <div className="overflow-x-auto">
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow className="h-8">
-                                          <TableHead className="text-xs py-1.5 px-2">Concepto</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2">Lote</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2 text-right">Part.</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2 text-right">Comisión</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2 text-right">IVA</TableHead>
-                                          <TableHead className="text-xs py-1.5 px-2 text-right">Total</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {socioCommissions.map((commission, idx) => (
-                                          <TableRow key={`${commission.sale_id}-${idx}`} className="h-8">
-                                            <TableCell className="text-xs py-1.5 px-2 font-medium">
-                                              {commission.concepto}
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Concepto</TableHead>
+                                        <TableHead>Lote</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead>Part.</TableHead>
+                                        <TableHead>Monto</TableHead>
+                                        <TableHead>Estado</TableHead>
+                                        <TableHead>Acciones</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {socioCommissions.map((commission) => {
+                                        // Usar sale_info de la API o buscar en sales si no está disponible
+                                        const saleInfo = (commission as any).sale_info || commission.saleInfo || sales.find(s => s.id === commission.commission_sale_id);
+                                        const lote = saleInfo?.producto || 'N/A';
+                                        const cliente = saleInfo?.cliente_nombre || 'N/A';
+                                        const desarrollo = saleInfo?.desarrollo || 'N/A';
+                                        const desarrolloCapitalizado = desarrollo !== 'N/A' ? desarrollo.charAt(0).toUpperCase() + desarrollo.slice(1) : desarrollo;
+                                        const concepto = `Comisión   venta de lote ${lote} desarrollo ${desarrolloCapitalizado}`;
+                                        
+                                        // Buscar si hay factura para esta comisión
+                                        const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
+                                        const hasInvoice = invoice?.invoice_pdf_path !== null && invoice?.invoice_pdf_path !== undefined;
+                                        
+                                        return (
+                                          <TableRow key={commission.id}>
+                                            <TableCell className="text-sm">
+                                              {concepto}
                                             </TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2">{commission.producto || '-'}</TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2">{commission.cliente_nombre}</TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2 text-right">
-                                              {commission.participacion.toFixed(2)}%
+                                            <TableCell className="text-sm">
+                                              {lote}
                                             </TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2 text-right font-medium">
-                                              ${commission.total_comision.toLocaleString('es-MX', {
+                                            <TableCell className="text-sm">
+                                              {cliente}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {Number(commission.participacion).toFixed(2)}%
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
                                             </TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2 text-right">
-                                              ${commission.iva.toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
+                                            <TableCell>
+                                              <Select
+                                                value={commission.collection_status}
+                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected')}
+                                                disabled={updatingStatus === commission.id}
+                                              >
+                                                <SelectTrigger 
+                                                  className={`w-40 h-7 text-xs ${
+                                                    commission.collection_status === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                    commission.collection_status === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                    'border-border'
+                                                  }`}
+                                                >
+                                                  {updatingStatus === commission.id ? (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                  ) : (
+                                                    <SelectValue>
+                                                      {commission.collection_status === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                       commission.collection_status === 'invoiced' ? 'Facturado' :
+                                                       'Cobrado'}
+                                                    </SelectValue>
+                                                  )}
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="pending_invoice">
+                                                    <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
+                                                  </SelectItem>
+                                                  <SelectItem value="invoiced">
+                                                    <Badge variant="secondary" className="text-xs">Facturado</Badge>
+                                                  </SelectItem>
+                                                  <SelectItem value="collected">
+                                                    <Badge variant="default" className="text-xs">Cobrado</Badge>
+                                                  </SelectItem>
+                                                </SelectContent>
+                                              </Select>
                                             </TableCell>
-                                            <TableCell className="text-xs py-1.5 px-2 text-right font-bold">
-                                              ${commission.total_con_iva.toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
+                                            <TableCell>
+                                              <div className="flex items-center gap-1">
+                                                {hasInvoice && (
+                                                  <Button variant="outline" size="sm">
+                                                    <Eye className="h-4 w-4" />
+                                                  </Button>
+                                                )}
+                                                {commission.collection_status === 'pending_invoice' && (
+                                                  <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
+                                                  >
+                                                    <Upload className="h-4 w-4" />
+                                                  </Button>
+                                                )}
+                                              </div>
                                             </TableCell>
                                           </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
                                 </div>
                               );
                             })}
-                          </div>
-                        </div>
+                          </CardContent>
+                        </Card>
                       );
-                    });
-                  })()}
-                </div>
-              )}
+                    })}
+                  </div>
+                );
+              })()}
             </CardContent>
-            )}
           </Card>
-        </CardContent>
-      </Card>
+        </TabsContent>
+
+        {/* Tabla de Fase Postventa */}
+        <TabsContent value="post-sale-phase" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Comisiones Fase Postventa por Mes</CardTitle>
+              <CardDescription>
+                Comisiones de fase postventa agrupadas por mes según fecha de escrituración (fecha de firma + plazo)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span className="ml-2">Cargando comisiones...</span>
+                </div>
+              ) : partnerCommissions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No hay comisiones de socios para mostrar</p>
+                </div>
+              ) : (() => {
+                // Función helper para calcular fecha de escrituración
+                const calcularFechaEscrituracion = (fechaFirma: Date, plazoDeal: string | null): Date | null => {
+                  if (!plazoDeal) return null;
+                  
+                  // Intentar parsear el plazo (puede venir como "12 meses", "12", etc.)
+                  const plazoMatch = plazoDeal.match(/(\d+)/);
+                  if (!plazoMatch) return null;
+                  
+                  const meses = parseInt(plazoMatch[1], 10);
+                  if (isNaN(meses)) return null;
+                  
+                  const fechaEscrituracion = new Date(fechaFirma);
+                  fechaEscrituracion.setMonth(fechaEscrituracion.getMonth() + meses);
+                  return fechaEscrituracion;
+                };
+
+                // Agrupar comisiones por mes y luego por socio usando fecha de escrituración para fase postventa
+                const commissionsByMonth = partnerCommissions.reduce((acc, commission) => {
+                  const saleInfo = sales.find(s => s.id === commission.commission_sale_id);
+                  
+                  // Intentar obtener fecha_firma y plazo_deal de saleInfo o sale_info
+                  const saleInfoData = saleInfo || (commission as any).sale_info;
+                  const fechaFirmaStr = saleInfoData?.fecha_firma || saleInfo?.fecha_firma;
+                  const plazoDeal = saleInfoData?.plazo_deal || saleInfo?.plazo_deal;
+                  
+                  // Si no hay fecha_firma, usar calculated_at como fallback
+                  if (!fechaFirmaStr) {
+                    const fechaFirma = new Date(commission.calculated_at);
+                    // Para postventa, si no hay plazo, usar 12 meses por defecto
+                    const fechaEscrituracion = new Date(fechaFirma);
+                    fechaEscrituracion.setMonth(fechaEscrituracion.getMonth() + 12);
+                    const monthKey = `${fechaEscrituracion.getFullYear()}-${String(fechaEscrituracion.getMonth() + 1).padStart(2, '0')}`;
+
+                    if (Number(commission.post_sale_phase_amount || 0) > 0) {
+                      if (!acc[monthKey]) {
+                        acc[monthKey] = {};
+                      }
+                      const socioName = commission.socio_name || 'Sin nombre';
+                      if (!acc[monthKey][socioName]) {
+                        acc[monthKey][socioName] = [];
+                      }
+                      acc[monthKey][socioName].push({ ...commission, saleInfo: saleInfo || null, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), fechaEscrituracion } as any);
+                    }
+                    return acc;
+                  }
+                  
+                  const fechaFirma = new Date(fechaFirmaStr);
+                  const fechaEscrituracion = calcularFechaEscrituracion(fechaFirma, plazoDeal);
+                  
+                  // Si no se puede calcular fecha de escrituración, usar 12 meses por defecto
+                  const fechaFinal = fechaEscrituracion || (() => {
+                    const fecha = new Date(fechaFirma);
+                    fecha.setMonth(fecha.getMonth() + 12);
+                    return fecha;
+                  })();
+                  
+                  const monthKey = `${fechaFinal.getFullYear()}-${String(fechaFinal.getMonth() + 1).padStart(2, '0')}`;
+
+                  // Solo incluir si tiene monto de fase postventa
+                  if (Number(commission.post_sale_phase_amount || 0) > 0) {
+                    if (!acc[monthKey]) {
+                      acc[monthKey] = {};
+                    }
+                    const socioName = commission.socio_name || 'Sin nombre';
+                    if (!acc[monthKey][socioName]) {
+                      acc[monthKey][socioName] = [];
+                    }
+                    acc[monthKey][socioName].push({ ...commission, saleInfo, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), fechaEscrituracion: fechaFinal } as any);
+                  }
+                  return acc;
+                }, {} as Record<string, Record<string, (typeof partnerCommissions[0] & { saleInfo?: any; fechaEscrituracion?: Date })[]>>);
+
+                const sortedMonths = Object.keys(commissionsByMonth).sort();
+
+                return sortedMonths.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>No hay comisiones de fase postventa para mostrar</p>
+                    <p className="text-xs mt-2">Total de comisiones recibidas: {partnerCommissions.length}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {sortedMonths.map(monthKey => {
+                      const [year, month] = monthKey.split('-');
+                      const monthData = commissionsByMonth[monthKey];
+                      const socios = Object.keys(monthData).sort();
+                      
+                      // Calcular total del mes
+                      const _totalMonthAmount = socios.reduce((sum: number, socio: string) => {
+                        const socioComms = monthData[socio] || [];
+                        return sum + socioComms.reduce((s: number, c: any) => s + Number(c.post_sale_phase_amount || 0), 0);
+                      }, 0);
+                      
+                      // Contar socios y transacciones
+                      const totalSocios = socios.length;
+                      const totalTransacciones = socios.reduce((sum: number, socio: string) => sum + (monthData[socio]?.length || 0), 0);
+
+                      // Capitalizar primera letra del mes
+                      const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('es-MX', {
+                        year: 'numeric',
+                        month: 'long'
+                      });
+                      const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+
+                      return (
+                        <Card key={monthKey}>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <CardTitle className="text-lg">
+                                  {capitalizedMonth}
+                                </CardTitle>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Badge variant="outline" className="text-xs bg-yellow-500 text-white border-yellow-500">
+                                    {monthKey}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {totalSocios} {totalSocios === 1 ? 'socio' : 'socios'} • {totalTransacciones} {totalTransacciones === 1 ? 'transacción' : 'transacciones'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-6">
+                            {socios.map(socioName => {
+                              const socioCommissions = monthData[socioName] || [];
+                              const _totalSocioAmount = socioCommissions.reduce((sum: number, c: any) => sum + Number(c.post_sale_phase_amount || 0), 0);
+
+                              return (
+                                <div key={socioName} className="space-y-2">
+                                  <div className="flex items-center justify-between pb-2 border-b">
+                                    <div className="px-3 py-1 rounded-lg bg-yellow-50 border border-yellow-200">
+                                      <h4 className="font-semibold text-base">{socioName}</h4>
+                                    </div>
+                                    <span className="text-sm text-muted-foreground">
+                                      {socioCommissions.length} {socioCommissions.length === 1 ? 'transacción' : 'transacciones'}
+                                    </span>
+                                  </div>
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Concepto</TableHead>
+                                        <TableHead>Lote</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead>Part.</TableHead>
+                                        <TableHead>Monto</TableHead>
+                                        <TableHead>Estado</TableHead>
+                                        <TableHead>Acciones</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {socioCommissions.map((commission) => {
+                                        // Usar sale_info de la API o buscar en sales si no está disponible
+                                        const saleInfo = (commission as any).sale_info || commission.saleInfo || sales.find(s => s.id === commission.commission_sale_id);
+                                        const lote = saleInfo?.producto || 'N/A';
+                                        const cliente = saleInfo?.cliente_nombre || 'N/A';
+                                        const concepto = `Comisión por Fase postventa de ${lote} ${cliente}`;
+                                        
+                                        // Buscar si hay factura para esta comisión
+                                        const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
+                                        const hasInvoice = invoice?.invoice_pdf_path !== null && invoice?.invoice_pdf_path !== undefined;
+                                        
+                                        return (
+                                          <TableRow key={commission.id}>
+                                            <TableCell className="text-sm">
+                                              {concepto}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {lote}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {cliente}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {Number(commission.participacion).toFixed(2)}%
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${(Number(commission.post_sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell>
+                                              <Select
+                                                value={commission.collection_status}
+                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected')}
+                                                disabled={updatingStatus === commission.id}
+                                              >
+                                                <SelectTrigger 
+                                                  className={`w-40 h-7 text-xs ${
+                                                    commission.collection_status === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                    commission.collection_status === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                    'border-border'
+                                                  }`}
+                                                >
+                                                  {updatingStatus === commission.id ? (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                  ) : (
+                                                    <SelectValue>
+                                                      {commission.collection_status === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                       commission.collection_status === 'invoiced' ? 'Facturado' :
+                                                       'Cobrado'}
+                                                    </SelectValue>
+                                                  )}
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="pending_invoice">
+                                                    <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
+                                                  </SelectItem>
+                                                  <SelectItem value="invoiced">
+                                                    <Badge variant="secondary" className="text-xs">Facturado</Badge>
+                                                  </SelectItem>
+                                                  <SelectItem value="collected">
+                                                    <Badge variant="default" className="text-xs">Cobrado</Badge>
+                                                  </SelectItem>
+                                                </SelectContent>
+                                              </Select>
+                                            </TableCell>
+                                            <TableCell>
+                                              <div className="flex items-center gap-1">
+                                                {hasInvoice && (
+                                                  <Button variant="outline" size="sm">
+                                                    <Eye className="h-4 w-4" />
+                                                  </Button>
+                                                )}
+                                                {commission.collection_status === 'pending_invoice' && (
+                                                  <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
+                                                  >
+                                                    <Upload className="h-4 w-4" />
+                                                  </Button>
+                                                )}
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              );
+                            })}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Estadísticas */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-yellow-500" />
+              <div className="text-2xl font-bold">
+                {partnerCommissions.filter(c => c.collection_status === 'pending_invoice').length}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Pendientes de facturar</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-blue-500" />
+              <div className="text-2xl font-bold">
+                {partnerCommissions.filter(c => c.collection_status === 'invoiced').length}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Facturados</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <div className="text-2xl font-bold">
+                {partnerCommissions.filter(c => c.collection_status === 'collected').length}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Cobrados</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-purple-500" />
+              <div className="text-2xl font-bold">
+                ${partnerCommissions
+                  .filter(c => c.collection_status === 'collected')
+                  .reduce((sum, c) => sum + (Number(c.total_commission_amount) || 0), 0)
+                  .toLocaleString('es-MX', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Total cobrado</p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

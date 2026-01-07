@@ -9,6 +9,25 @@
 // TIPOS BASE
 // =====================================================
 
+// =====================================================
+// TIPOS BASE - FLUJOS FINANCIEROS SEPARADOS
+// =====================================================
+
+// Estados del flujo interno (egresos - pagos a equipo)
+export type InternalSalePhaseStatus = 'visible' | 'pending' | 'paid';
+export type InternalPostSalePhaseStatus = 'hidden' | 'upcoming' | 'payable' | 'paid';
+
+// Estados del flujo de socios (ingresos - cobros a socios)
+export type PartnerCommissionStatus = 'pending_invoice' | 'invoiced' | 'collected';
+
+// Estados de facturas a socios
+export type PartnerInvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+
+// Estados de eventos de Zoho Projects
+export type ZohoProjectsEventType = 'post_sale_trigger';
+export type ZohoProjectsEventStatus = 'pending' | 'processed' | 'failed';
+
+// Tipos legacy (mantener compatibilidad)
 export type CommissionPhase = 'sale' | 'post_sale' | 'utility';
 
 export type CommissionRoleType =
@@ -137,7 +156,7 @@ export interface CommissionSale {
   id: number;
   zoho_deal_id: string;
   deal_name: string | null;
-  
+
   // Información de la venta
   cliente_nombre: string;
   desarrollo: string;
@@ -149,20 +168,30 @@ export interface CommissionSale {
   precio_por_m2: number;
   valor_total: number;
   fecha_firma: string; // ISO date string
-  
+
   // Información adicional
   asesor_externo: string | null;
   asesor_externo_id: string | null;
-  
-  // Estado de la comisión
+
+  // Estado de la comisión (legacy - mantener compatibilidad)
   commission_calculated: boolean;
   commission_total: number;
   commission_sale_phase: number;
   commission_post_sale_phase: number;
+
+  // Estados independientes por flujo financiero
+  internal_sale_phase_status: InternalSalePhaseStatus;
+  internal_post_sale_phase_status: InternalPostSalePhaseStatus;
+  partner_commission_status: PartnerCommissionStatus;
+
+  // Control de postventa por Zoho Projects
+  post_sale_triggered_at: string | null;
+  post_sale_triggered_by: string | null;
+
   // Agregado: resumen de pagos (conteo de distribuciones pagadas vs totales)
   total_distributions?: number;
   paid_distributions?: number;
-  
+
   // Metadata
   created_at: string;
   updated_at: string;
@@ -184,6 +213,11 @@ export interface CommissionSaleInput {
   fecha_firma: string;
   asesor_externo?: string | null;
   asesor_externo_id?: string | null;
+
+  // Nuevos campos opcionales para estados iniciales
+  internal_sale_phase_status?: InternalSalePhaseStatus;
+  internal_post_sale_phase_status?: InternalPostSalePhaseStatus;
+  partner_commission_status?: PartnerCommissionStatus;
 }
 
 // =====================================================
@@ -278,6 +312,20 @@ export interface CommissionAdjustmentInput {
 export interface CommissionSaleWithDistributions extends CommissionSale {
   distributions: CommissionDistribution[];
   adjustments: CommissionAdjustment[];
+  partner_commissions?: PartnerCommission[];
+  partner_invoices?: PartnerInvoice[];
+}
+
+// Resultado de cálculo que incluye ambos flujos
+export interface CommissionCalculationResult {
+  sale_id: number;
+  commission_total: number;
+  commission_sale_phase: number; // Suma real de distribuciones de fase venta (pagado)
+  commission_post_sale_phase: number; // Suma real de distribuciones de fase postventa (pagado)
+  sale_phase_total: number; // Monto total asignado a fase venta (basado en porcentaje)
+  post_sale_phase_total: number; // Monto total asignado a fase postventa (basado en porcentaje)
+  distributions: CommissionDistribution[];
+  partner_commissions?: PartnerCommission[]; // Comisiones calculadas para socios (flujo de ingresos)
 }
 
 export interface CommissionCalculationResult {
@@ -395,5 +443,104 @@ export interface CommissionRuleInput {
   porcentaje_iva?: number;
   activo?: boolean;
   prioridad?: number;
+}
+
+// =====================================================
+// FLUJO DE SOCIOS (INGRESOS) - NUEVAS TABLAS
+// =====================================================
+
+export interface PartnerCommission {
+  id: number;
+  commission_sale_id: number;
+  socio_name: string;
+  participacion: number; // porcentaje 0-100
+
+  // Montos calculados
+  total_commission_amount: number;
+  sale_phase_amount: number;
+  post_sale_phase_amount: number;
+
+  // Estado de cobro (independiente del flujo interno)
+  collection_status: PartnerCommissionStatus;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+  calculated_at: string;
+  calculated_by: number | null;
+}
+
+export interface PartnerCommissionInput {
+  commission_sale_id: number;
+  socio_name: string;
+  participacion: number;
+}
+
+export interface PartnerInvoice {
+  id: number;
+  partner_commission_id: number;
+
+  // Información de la factura
+  invoice_number: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  invoice_amount: number;
+  iva_amount: number;
+  total_amount: number;
+
+  // Archivo PDF
+  invoice_pdf_path: string | null;
+  invoice_pdf_uploaded_at: string | null;
+
+  // Estado
+  invoice_status: PartnerInvoiceStatus;
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+  created_by: number;
+  sent_at: string | null;
+  paid_at: string | null;
+}
+
+export interface PartnerInvoiceInput {
+  partner_commission_id: number;
+  invoice_number?: string;
+  invoice_date: string;
+  due_date?: string;
+  invoice_amount: number;
+  iva_amount?: number;
+  invoice_pdf_path?: string;
+}
+
+// =====================================================
+// EVENTOS DE ZOHO PROJECTS
+// =====================================================
+
+export interface ZohoProjectsEvent {
+  id: number;
+  event_type: ZohoProjectsEventType;
+  zoho_project_id: string | null;
+  zoho_task_id: string | null;
+  commission_sale_id: number | null;
+
+  // Datos del evento
+  event_data: any; // JSONB
+  triggered_at: string;
+
+  // Procesamiento
+  processed_at: string | null;
+  processing_status: ZohoProjectsEventStatus;
+  processing_error: string | null;
+
+  created_at: string;
+}
+
+export interface ZohoProjectsEventInput {
+  event_type: ZohoProjectsEventType;
+  zoho_project_id?: string;
+  zoho_task_id?: string;
+  commission_sale_id?: number;
+  event_data?: any;
 }
 

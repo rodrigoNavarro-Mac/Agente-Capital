@@ -191,3 +191,4 @@ Para verificar que estás usando Transaction mode, busca en los logs:
 
 Si ves `connectionMode: 'Session (Direct)'`, cambia a `POSTGRES_URL`.
 
+

@@ -16,6 +16,7 @@ import type {
   CommissionPhase,
   CommissionRule,
   CommissionGlobalConfig,
+  PartnerCommission,
 } from '@/types/commissions';
 
 // =====================================================
@@ -611,6 +612,15 @@ export function calculateCommission(
     })),
   ];
 
+  // Calcular comisiones para socios (flujo de ingresos independiente)
+  const partnerData = getPartnerDataForSale(sale.id);
+  const partner_commissions = partnerData.length > 0
+    ? calculatePartnerCommissionsForSale(sale, partnerData, {
+        phase_sale_percent: config.phase_sale_percent,
+        phase_post_sale_percent: config.phase_post_sale_percent,
+      })
+    : undefined;
+
   return {
     sale_id: sale.id,
     commission_total: commissionTotal, // Solo suma de fases distribuidas (NO incluye utilidad)
@@ -619,6 +629,7 @@ export function calculateCommission(
     sale_phase_total: salePhaseAmount, // Monto total asignado a fase venta (basado en porcentaje)
     post_sale_phase_total: postSalePhaseAmount, // Monto total asignado a fase postventa (basado en porcentaje)
     distributions,
+    partner_commissions, // Comisiones calculadas para socios (flujo de ingresos)
   };
 }
 
@@ -673,5 +684,149 @@ export function validateCommissionConfig(config: CommissionConfigInput): {
     valid: errors.length === 0,
     errors,
   };
+}
+
+// =====================================================
+// FUNCIONES PARA FLUJO DE SOCIOS (INGRESOS)
+// =====================================================
+
+/**
+ * Calcula las comisiones para socios basado en la participación
+ * Esta función es llamada desde calculateCommission para integrar ambos flujos
+ */
+export function calculatePartnerCommissionsForSale(
+  sale: CommissionSale,
+  partnerData: Array<{
+    socio_name: string;
+    participacion: number;
+  }>,
+  config?: {
+    phase_sale_percent: number;
+    phase_post_sale_percent: number;
+  }
+): PartnerCommission[] {
+  // Si no hay configuración, usar el método legacy (montos ya calculados)
+  if (!config) {
+    const salePhaseAmount = Number(sale.commission_sale_phase || 0);
+    const postSalePhaseAmount = Number(sale.commission_post_sale_phase || 0);
+    const totalCommissionForPartners = salePhaseAmount + postSalePhaseAmount;
+
+    // Si no hay comisión calculada, retornar array vacío
+    if (totalCommissionForPartners <= 0) {
+      return [];
+    }
+
+    return partnerData.map((partner, index) => {
+      const participacion = Number(partner.participacion || 0);
+
+      if (participacion <= 0) {
+        return {
+          id: -(index + 1),
+          commission_sale_id: sale.id,
+          socio_name: partner.socio_name || 'Socio sin nombre',
+          participacion: 0,
+          total_commission_amount: 0,
+          sale_phase_amount: salePhaseAmount,
+          post_sale_phase_amount: postSalePhaseAmount,
+          collection_status: 'pending_invoice' as const,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          calculated_at: new Date().toISOString(),
+          calculated_by: null
+        };
+      }
+
+      const partnerAmount = totalCommissionForPartners * (participacion / 100);
+
+      return {
+        id: -(index + 1),
+        commission_sale_id: sale.id,
+        socio_name: partner.socio_name || 'Socio sin nombre',
+        participacion: participacion,
+        total_commission_amount: Number(partnerAmount.toFixed(2)),
+        sale_phase_amount: salePhaseAmount,
+        post_sale_phase_amount: postSalePhaseAmount,
+        collection_status: 'pending_invoice' as const,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        calculated_at: new Date().toISOString(),
+        calculated_by: null
+      };
+    });
+  }
+
+  // Calcular usando configuración por fases
+  const valorTotal = Number(sale.valor_total) || 0;
+  const phaseSalePercent = Number(config.phase_sale_percent) || 0;
+  const phasePostSalePercent = Number(config.phase_post_sale_percent) || 0;
+
+  // Calcular montos por fase basados en configuración
+  const salePhaseAmount = Number(((valorTotal * phaseSalePercent) / 100).toFixed(2));
+  const postSalePhaseAmount = Number(((valorTotal * phasePostSalePercent) / 100).toFixed(2));
+  const totalCommissionForPartners = salePhaseAmount + postSalePhaseAmount;
+
+  // Si no hay comisión calculada, retornar array vacío
+  if (totalCommissionForPartners <= 0) {
+    return [];
+  }
+
+  return partnerData.map((partner, index) => {
+    // Asegurar que la participación sea un número válido
+    const participacion = Number(partner.participacion || 0);
+
+    // Si la participación es 0 o inválida, retornar 0
+    if (participacion <= 0) {
+      return {
+        id: -(index + 1),
+        commission_sale_id: sale.id,
+        socio_name: partner.socio_name || 'Socio sin nombre',
+        participacion: 0,
+        total_commission_amount: 0,
+        sale_phase_amount: 0,
+        post_sale_phase_amount: 0,
+        collection_status: 'pending_invoice' as const,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        calculated_at: new Date().toISOString(),
+        calculated_by: null
+      };
+    }
+
+    // Calcular la participación del socio sobre el valor total de la venta
+    const partnerTotalValue = valorTotal * (participacion / 100);
+
+    // Distribuir según porcentajes de fase de la configuración
+    const partnerSalePhaseAmount = Number(((partnerTotalValue * phaseSalePercent) / 100).toFixed(2));
+    const partnerPostSalePhaseAmount = Number(((partnerTotalValue * phasePostSalePercent) / 100).toFixed(2));
+    const partnerTotalAmount = partnerSalePhaseAmount + partnerPostSalePhaseAmount;
+
+    return {
+      id: -(index + 1), // IDs negativos para indicar que son cálculos temporales
+      commission_sale_id: sale.id,
+      socio_name: partner.socio_name || 'Socio sin nombre',
+      participacion: participacion,
+      total_commission_amount: partnerTotalAmount,
+      sale_phase_amount: partnerSalePhaseAmount,
+      post_sale_phase_amount: partnerPostSalePhaseAmount,
+      collection_status: 'pending_invoice' as const,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      calculated_at: new Date().toISOString(),
+      calculated_by: null
+    };
+  });
+}
+
+/**
+ * Función helper para obtener datos de socios de una venta
+ * En una implementación real, esto vendría de la base de datos
+ */
+export function getPartnerDataForSale(_saleId: number): Array<{
+  socio_name: string;
+  participacion: number;
+}> {
+  // TODO: Implementar consulta real a commission_product_partners
+  // Por ahora retorna array vacío - se implementará cuando se integre con la BD
+  return [];
 }
 
