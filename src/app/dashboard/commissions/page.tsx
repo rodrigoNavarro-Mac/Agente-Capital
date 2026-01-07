@@ -65,6 +65,7 @@ export default function CommissionsPage() {
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
 
   // Verificar rol del usuario
   useEffect(() => {
@@ -154,19 +155,48 @@ export default function CommissionsPage() {
     }
   }, [selectedDesarrollo, selectedYear]);
 
-  const loadPartnerCommissions = useCallback(async () => {
+  const loadPartnerCommissions = useCallback(async (phase?: 'sale-phase' | 'post-sale-phase') => {
     const token = localStorage.getItem('accessToken');
     const params = new URLSearchParams();
     params.append('year', selectedYear.toString());
     if (selectedDesarrollo !== 'all') {
       params.append('desarrollo', selectedDesarrollo);
     }
+    if (selectedStatus !== 'all') {
+      params.append('collection_status', selectedStatus);
+    }
+    if (phase) {
+      params.append('phase', phase);
+    }
+    
+    logger.info('Cargando partner commissions desde frontend', {
+      selectedYear,
+      selectedDesarrollo,
+      selectedStatus,
+      phase,
+      url: `/api/commissions/partner-commissions?${params.toString()}`,
+    }, 'commissions-partners');
+    
     const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
     });
     const data = await response.json();
+    
+    logger.info('Respuesta de partner commissions API', {
+      success: data.success,
+      totalCommissions: data.data?.length || 0,
+      phase,
+      selectedYear,
+      sampleCommission: data.data?.[0] ? {
+        id: data.data[0].id,
+        commission_sale_id: data.data[0].commission_sale_id,
+        socio_name: data.data[0].socio_name,
+        sale_info: data.data[0].sale_info,
+      } : null,
+    }, 'commissions-partners');
+    
     if (data.success) {
       setPartnerCommissions(data.data || []);
     } else {
@@ -176,7 +206,7 @@ export default function CommissionsPage() {
         variant: 'destructive',
       });
     }
-  }, [selectedDesarrollo, selectedYear, toast]);
+  }, [selectedDesarrollo, selectedYear, selectedStatus, toast]);
 
   const loadPartnerInvoices = useCallback(async () => {
     const token = localStorage.getItem('accessToken');
@@ -225,6 +255,10 @@ export default function CommissionsPage() {
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
+
+  // Nota: La recarga de comisiones de socios cuando cambian los filtros
+  // ahora se maneja dentro del componente PartnersTab para mejor control
+  // y evitar recargas duplicadas
 
   // Si el usuario no tiene permisos, mostrar mensaje
   if (userRole && userRole !== 'admin' && userRole !== 'ceo') {
@@ -326,14 +360,17 @@ export default function CommissionsPage() {
             sales={sales}
             selectedDesarrollo={selectedDesarrollo}
             selectedYear={selectedYear}
+            selectedStatus={selectedStatus}
             onDesarrolloChange={setSelectedDesarrollo}
             onYearChange={setSelectedYear}
-            onRefresh={() => {
-              loadPartnerCommissions();
+            onStatusChange={setSelectedStatus}
+            onRefresh={(phase?: 'sale-phase' | 'post-sale-phase') => {
+              loadPartnerCommissions(phase);
               loadPartnerInvoices();
             }}
             loading={loading}
             availableDevelopments={availableDevelopmentsForFilter}
+            configs={configs}
           />
         </TabsContent>
 
@@ -2772,19 +2809,20 @@ function DistributionTab({
                             
                             // Usar porcentajes guardados cuando se calculó (estáticos) si están disponibles,
                             // de lo contrario usar los de la configuración actual
-                            const salePhasePercent = selectedSale.calculated_phase_sale_percent !== null && selectedSale.calculated_phase_sale_percent !== undefined
+                            const salePhasePercentFromSale = selectedSale.calculated_phase_sale_percent !== null && selectedSale.calculated_phase_sale_percent !== undefined
                               ? Number(selectedSale.calculated_phase_sale_percent)
-                              : (() => {
-                                  const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
-                                  return config ? Number(config.phase_sale_percent) : 0;
-                                })();
+                              : null;
                             
-                            const postSalePhasePercent = selectedSale.calculated_phase_post_sale_percent !== null && selectedSale.calculated_phase_post_sale_percent !== undefined
+                            const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
+                            const salePhasePercentFromConfig = config ? Number(config.phase_sale_percent) : 0;
+                            const salePhasePercent = salePhasePercentFromSale !== null ? salePhasePercentFromSale : salePhasePercentFromConfig;
+                            
+                            const postSalePhasePercentFromSale = selectedSale.calculated_phase_post_sale_percent !== null && selectedSale.calculated_phase_post_sale_percent !== undefined
                               ? Number(selectedSale.calculated_phase_post_sale_percent)
-                              : (() => {
-                                  const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
-                                  return config ? Number(config.phase_post_sale_percent) : 0;
-                                })();
+                              : null;
+                            
+                            const postSalePhasePercentFromConfig = config ? Number(config.phase_post_sale_percent) : 0;
+                            const postSalePhasePercent = postSalePhasePercentFromSale !== null ? postSalePhasePercentFromSale : postSalePhasePercentFromConfig;
                             
                             // Calcular totales de fase usando los porcentajes (guardados o de configuración)
                             const salePhaseTotal = Number(((commissionBase * salePhasePercent) / 100).toFixed(2));
@@ -4249,27 +4287,92 @@ function PartnersTab({
   sales,
   selectedDesarrollo,
   selectedYear,
+  selectedStatus,
   onDesarrolloChange,
   onYearChange,
+  onStatusChange,
   onRefresh,
   loading,
-  availableDevelopments
+  availableDevelopments,
+  configs
 }: {
   partnerCommissions: PartnerCommission[];
   partnerInvoices: PartnerInvoice[];
   sales: CommissionSale[];
   selectedDesarrollo: string;
   selectedYear: number;
+  selectedStatus: string;
   onDesarrolloChange: (value: string) => void;
   onYearChange: (value: number) => void;
-  onRefresh: () => void;
+  onStatusChange: (value: string) => void;
+  onRefresh: (phase?: 'sale-phase' | 'post-sale-phase') => void;
   loading: boolean;
   availableDevelopments: string[];
+  configs: CommissionConfig[];
 }) {
   const { toast } = useToast();
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
+  const [uploadingInvoice, setUploadingInvoice] = useState<number | null>(null);
+  const [activePhaseTab, setActivePhaseTab] = useState<'sale-phase' | 'post-sale-phase'>('sale-phase');
 
-  const handleStatusChange = async (commissionId: number, newStatus: 'pending_invoice' | 'invoiced' | 'collected') => {
+  // Recargar automáticamente cuando cambian los filtros (año, estado, desarrollo)
+  useEffect(() => {
+    // Recargar la fase activa cuando cambian los filtros
+    // Usar un pequeño delay para evitar múltiples llamadas simultáneas cuando cambian múltiples filtros a la vez
+    const timeoutId = setTimeout(() => {
+      onRefresh(activePhaseTab);
+    }, 150);
+    
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, selectedStatus, selectedDesarrollo, activePhaseTab]);
+
+  const handleUploadPartnerInvoice = async (commissionId: number, file: File) => {
+    setUploadingInvoice(commissionId);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('partner_commission_id', commissionId.toString());
+
+      const response = await fetch('/api/commissions/invoices', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Factura subida',
+          description: 'La factura se ha subido correctamente',
+        });
+        onRefresh();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al subir la factura',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Error al subir la factura',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingInvoice(null);
+    }
+  };
+
+  const handleStatusChange = async (
+    commissionId: number, 
+    newStatus: 'pending_invoice' | 'invoiced' | 'collected',
+    phase: 'sale_phase' | 'post_sale_phase'
+  ) => {
     setUpdatingStatus(commissionId);
     try {
       const token = localStorage.getItem('accessToken');
@@ -4281,7 +4384,8 @@ function PartnersTab({
         },
         body: JSON.stringify({
           id: commissionId,
-          collection_status: newStatus
+          collection_status: newStatus,
+          phase: phase
         }),
       });
 
@@ -4329,7 +4433,7 @@ function PartnersTab({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onRefresh}
+                onClick={() => onRefresh(activePhaseTab)}
                 disabled={loading}
               >
                 <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -4374,12 +4478,29 @@ function PartnersTab({
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="status-filter-partners">Estado:</Label>
+              <Select value={selectedStatus} onValueChange={onStatusChange}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Seleccionar estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="pending_invoice">Pendiente Facturar</SelectItem>
+                  <SelectItem value="invoiced">Facturado</SelectItem>
+                  <SelectItem value="collected">Cobrado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Tabs para Fase Venta y Fase Postventa */}
-      <Tabs defaultValue="sale-phase" className="w-full">
+      <Tabs value={activePhaseTab} onValueChange={(value) => {
+        setActivePhaseTab(value as 'sale-phase' | 'post-sale-phase');
+        onRefresh(value as 'sale-phase' | 'post-sale-phase');
+      }} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="sale-phase">Fase Venta</TabsTrigger>
           <TabsTrigger value="post-sale-phase">Fase Postventa</TabsTrigger>
@@ -4560,14 +4681,14 @@ function PartnersTab({
                                             </TableCell>
                                             <TableCell>
                                               <Select
-                                                value={commission.collection_status}
-                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected')}
+                                                value={commission.sale_phase_collection_status || commission.collection_status}
+                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'sale_phase')}
                                                 disabled={updatingStatus === commission.id}
                                               >
                                                 <SelectTrigger 
                                                   className={`w-40 h-7 text-xs ${
-                                                    commission.collection_status === 'collected' ? 'bg-primary text-primary-foreground' :
-                                                    commission.collection_status === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                    (commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                    (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
                                                     'border-border'
                                                   }`}
                                                 >
@@ -4575,8 +4696,8 @@ function PartnersTab({
                                                     <Loader2 className="h-3 w-3 animate-spin" />
                                                   ) : (
                                                     <SelectValue>
-                                                      {commission.collection_status === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                       commission.collection_status === 'invoiced' ? 'Facturado' :
+                                                      {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                       (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
                                                        'Cobrado'}
                                                     </SelectValue>
                                                   )}
@@ -4601,14 +4722,38 @@ function PartnersTab({
                                                     <Eye className="h-4 w-4" />
                                                   </Button>
                                                 )}
-                                                {commission.collection_status === 'pending_invoice' && (
-                                                  <Button 
-                                                    variant="outline" 
-                                                    size="sm"
-                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
-                                                  >
-                                                    <Upload className="h-4 w-4" />
-                                                  </Button>
+                                                {(commission.sale_phase_collection_status || commission.collection_status) === 'collected' && (
+                                                  <>
+                                                    <input
+                                                      type="file"
+                                                      accept=".pdf"
+                                                      id={`partner-invoice-upload-${commission.id}-sale`}
+                                                      className="hidden"
+                                                      onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                          handleUploadPartnerInvoice(commission.id, file);
+                                                        }
+                                                      }}
+                                                      disabled={uploadingInvoice === commission.id}
+                                                    />
+                                                    <Button 
+                                                      variant="outline" 
+                                                      size="sm"
+                                                      className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
+                                                      disabled={uploadingInvoice === commission.id}
+                                                      onClick={() => {
+                                                        const input = document.getElementById(`partner-invoice-upload-${commission.id}-sale`) as HTMLInputElement;
+                                                        input?.click();
+                                                      }}
+                                                    >
+                                                      {uploadingInvoice === commission.id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                      ) : (
+                                                        <Upload className="h-4 w-4" />
+                                                      )}
+                                                    </Button>
+                                                  </>
                                                 )}
                                               </div>
                                             </TableCell>
@@ -4652,18 +4797,49 @@ function PartnersTab({
                 </div>
               ) : (() => {
                 // Función helper para calcular fecha de escrituración
-                const calcularFechaEscrituracion = (fechaFirma: Date, plazoDeal: string | null): Date | null => {
-                  if (!plazoDeal) return null;
+                // La fecha de escrituración = fecha de firma + plazo (en meses)
+                const calcularFechaEscrituracion = (fechaFirma: Date, plazoDeal: string | null, commissionId?: number): Date | null => {
+                  logger.info('Calculando fecha de escrituración (postventa)', {
+                    fechaFirma: fechaFirma.toISOString(),
+                    plazoDeal,
+                    commissionId
+                  }, 'commissions-partners-postventa');
                   
-                  // Intentar parsear el plazo (puede venir como "12 meses", "12", etc.)
+                  if (!plazoDeal) {
+                    logger.warn('No hay plazo_deal, retornando null', { commissionId }, 'commissions-partners-postventa');
+                    return null;
+                  }
+                  
+                  // Intentar parsear el plazo (puede venir como "12 meses", "12", "12m", etc.)
+                  // Buscar cualquier número en el string
                   const plazoMatch = plazoDeal.match(/(\d+)/);
-                  if (!plazoMatch) return null;
+                  if (!plazoMatch) {
+                    logger.warn('No se pudo parsear el plazo_deal', { plazoDeal, commissionId }, 'commissions-partners-postventa');
+                    return null;
+                  }
                   
                   const meses = parseInt(plazoMatch[1], 10);
-                  if (isNaN(meses)) return null;
+                  if (isNaN(meses) || meses < 0) {
+                    logger.warn('Meses inválidos parseados del plazo', { meses, plazoDeal, commissionId }, 'commissions-partners-postventa');
+                    return null;
+                  }
                   
+                  // Crear una nueva fecha para no modificar la original
                   const fechaEscrituracion = new Date(fechaFirma);
+                  
+                  // Sumar los meses al mes actual
+                  // setMonth maneja automáticamente el desbordamiento (ej: mes 13 -> mes 1 del año siguiente)
                   fechaEscrituracion.setMonth(fechaEscrituracion.getMonth() + meses);
+                  
+                  logger.info('Fecha de escrituración calculada', {
+                    fechaFirma: fechaFirma.toISOString(),
+                    plazoDeal,
+                    meses,
+                    fechaEscrituracion: fechaEscrituracion.toISOString(),
+                    monthKey: `${fechaEscrituracion.getFullYear()}-${String(fechaEscrituracion.getMonth() + 1).padStart(2, '0')}`,
+                    commissionId
+                  }, 'commissions-partners-postventa');
+                  
                   return fechaEscrituracion;
                 };
 
@@ -4676,38 +4852,80 @@ function PartnersTab({
                   const fechaFirmaStr = saleInfoData?.fecha_firma || saleInfo?.fecha_firma;
                   const plazoDeal = saleInfoData?.plazo_deal || saleInfo?.plazo_deal;
                   
-                  // Si no hay fecha_firma, usar calculated_at como fallback
+                  logger.info('Procesando comisión de postventa para agrupación', {
+                    commissionId: commission.id,
+                    commissionSaleId: commission.commission_sale_id,
+                    socioName: commission.socio_name,
+                    fechaFirmaStr,
+                    plazoDeal,
+                    postSalePhaseAmount: commission.post_sale_phase_amount,
+                    saleInfoFound: !!saleInfo,
+                    saleInfoDataFound: !!saleInfoData,
+                    saleInfoKeys: saleInfo ? Object.keys(saleInfo) : null,
+                    saleInfoDataKeys: saleInfoData ? Object.keys(saleInfoData) : null,
+                    commissionSaleInfo: (commission as any).sale_info ? Object.keys((commission as any).sale_info) : null,
+                    saleInfoPlazoDeal: saleInfo?.plazo_deal,
+                    saleInfoDataPlazoDeal: saleInfoData?.plazo_deal,
+                    fullSaleInfo: saleInfo,
+                    fullSaleInfoData: saleInfoData,
+                    fullCommissionSaleInfo: (commission as any).sale_info
+                  }, 'commissions-partners-postventa');
+                  
+                  // Si no hay fecha_firma, no podemos calcular fecha de escrituración, omitir
                   if (!fechaFirmaStr) {
-                    const fechaFirma = new Date(commission.calculated_at);
-                    // Para postventa, si no hay plazo, usar 12 meses por defecto
-                    const fechaEscrituracion = new Date(fechaFirma);
-                    fechaEscrituracion.setMonth(fechaEscrituracion.getMonth() + 12);
-                    const monthKey = `${fechaEscrituracion.getFullYear()}-${String(fechaEscrituracion.getMonth() + 1).padStart(2, '0')}`;
-
-                    if (Number(commission.post_sale_phase_amount || 0) > 0) {
-                      if (!acc[monthKey]) {
-                        acc[monthKey] = {};
-                      }
-                      const socioName = commission.socio_name || 'Sin nombre';
-                      if (!acc[monthKey][socioName]) {
-                        acc[monthKey][socioName] = [];
-                      }
-                      acc[monthKey][socioName].push({ ...commission, saleInfo: saleInfo || null, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), fechaEscrituracion } as any);
-                    }
+                    logger.warn('No hay fecha_firma, omitiendo comisión de postventa', {
+                      commissionId: commission.id,
+                      calculatedAt: commission.calculated_at,
+                      postSalePhaseAmount: commission.post_sale_phase_amount
+                    }, 'commissions-partners-postventa');
                     return acc;
                   }
                   
                   const fechaFirma = new Date(fechaFirmaStr);
-                  const fechaEscrituracion = calcularFechaEscrituracion(fechaFirma, plazoDeal);
+                  const fechaEscrituracion = calcularFechaEscrituracion(fechaFirma, plazoDeal, commission.id);
                   
-                  // Si no se puede calcular fecha de escrituración, usar 12 meses por defecto
-                  const fechaFinal = fechaEscrituracion || (() => {
-                    const fecha = new Date(fechaFirma);
-                    fecha.setMonth(fecha.getMonth() + 12);
-                    return fecha;
-                  })();
+                  // Si no se puede calcular fecha de escrituración (no hay plazo_deal), pero SÍ hay monto de postventa,
+                  // usar la fecha de firma para agrupar (es contado, pero tiene comisión de postventa)
+                  let fechaFinal: Date;
+                  let esContado = false;
+                  
+                  if (!fechaEscrituracion) {
+                    // Si no hay plazo_deal pero SÍ hay monto de postventa, usar fecha de firma
+                    if (Number(commission.post_sale_phase_amount || 0) > 0) {
+                      fechaFinal = fechaFirma;
+                      esContado = true;
+                      logger.info('Comisión de postventa sin plazo_deal (contado), usando fecha de firma para agrupar', {
+                        commissionId: commission.id,
+                        fechaFirma: fechaFirma.toISOString(),
+                        plazoDeal,
+                        postSalePhaseAmount: commission.post_sale_phase_amount,
+                        esContado: true
+                      }, 'commissions-partners-postventa');
+                    } else {
+                      // Si no hay monto de postventa, omitir
+                      logger.warn('No se puede calcular fecha de escrituración (sin plazo_deal) y no hay monto de postventa, omitiendo', {
+                        commissionId: commission.id,
+                        fechaFirma: fechaFirma.toISOString(),
+                        plazoDeal,
+                        postSalePhaseAmount: commission.post_sale_phase_amount
+                      }, 'commissions-partners-postventa');
+                      return acc;
+                    }
+                  } else {
+                    fechaFinal = fechaEscrituracion;
+                  }
                   
                   const monthKey = `${fechaFinal.getFullYear()}-${String(fechaFinal.getMonth() + 1).padStart(2, '0')}`;
+
+                  logger.info('Comisión agrupada por mes', {
+                    commissionId: commission.id,
+                    socioName: commission.socio_name,
+                    monthKey,
+                    fechaFirma: fechaFirma.toISOString(),
+                    fechaEscrituracion: fechaFinal.toISOString(),
+                    postSalePhaseAmount: commission.post_sale_phase_amount,
+                    esContado
+                  }, 'commissions-partners-postventa');
 
                   // Solo incluir si tiene monto de fase postventa
                   if (Number(commission.post_sale_phase_amount || 0) > 0) {
@@ -4718,10 +4936,16 @@ function PartnersTab({
                     if (!acc[monthKey][socioName]) {
                       acc[monthKey][socioName] = [];
                     }
-                    acc[monthKey][socioName].push({ ...commission, saleInfo, ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), fechaEscrituracion: fechaFinal } as any);
+                    acc[monthKey][socioName].push({ 
+                      ...commission, 
+                      saleInfo, 
+                      ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), 
+                      fechaEscrituracion: fechaFinal,
+                      esContado: esContado
+                    } as any);
                   }
                   return acc;
-                }, {} as Record<string, Record<string, (typeof partnerCommissions[0] & { saleInfo?: any; fechaEscrituracion?: Date })[]>>);
+                }, {} as Record<string, Record<string, (typeof partnerCommissions[0] & { saleInfo?: any; fechaEscrituracion?: Date; esContado?: boolean })[]>>);
 
                 const sortedMonths = Object.keys(commissionsByMonth).sort();
 
@@ -4803,10 +5027,42 @@ function PartnersTab({
                                     <TableBody>
                                       {socioCommissions.map((commission) => {
                                         // Usar sale_info de la API o buscar en sales si no está disponible
-                                        const saleInfo = (commission as any).sale_info || commission.saleInfo || sales.find(s => s.id === commission.commission_sale_id);
+                                        const saleInfoFromAPI = (commission as any).sale_info || commission.saleInfo;
+                                        const saleInfoFromSales = sales.find(s => s.id === commission.commission_sale_id);
+                                        const saleInfo = saleInfoFromAPI || saleInfoFromSales;
+                                        
                                         const lote = saleInfo?.producto || 'N/A';
                                         const cliente = saleInfo?.cliente_nombre || 'N/A';
                                         const concepto = `Comisión por Fase postventa de ${lote} ${cliente}`;
+                                        const esContado = (commission as any).esContado === true;
+                                        
+                                        // Calcular el monto total de la fase postventa (igual al que se muestra en "Total" en distribución)
+                                        // Usar valor_total y calculated_phase_post_sale_percent de la venta
+                                        // Primero intentar desde sale_info de la API, luego desde sales array, finalmente desde config
+                                        const valorTotal = saleInfo?.valor_total != null 
+                                          ? Number(saleInfo.valor_total) 
+                                          : (saleInfoFromSales?.valor_total != null ? Number(saleInfoFromSales.valor_total) : 0);
+                                        
+                                        // Obtener porcentaje: primero desde sale_info, luego desde sales, finalmente desde config (igual que en Distribución)
+                                        const postSalePhasePercentFromSale = saleInfo?.calculated_phase_post_sale_percent != null
+                                          ? Number(saleInfo.calculated_phase_post_sale_percent)
+                                          : (saleInfoFromSales?.calculated_phase_post_sale_percent != null 
+                                              ? Number(saleInfoFromSales.calculated_phase_post_sale_percent) 
+                                              : null);
+                                        
+                                        // Si no hay porcentaje guardado, usar el de la configuración (igual que en Distribución)
+                                        const desarrollo = saleInfo?.desarrollo || saleInfoFromSales?.desarrollo;
+                                        const config = desarrollo ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
+                                        const postSalePhasePercentFromConfig = config ? Number(config.phase_post_sale_percent) : 0;
+                                        
+                                        const postSalePhasePercent = postSalePhasePercentFromSale != null 
+                                          ? postSalePhasePercentFromSale 
+                                          : postSalePhasePercentFromConfig;
+                                        
+                                        // Calcular monto total de fase postventa: valor_total * porcentaje / 100
+                                        const postSalePhaseTotal = postSalePhasePercent > 0 && valorTotal > 0
+                                          ? Number(((valorTotal * postSalePhasePercent) / 100).toFixed(2))
+                                          : 0;
                                         
                                         // Buscar si hay factura para esta comisión
                                         const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
@@ -4815,7 +5071,14 @@ function PartnersTab({
                                         return (
                                           <TableRow key={commission.id}>
                                             <TableCell className="text-sm">
-                                              {concepto}
+                                              <div className="flex items-center gap-2">
+                                                <span>{concepto}</span>
+                                                {esContado && (
+                                                  <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 border-blue-300">
+                                                    Contado
+                                                  </Badge>
+                                                )}
+                                              </div>
                                             </TableCell>
                                             <TableCell className="text-sm">
                                               {lote}
@@ -4827,21 +5090,21 @@ function PartnersTab({
                                               {Number(commission.participacion).toFixed(2)}%
                                             </TableCell>
                                             <TableCell className="font-mono text-sm">
-                                              ${(Number(commission.post_sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                              ${postSalePhaseTotal.toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
                                             </TableCell>
                                             <TableCell>
                                               <Select
-                                                value={commission.collection_status}
-                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected')}
+                                                value={commission.post_sale_phase_collection_status || commission.collection_status}
+                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'post_sale_phase')}
                                                 disabled={updatingStatus === commission.id}
                                               >
                                                 <SelectTrigger 
                                                   className={`w-40 h-7 text-xs ${
-                                                    commission.collection_status === 'collected' ? 'bg-primary text-primary-foreground' :
-                                                    commission.collection_status === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                    (commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                    (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
                                                     'border-border'
                                                   }`}
                                                 >
@@ -4849,8 +5112,8 @@ function PartnersTab({
                                                     <Loader2 className="h-3 w-3 animate-spin" />
                                                   ) : (
                                                     <SelectValue>
-                                                      {commission.collection_status === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                       commission.collection_status === 'invoiced' ? 'Facturado' :
+                                                      {(commission.post_sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                       (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
                                                        'Cobrado'}
                                                     </SelectValue>
                                                   )}
@@ -4875,14 +5138,38 @@ function PartnersTab({
                                                     <Eye className="h-4 w-4" />
                                                   </Button>
                                                 )}
-                                                {commission.collection_status === 'pending_invoice' && (
-                                                  <Button 
-                                                    variant="outline" 
-                                                    size="sm"
-                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
-                                                  >
-                                                    <Upload className="h-4 w-4" />
-                                                  </Button>
+                                                {(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' && (
+                                                  <>
+                                                    <input
+                                                      type="file"
+                                                      accept=".pdf"
+                                                      id={`partner-invoice-upload-${commission.id}-post`}
+                                                      className="hidden"
+                                                      onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                          handleUploadPartnerInvoice(commission.id, file);
+                                                        }
+                                                      }}
+                                                      disabled={uploadingInvoice === commission.id}
+                                                    />
+                                                    <Button 
+                                                      variant="outline" 
+                                                      size="sm"
+                                                      className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
+                                                      disabled={uploadingInvoice === commission.id}
+                                                      onClick={() => {
+                                                        const input = document.getElementById(`partner-invoice-upload-${commission.id}-post`) as HTMLInputElement;
+                                                        input?.click();
+                                                      }}
+                                                    >
+                                                      {uploadingInvoice === commission.id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                      ) : (
+                                                        <Upload className="h-4 w-4" />
+                                                      )}
+                                                    </Button>
+                                                  </>
                                                 )}
                                               </div>
                                             </TableCell>

@@ -352,7 +352,65 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
     const closingDate = deal.Closing_Date || null;
     
     // Extraer campos adicionales del JSONB data (buscar en múltiples variantes de nombres)
-    const plazoDeal = deal.Plazo || deal.Plazo_Deal || null;
+    // Buscar plazo_deal en múltiples variantes posibles de nombres de campos en Zoho
+    // El campo correcto en Zoho es "Plazos" (API name: Plazos) - viene como número
+    let plazoDeal: string | null = null;
+    
+    // Buscar el campo "Plazos" primero (es el correcto en Zoho CRM)
+    if (deal.Plazos !== null && deal.Plazos !== undefined) {
+      // Convertir a string si viene como número (el campo en Zoho es tipo "Número")
+      plazoDeal = String(deal.Plazos);
+    } else if ((deal as any)?.Plazos !== null && (deal as any)?.Plazos !== undefined) {
+      plazoDeal = String((deal as any).Plazos);
+    } else {
+      // Fallback a otras variantes
+      const plazoValue = deal.Plazo || 
+                        deal.Plazo_Deal || 
+                        deal.Plazo_de_Deal ||
+                        deal.Plazo_De_Deal ||
+                        deal.Plazo_Deal_Numero ||
+                        deal.Plazo_Numero ||
+                        deal.Plazo_Meses ||
+                        deal.Plazo_en_Meses ||
+                        deal.Payment_Terms ||
+                        deal.Terms ||
+                        deal.Plazo_Pago ||
+                        (deal as any)?.Plazo ||
+                        (deal as any)?.plazo ||
+                        null;
+      
+      if (plazoValue !== null && plazoValue !== undefined) {
+        plazoDeal = String(plazoValue);
+      }
+    }
+    
+    // Log para debugging si no se encuentra plazo_deal
+    if (!plazoDeal) {
+      logger.warn('No se encontró plazo_deal en el deal', {
+        zohoDealId: deal.id,
+        dealName: deal.Deal_Name,
+        // Buscar específicamente el campo "Plazos" que es el correcto en Zoho
+        tienePlazos: !!(deal.Plazos || (deal as any)?.Plazos),
+        valorPlazos: deal.Plazos || (deal as any)?.Plazos,
+        availableFields: Object.keys(deal).filter(k => 
+          k.toLowerCase().includes('plazo') || 
+          k.toLowerCase().includes('term') ||
+          k.toLowerCase().includes('meses') ||
+          k === 'Plazos'  // Incluir el campo correcto
+        ),
+        allFields: Object.keys(deal).slice(0, 30) // Primeros 30 campos para no saturar el log
+      }, 'commission-db');
+    } else {
+      // Log cuando SÍ se encuentra para verificar que está funcionando
+      logger.info('Plazo_deal encontrado en el deal', {
+        zohoDealId: deal.id,
+        dealName: deal.Deal_Name,
+        plazoDeal,
+        campoEncontradoEn: deal.Plazos ? 'Plazos' : 
+                          deal.Plazo ? 'Plazo' :
+                          deal.Plazo_Deal ? 'Plazo_Deal' : 'otro'
+      }, 'commission-db');
+    }
     
     // Si no se extrajo producto del Deal_Name, intentar desde otros campos
     if (!producto) {
@@ -403,7 +461,7 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
       desarrollo: desarrollo,
       propietario_deal: propietarioDeal,
       propietario_deal_id: propietarioDealId,
-      plazo_deal: plazoDeal,
+      plazo_deal: plazoDeal || undefined, // Convertir null a undefined para el tipo
       producto: producto,
       metros_cuadrados: m2,
       precio_por_m2: precioPorM2,
@@ -413,8 +471,42 @@ export async function syncDealToCommissionSale(deal: any): Promise<CommissionSal
       asesor_externo_id: asesorExternoId,
     };
 
-    // Permitir actualización cuando se sincroniza desde Zoho (sincronización automática)
-    const sale = await upsertCommissionSale(saleInput, true);
+    // Log información sobre plazo_deal al sincronizar
+    if (plazoDeal) {
+      logger.info('Plazo_deal encontrado al sincronizar deal', {
+        zohoDealId,
+        dealName,
+        plazoDeal,
+        saleId: null // Se asignará después
+      }, 'commission-db');
+    } else {
+      logger.warn('Plazo_deal NO encontrado al sincronizar deal - puede afectar cálculo de comisiones de postventa', {
+        zohoDealId,
+        dealName,
+        desarrollo,
+        clienteNombre,
+        valorTotal,
+        fechaFirma: closingDate,
+        // Buscar campos relacionados con plazo en el deal
+        camposRelacionados: Object.keys(deal).filter(k => {
+          const keyLower = k.toLowerCase();
+          return keyLower.includes('plazo') || 
+                 keyLower.includes('term') || 
+                 keyLower.includes('meses') ||
+                 keyLower.includes('pago') ||
+                 keyLower.includes('payment');
+        }),
+        // Mostrar algunos campos del deal para debugging
+        sampleFields: Object.keys(deal).slice(0, 30).reduce((acc, key) => {
+          if (!['id', 'Deal_Name', 'Amount', 'Stage', 'Closing_Date', 'Owner', 'Account_Name'].includes(key)) {
+            acc[key] = deal[key];
+          }
+          return acc;
+        }, {} as Record<string, any>)
+      }, 'commission-db');
+    }
+
+    const sale = await upsertCommissionSale(saleInput);
 
     // Sincronizar socios del producto (en segundo plano, no bloquear si falla)
     try {
@@ -623,27 +715,11 @@ export async function getCommissionSales(
 
 /**
  * Crea o actualiza una venta comisionable
- * @param sale - Datos de la venta comisionable
- * @param allowUpdateWhenCalculated - Si es true, permite actualizar incluso si commission_calculated = true (para sincronización automática)
- * @throws Error si la venta tiene comisiones calculadas y allowUpdateWhenCalculated es false
  */
 export async function upsertCommissionSale(
-  sale: CommissionSaleInput,
-  allowUpdateWhenCalculated: boolean = false
+  sale: CommissionSaleInput
 ): Promise<CommissionSale> {
   try {
-    // Si no se permite actualizar cuando está calculado, verificar primero
-    if (!allowUpdateWhenCalculated) {
-      // Verificar si la venta ya existe y tiene comisiones calculadas
-      const existingSale = await getCommissionSaleByZohoDealId(sale.zoho_deal_id);
-      if (existingSale && existingSale.commission_calculated) {
-        throw new Error(
-          'No se puede actualizar esta venta porque ya tiene comisiones calculadas. ' +
-          'Debe usar el botón "Recalcular" para eliminar las distribuciones y permitir la edición.'
-        );
-      }
-    }
-
     const result = await query<CommissionSale>(
       `INSERT INTO commission_sales (
         zoho_deal_id, deal_name, cliente_nombre, desarrollo,
@@ -659,7 +735,7 @@ export async function upsertCommissionSale(
         desarrollo = EXCLUDED.desarrollo,
         propietario_deal = EXCLUDED.propietario_deal,
         propietario_deal_id = EXCLUDED.propietario_deal_id,
-        plazo_deal = EXCLUDED.plazo_deal,
+        plazo_deal = COALESCE(NULLIF(EXCLUDED.plazo_deal, ''), commission_sales.plazo_deal), -- Solo actualizar si hay un valor no vacío, sino mantener el existente
         producto = EXCLUDED.producto,
         metros_cuadrados = EXCLUDED.metros_cuadrados,
         precio_por_m2 = EXCLUDED.precio_por_m2,
@@ -677,7 +753,7 @@ export async function upsertCommissionSale(
         sale.desarrollo,
         sale.propietario_deal,
         sale.propietario_deal_id || null,
-        sale.plazo_deal || null,
+        sale.plazo_deal !== undefined ? (sale.plazo_deal || null) : null, // Preservar null explícito, pero convertir undefined a null
         sale.producto || null,
         sale.metros_cuadrados,
         sale.precio_por_m2,
@@ -696,15 +772,12 @@ export async function upsertCommissionSale(
 
 /**
  * Actualiza el estado de cálculo de comisión de una venta
- * También guarda los porcentajes de fase usados para que queden estáticos
  */
 export async function updateCommissionSaleCalculation(
   saleId: number,
   commissionTotal: number,
   commissionSalePhase: number,
-  commissionPostSalePhase: number,
-  phaseSalePercent: number,
-  phasePostSalePercent: number
+  commissionPostSalePhase: number
 ): Promise<void> {
   try {
     await query(
@@ -713,11 +786,9 @@ export async function updateCommissionSaleCalculation(
            commission_total = $1,
            commission_sale_phase = $2,
            commission_post_sale_phase = $3,
-           calculated_phase_sale_percent = $4,
-           calculated_phase_post_sale_percent = $5,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6`,
-      [commissionTotal, commissionSalePhase, commissionPostSalePhase, phaseSalePercent, phasePostSalePercent, saleId]
+       WHERE id = $4`,
+      [commissionTotal, commissionSalePhase, commissionPostSalePhase, saleId]
     );
   } catch (error) {
     logger.error('Error actualizando cálculo de comisión', error, {}, 'commission-db');
@@ -782,17 +853,18 @@ export async function createCommissionDistribution(
 
 /**
  * Crea múltiples distribuciones de comisión
- * NOTA: Esta función asume que las distribuciones existentes ya fueron eliminadas
- * si es necesario. No elimina distribuciones existentes automáticamente para
- * proteger las distribuciones ya calculadas de cambios en la configuración.
  */
 export async function createCommissionDistributions(
   distributions: CommissionDistributionInput[]
 ): Promise<CommissionDistribution[]> {
   try {
-    // NO eliminar distribuciones existentes automáticamente
-    // Esto debe hacerse explícitamente antes de llamar a esta función
-    // para proteger las distribuciones ya calculadas de cambios en la configuración
+    // Eliminar distribuciones existentes para esta venta
+    if (distributions.length > 0) {
+      await query(
+        `DELETE FROM commission_distributions WHERE sale_id = $1`,
+        [distributions[0].sale_id]
+      );
+    }
 
     // Insertar nuevas distribuciones
     const created: CommissionDistribution[] = [];
@@ -967,15 +1039,13 @@ export async function deleteCommissionDistributions(saleId: number): Promise<voi
       [saleId]
     );
     
-    // Resetear estado de cálculo de la venta (también limpiar porcentajes guardados)
+    // Resetear estado de cálculo de la venta
     await query(
       `UPDATE commission_sales
        SET commission_calculated = false,
            commission_total = 0,
            commission_sale_phase = 0,
            commission_post_sale_phase = 0,
-           calculated_phase_sale_percent = NULL,
-           calculated_phase_post_sale_percent = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [saleId]
@@ -2002,12 +2072,17 @@ export async function getCommissionsByPartner(
 }>> {
   try {
     // Construir query base para obtener ventas con comisiones calculadas
+    // IMPORTANTE: Usar valor_total y porcentajes guardados para calcular lo que se cobra al socio
+    // NO usar commission_sale_phase ni commission_post_sale_phase que son valores de egresos (lo que se paga al equipo)
     let queryText = `
       SELECT 
         cs.id as sale_id,
         cs.cliente_nombre,
         cs.desarrollo,
         cs.producto,
+        cs.valor_total,
+        cs.calculated_phase_sale_percent,
+        cs.calculated_phase_post_sale_percent,
         cs.commission_sale_phase,
         cs.commission_post_sale_phase,
         cs.fecha_firma,
@@ -2048,6 +2123,9 @@ export async function getCommissionsByPartner(
       cliente_nombre: string;
       desarrollo: string;
       producto: string | null;
+      valor_total: number;
+      calculated_phase_sale_percent: number | null;
+      calculated_phase_post_sale_percent: number | null;
       commission_sale_phase: number;
       commission_post_sale_phase: number;
       socio_name: string;
@@ -2062,8 +2140,27 @@ export async function getCommissionsByPartner(
     
     // Calcular comisiones por socio
     const commissionsByPartner = result.rows.map(row => {
+      // Calcular montos de fase usando valor_total y porcentajes guardados (lo que se cobra al socio)
+      // Si no hay porcentajes guardados, usar los valores de egresos como fallback (comportamiento legacy)
+      const valorTotal = Number(row.valor_total || 0);
+      const phaseSalePercent = Number(row.calculated_phase_sale_percent || 0);
+      const phasePostSalePercent = Number(row.calculated_phase_post_sale_percent || 0);
+      
+      let salePhaseAmount: number;
+      let postSalePhaseAmount: number;
+      
+      if (phaseSalePercent > 0 && phasePostSalePercent > 0) {
+        // Calcular desde la configuración: valor_total * porcentaje / 100
+        salePhaseAmount = Number(((valorTotal * phaseSalePercent) / 100).toFixed(2));
+        postSalePhaseAmount = Number(((valorTotal * phasePostSalePercent) / 100).toFixed(2));
+      } else {
+        // Fallback: usar los montos ya calculados en commission_sales (comportamiento legacy)
+        salePhaseAmount = Number(row.commission_sale_phase || 0);
+        postSalePhaseAmount = Number(row.commission_post_sale_phase || 0);
+      }
+      
       // Calcular el total de comisión (venta + posventa)
-      const totalCommission = Number(row.commission_sale_phase || 0) + Number(row.commission_post_sale_phase || 0);
+      const totalCommission = salePhaseAmount + postSalePhaseAmount;
       
       // Calcular la comisión que corresponde al socio según su participación
       const participacion = Number(row.participacion || 0);
@@ -2118,7 +2215,7 @@ export async function processZohoProjectsEvent(
     commission_sale_id?: number;
     event_data?: any;
   },
-  _processedBy: number
+  processedBy: number
 ): Promise<{
   event_id: number;
   processed: boolean;
@@ -2218,6 +2315,8 @@ export async function calculatePartnerCommissions(
     socio_name: string;
     participacion: number;
     total_commission_amount: number;
+    sale_phase_amount: number;
+    post_sale_phase_amount: number;
     collection_status: string;
   }>;
   total_partners: number;
@@ -2227,6 +2326,31 @@ export async function calculatePartnerCommissions(
 
     try {
       await client.query('BEGIN');
+
+      // Obtener información de la venta para logging
+      const saleInfoResult = await client.query(`
+        SELECT 
+          valor_total,
+          calculated_phase_sale_percent,
+          calculated_phase_post_sale_percent,
+          commission_sale_phase,
+          commission_post_sale_phase
+        FROM commission_sales
+        WHERE id = $1
+      `, [saleId]);
+
+      if (saleInfoResult.rows.length > 0) {
+        const saleInfo = saleInfoResult.rows[0];
+        logger.info('Calculando comisiones por socio desde configuración', {
+          saleId,
+          valorTotal: saleInfo.valor_total,
+          phaseSalePercent: saleInfo.calculated_phase_sale_percent,
+          phasePostSalePercent: saleInfo.calculated_phase_post_sale_percent,
+          salePhaseAmountFromDB: saleInfo.commission_sale_phase,
+          postSalePhaseAmountFromDB: saleInfo.commission_post_sale_phase,
+          calculatedBy
+        }, 'commission-db');
+      }
 
       // Llamar a la función de PostgreSQL
       const result = await client.query(`
@@ -2241,16 +2365,37 @@ export async function calculatePartnerCommissions(
           socio_name,
           participacion,
           total_commission_amount,
+          sale_phase_amount,
+          post_sale_phase_amount,
           collection_status
         FROM partner_commissions
         WHERE commission_sale_id = $1
         ORDER BY socio_name
       `, [saleId]);
 
+      logger.info('Comisiones por socio calculadas', {
+        saleId,
+        partnersCount,
+        commissions: commissionsResult.rows.map(c => ({
+          socio: c.socio_name,
+          participacion: c.participacion,
+          salePhaseAmount: c.sale_phase_amount,
+          postSalePhaseAmount: c.post_sale_phase_amount,
+          totalAmount: c.total_commission_amount
+        }))
+      }, 'commission-db');
+
       await client.query('COMMIT');
 
       return {
-        partner_commissions: commissionsResult.rows,
+        partner_commissions: commissionsResult.rows.map(row => ({
+          socio_name: row.socio_name,
+          participacion: Number(row.participacion),
+          total_commission_amount: Number(row.total_commission_amount),
+          sale_phase_amount: Number(row.sale_phase_amount),
+          post_sale_phase_amount: Number(row.post_sale_phase_amount),
+          collection_status: row.collection_status
+        })),
         total_partners: partnersCount
       };
 
@@ -2275,6 +2420,10 @@ export async function getPartnerCommissions(
     commission_sale_id?: number;
     socio_name?: string;
     collection_status?: string;
+    desarrollo?: string;
+    fecha_firma_from?: string;
+    fecha_firma_to?: string;
+    phase?: 'sale-phase' | 'post-sale-phase';
   }
 ): Promise<Array<{
   id: number;
@@ -2285,11 +2434,18 @@ export async function getPartnerCommissions(
   sale_phase_amount: number;
   post_sale_phase_amount: number;
   collection_status: string;
+  sale_phase_collection_status: string;
+  post_sale_phase_collection_status: string;
   calculated_at: string;
   sale_info?: {
     cliente_nombre: string;
     desarrollo: string;
     fecha_firma: string;
+    valor_total: number | null;
+    calculated_phase_post_sale_percent: number | null;
+    calculated_phase_sale_percent: number | null;
+    producto: string | null;
+    plazo_deal: string | null;
   };
 }>> {
   try {
@@ -2300,7 +2456,12 @@ export async function getPartnerCommissions(
         pc.*,
         cs.cliente_nombre,
         cs.desarrollo,
-        cs.fecha_firma
+        cs.fecha_firma,
+        cs.valor_total,
+        cs.calculated_phase_sale_percent,
+        cs.calculated_phase_post_sale_percent,
+        cs.producto,
+        cs.plazo_deal
       FROM partner_commissions pc
       INNER JOIN commission_sales cs ON pc.commission_sale_id = cs.id
       WHERE 1=1
@@ -2322,32 +2483,362 @@ export async function getPartnerCommissions(
     }
 
     if (filters?.collection_status) {
-      queryText += ` AND pc.collection_status = $${paramIndex}`;
+      // Usar el estado específico de la fase si estamos filtrando por fase
+      // Si es fase venta, usar sale_phase_collection_status
+      // Si es fase postventa, usar post_sale_phase_collection_status
+      // Si no hay fase específica, usar collection_status como fallback
+      if (filters?.phase === 'sale-phase') {
+        queryText += ` AND COALESCE(pc.sale_phase_collection_status, pc.collection_status) = $${paramIndex}`;
+      } else if (filters?.phase === 'post-sale-phase') {
+        queryText += ` AND COALESCE(pc.post_sale_phase_collection_status, pc.collection_status) = $${paramIndex}`;
+      } else {
+        queryText += ` AND pc.collection_status = $${paramIndex}`;
+      }
       params.push(filters.collection_status);
       paramIndex++;
     }
 
+    if (filters?.desarrollo) {
+      queryText += ` AND cs.desarrollo = $${paramIndex}`;
+      params.push(filters.desarrollo);
+      paramIndex++;
+    }
+
+    // Para filtros de fecha, usar la fecha correspondiente según la fase
+    // - Fase venta: usar fecha_firma
+    // - Fase postventa: usar fecha_escrituracion (fecha_firma + plazo_deal en meses)
+    if (filters?.fecha_firma_from || filters?.fecha_firma_to) {
+      const fechaFrom = filters?.fecha_firma_from || '1900-01-01';
+      const fechaTo = filters?.fecha_firma_to || '9999-12-31';
+      
+      logger.info('Aplicando filtro de fecha en getPartnerCommissions', {
+        phase: filters?.phase,
+        fechaFrom,
+        fechaTo,
+        hasPostSaleCollectedAt: 'post_sale_phase_collected_at' in (queryText.match(/post_sale_phase_collected_at/g) || []),
+      }, 'commission-db');
+      
+      if (filters?.phase === 'post-sale-phase') {
+        // Fase postventa: solo mostrar si tiene monto de postventa > 0
+        // Filtrar por fecha de cobro guardada (post_sale_phase_collected_at)
+        // Si no hay fecha de cobro, usar fecha de escrituración (fecha_firma + plazo) si tiene plazo_deal
+        // Si no hay plazo_deal (es contado), usar fecha_firma como fallback
+        queryText += ` AND pc.post_sale_phase_amount > 0 AND (
+          -- Si tiene fecha de cobro guardada, usar esa
+          (pc.post_sale_phase_collected_at IS NOT NULL 
+           AND pc.post_sale_phase_collected_at >= $${paramIndex} 
+           AND pc.post_sale_phase_collected_at <= $${paramIndex + 1})
+          OR
+          -- Si no tiene fecha de cobro y tiene plazo_deal, usar fecha de escrituración calculada
+          (pc.post_sale_phase_collected_at IS NULL
+           AND cs.fecha_firma IS NOT NULL
+           AND cs.plazo_deal IS NOT NULL 
+           AND cs.plazo_deal ~ '^[0-9]+'
+           AND (
+             cs.fecha_firma + 
+             (CAST(SUBSTRING(cs.plazo_deal FROM '^([0-9]+)') AS INTEGER) || ' months')::INTERVAL
+           ) >= $${paramIndex}
+           AND (
+             cs.fecha_firma + 
+             (CAST(SUBSTRING(cs.plazo_deal FROM '^([0-9]+)') AS INTEGER) || ' months')::INTERVAL
+           ) <= $${paramIndex + 1})
+          OR
+          -- Si no tiene fecha de cobro y no tiene plazo_deal (es contado), usar fecha_firma
+          (pc.post_sale_phase_collected_at IS NULL
+           AND cs.fecha_firma IS NOT NULL
+           AND (cs.plazo_deal IS NULL OR cs.plazo_deal = '' OR cs.plazo_deal !~ '^[0-9]+')
+           AND cs.fecha_firma >= $${paramIndex}
+           AND cs.fecha_firma <= $${paramIndex + 1})
+        )`;
+      } else {
+        // Fase venta: filtrar por fecha de cobro guardada (sale_phase_collected_at)
+        // Si no hay fecha de cobro, usar fecha_firma como fallback
+        queryText += ` AND (
+          -- Si tiene fecha de cobro guardada, usar esa
+          (pc.sale_phase_collected_at IS NOT NULL 
+           AND pc.sale_phase_collected_at >= $${paramIndex} 
+           AND pc.sale_phase_collected_at <= $${paramIndex + 1})
+          OR
+          -- Si no tiene fecha de cobro, usar fecha_firma
+          (pc.sale_phase_collected_at IS NULL
+           AND cs.fecha_firma >= $${paramIndex} 
+           AND cs.fecha_firma <= $${paramIndex + 1})
+        )`;
+      }
+      params.push(fechaFrom, fechaTo);
+      paramIndex += 2;
+    }
+
     queryText += ` ORDER BY pc.created_at DESC`;
 
+    logger.info('Ejecutando consulta getPartnerCommissions', {
+      query: queryText.substring(0, 1000) + (queryText.length > 1000 ? '...' : ''),
+      params: params,
+      filters: filters,
+      phase: filters?.phase,
+      fechaFrom: filters?.fecha_firma_from,
+      fechaTo: filters?.fecha_firma_to,
+    }, 'commission-db');
+
     const result = await client.query(queryText, params);
+    
+    // Consulta de diagnóstico para verificar valores de plazo_deal en commission_sales
+    if (result.rows.length > 0) {
+      const diagnosticClient = await getClient();
+      const saleIdsSet = new Set(result.rows.map(r => r.commission_sale_id));
+      const saleIds = Array.from(saleIdsSet);
+      if (saleIds.length > 0) {
+        const placeholders = saleIds.map((_, i) => `$${i + 1}`).join(',');
+        const plazoDealCheck = await diagnosticClient.query(
+          `SELECT id, zoho_deal_id, plazo_deal, plazo_deal IS NULL as is_null, plazo_deal = '' as is_empty 
+           FROM commission_sales 
+           WHERE id IN (${placeholders})`,
+          saleIds
+        );
+        diagnosticClient.release();
+        
+        logger.info('Verificación de plazo_deal en commission_sales', {
+          totalSales: saleIds.length,
+          salesConPlazo: plazoDealCheck.rows.filter(r => r.plazo_deal !== null && r.plazo_deal !== '').length,
+          salesSinPlazo: plazoDealCheck.rows.filter(r => r.plazo_deal === null || r.plazo_deal === '').length,
+          detalles: plazoDealCheck.rows.map(r => ({
+            id: r.id,
+            zoho_deal_id: r.zoho_deal_id,
+            plazo_deal: r.plazo_deal,
+            is_null: r.is_null,
+            is_empty: r.is_empty,
+            tipo: typeof r.plazo_deal
+          }))
+        }, 'commission-db');
+      }
+    }
+    
+    // Si no hay resultados y es fase postventa, hacer una consulta de diagnóstico
+    if (result.rows.length === 0 && filters?.phase === 'post-sale-phase') {
+      const diagnosticClient = await getClient();
+      const diagnosticQuery = `
+        SELECT 
+          pc.id,
+          pc.commission_sale_id,
+          pc.socio_name,
+          pc.post_sale_phase_amount,
+          pc.post_sale_phase_collected_at,
+          cs.fecha_firma,
+          cs.plazo_deal,
+          CASE 
+            WHEN cs.plazo_deal IS NOT NULL AND cs.plazo_deal ~ '^[0-9]+' THEN
+              cs.fecha_firma + (CAST(SUBSTRING(cs.plazo_deal FROM '^([0-9]+)') AS INTEGER) || ' months')::INTERVAL
+            ELSE NULL
+          END as fecha_escrituracion_calculada
+        FROM partner_commissions pc
+        INNER JOIN commission_sales cs ON pc.commission_sale_id = cs.id
+        WHERE pc.post_sale_phase_amount > 0
+        ORDER BY cs.fecha_firma DESC
+        LIMIT 10
+      `;
+      const diagnosticResult = await diagnosticClient.query(diagnosticQuery);
+      diagnosticClient.release();
+      
+      logger.info('Consulta de diagnóstico para fase postventa (primeras 10 comisiones con monto > 0)', {
+        totalComisionesConMonto: diagnosticResult.rows.length,
+        comisiones: diagnosticResult.rows.map(row => {
+          const tienePlazoDeal = row.plazo_deal !== null && row.plazo_deal !== '';
+          const tieneFechaEscrituracion = row.fecha_escrituracion_calculada !== null;
+          const tieneFechaCobro = row.post_sale_phase_collected_at !== null;
+          
+          // Verificar por qué no pasa el filtro
+          let razonNoPasaFiltro = '';
+          if (!tienePlazoDeal && !tieneFechaCobro) {
+            // Si no tiene plazo_deal ni fecha de cobro, debería usar fecha_firma
+            const fechaParaFiltro = row.fecha_firma;
+            if (filters?.fecha_firma_from && filters?.fecha_firma_to) {
+              if (fechaParaFiltro < filters.fecha_firma_from) {
+                razonNoPasaFiltro = `Fecha firma ${fechaParaFiltro} es anterior al rango ${filters.fecha_firma_from} - ${filters.fecha_firma_to}`;
+              } else if (fechaParaFiltro > filters.fecha_firma_to) {
+                razonNoPasaFiltro = `Fecha firma ${fechaParaFiltro} es posterior al rango ${filters.fecha_firma_from} - ${filters.fecha_firma_to}`;
+              } else {
+                razonNoPasaFiltro = 'Debería pasar el filtro usando fecha_firma (es contado)';
+              }
+            }
+          } else if (!tienePlazoDeal && tieneFechaCobro) {
+            // Tiene fecha de cobro pero no plazo_deal, debería pasar
+            razonNoPasaFiltro = 'Debería pasar el filtro usando fecha de cobro (es contado)';
+          } else if (!tieneFechaEscrituracion && !tieneFechaCobro) {
+            razonNoPasaFiltro = 'No se puede calcular fecha de escrituración y no tiene fecha de cobro';
+          } else {
+            const fechaParaFiltro = tieneFechaCobro ? row.post_sale_phase_collected_at : row.fecha_escrituracion_calculada;
+            if (filters?.fecha_firma_from && filters?.fecha_firma_to) {
+              if (fechaParaFiltro < filters.fecha_firma_from) {
+                razonNoPasaFiltro = `Fecha ${fechaParaFiltro} es anterior al rango ${filters.fecha_firma_from} - ${filters.fecha_firma_to}`;
+              } else if (fechaParaFiltro > filters.fecha_firma_to) {
+                razonNoPasaFiltro = `Fecha ${fechaParaFiltro} es posterior al rango ${filters.fecha_firma_from} - ${filters.fecha_firma_to}`;
+              } else {
+                razonNoPasaFiltro = 'Debería pasar el filtro (revisar lógica SQL)';
+              }
+            }
+          }
+          
+          return {
+            id: row.id,
+            commission_sale_id: row.commission_sale_id,
+            socio_name: row.socio_name,
+            post_sale_phase_amount: row.post_sale_phase_amount,
+            fecha_firma: row.fecha_firma,
+            plazo_deal: row.plazo_deal,
+            tiene_plazo_deal: tienePlazoDeal,
+            fecha_escrituracion_calculada: row.fecha_escrituracion_calculada,
+            post_sale_phase_collected_at: row.post_sale_phase_collected_at,
+            año_escrituracion: row.fecha_escrituracion_calculada ? new Date(row.fecha_escrituracion_calculada).getFullYear() : null,
+            año_filtro: filters?.fecha_firma_from ? new Date(filters.fecha_firma_from).getFullYear() : null,
+            dentro_del_rango: row.fecha_escrituracion_calculada 
+              ? (filters?.fecha_firma_from && filters?.fecha_firma_to 
+                ? (row.fecha_escrituracion_calculada >= filters.fecha_firma_from && row.fecha_escrituracion_calculada <= filters.fecha_firma_to)
+                : false)
+              : (row.post_sale_phase_collected_at 
+                ? (filters?.fecha_firma_from && filters?.fecha_firma_to
+                  ? (row.post_sale_phase_collected_at >= filters.fecha_firma_from && row.post_sale_phase_collected_at <= filters.fecha_firma_to)
+                  : false)
+                : false),
+            razon_no_pasa_filtro: razonNoPasaFiltro,
+          };
+        }),
+        filtroAplicado: {
+          fechaFrom: filters?.fecha_firma_from,
+          fechaTo: filters?.fecha_firma_to,
+          año: filters?.fecha_firma_from ? new Date(filters.fecha_firma_from).getFullYear() : null,
+        },
+        resumen: {
+          total: diagnosticResult.rows.length,
+          con_plazo_deal: diagnosticResult.rows.filter(r => r.plazo_deal !== null && r.plazo_deal !== '').length,
+          sin_plazo_deal: diagnosticResult.rows.filter(r => r.plazo_deal === null || r.plazo_deal === '').length,
+          con_fecha_escrituracion: diagnosticResult.rows.filter(r => r.fecha_escrituracion_calculada !== null).length,
+          con_fecha_cobro: diagnosticResult.rows.filter(r => r.post_sale_phase_collected_at !== null).length,
+        }
+      }, 'commission-db');
+    }
+    
     client.release();
 
-    return result.rows.map(row => ({
-      id: row.id,
-      commission_sale_id: row.commission_sale_id,
-      socio_name: row.socio_name,
-      participacion: Number(row.participacion),
-      total_commission_amount: Number(row.total_commission_amount),
-      sale_phase_amount: Number(row.sale_phase_amount),
-      post_sale_phase_amount: Number(row.post_sale_phase_amount),
-      collection_status: row.collection_status,
-      calculated_at: row.calculated_at,
-      sale_info: {
+    // Log detallado de plazo_deal para todas las comisiones
+    const plazoDealStats = result.rows.reduce((acc, row) => {
+      const tienePlazo = row.plazo_deal !== null && row.plazo_deal !== undefined && row.plazo_deal !== '';
+      if (tienePlazo) {
+        acc.conPlazo++;
+        acc.ejemplosConPlazo.push({
+          id: row.id,
+          commission_sale_id: row.commission_sale_id,
+          plazo_deal: row.plazo_deal,
+          tipo: typeof row.plazo_deal
+        });
+      } else {
+        acc.sinPlazo++;
+        acc.ejemplosSinPlazo.push({
+          id: row.id,
+          commission_sale_id: row.commission_sale_id,
+          plazo_deal: row.plazo_deal,
+          tipo: typeof row.plazo_deal
+        });
+      }
+      return acc;
+    }, {
+      conPlazo: 0,
+      sinPlazo: 0,
+      ejemplosConPlazo: [] as any[],
+      ejemplosSinPlazo: [] as any[]
+    });
+
+    logger.info('Resultados de getPartnerCommissions', {
+      totalRows: result.rows.length,
+      plazoDealStats: {
+        conPlazo: plazoDealStats.conPlazo,
+        sinPlazo: plazoDealStats.sinPlazo,
+        ejemplosConPlazo: plazoDealStats.ejemplosConPlazo.slice(0, 5),
+        ejemplosSinPlazo: plazoDealStats.ejemplosSinPlazo.slice(0, 5),
+      },
+      sampleRow: result.rows[0] ? {
+        id: result.rows[0].id,
+        commission_sale_id: result.rows[0].commission_sale_id,
+        socio_name: result.rows[0].socio_name,
+        fecha_firma: result.rows[0].fecha_firma,
+        plazo_deal: result.rows[0].plazo_deal,
+        plazo_deal_type: typeof result.rows[0].plazo_deal,
+        plazo_deal_is_null: result.rows[0].plazo_deal === null,
+        plazo_deal_is_undefined: result.rows[0].plazo_deal === undefined,
+        plazo_deal_is_empty: result.rows[0].plazo_deal === '',
+        plazo_deal_length: result.rows[0].plazo_deal ? String(result.rows[0].plazo_deal).length : 0,
+        post_sale_phase_collected_at: result.rows[0].post_sale_phase_collected_at,
+        sale_phase_collected_at: result.rows[0].sale_phase_collected_at,
+        post_sale_phase_collection_status: result.rows[0].post_sale_phase_collection_status,
+        sale_phase_collection_status: result.rows[0].sale_phase_collection_status,
+        post_sale_phase_amount: result.rows[0].post_sale_phase_amount,
+      } : null,
+      phase: filters?.phase,
+      filters: filters,
+    }, 'commission-db');
+
+    const commissions = result.rows.map(row => {
+      // Convertir valores numéricos, manejando null y undefined correctamente
+      const valorTotal = row.valor_total != null ? Number(row.valor_total) : null;
+      const postSalePercent = row.calculated_phase_post_sale_percent != null 
+        ? Number(row.calculated_phase_post_sale_percent) 
+        : null;
+      const salePercent = row.calculated_phase_sale_percent != null 
+        ? Number(row.calculated_phase_sale_percent) 
+        : null;
+
+      const saleInfo = {
         cliente_nombre: row.cliente_nombre,
         desarrollo: row.desarrollo,
-        fecha_firma: row.fecha_firma
+        fecha_firma: row.fecha_firma,
+        valor_total: valorTotal,
+        calculated_phase_post_sale_percent: postSalePercent,
+        calculated_phase_sale_percent: salePercent,
+        producto: row.producto,
+        plazo_deal: row.plazo_deal // Este campo viene directamente de cs.plazo_deal en la consulta SQL
+      };
+
+      // Log para debugging: verificar si plazo_deal está llegando correctamente
+      if (row.plazo_deal === null || row.plazo_deal === undefined || row.plazo_deal === '') {
+        logger.warn('Comisión sin plazo_deal detectada', {
+          commissionId: row.id,
+          commissionSaleId: row.commission_sale_id,
+          socioName: row.socio_name,
+          plazoDealRaw: row.plazo_deal,
+          plazoDealType: typeof row.plazo_deal,
+          allRowKeys: Object.keys(row),
+          rowPlazoDeal: row.plazo_deal,
+          saleInfoPlazoDeal: saleInfo.plazo_deal
+        }, 'commission-db');
+      } else {
+        // Log cuando SÍ tiene plazo para verificar que se está pasando correctamente
+        logger.info('Comisión CON plazo_deal detectada', {
+          commissionId: row.id,
+          commissionSaleId: row.commission_sale_id,
+          socioName: row.socio_name,
+          plazoDealRaw: row.plazo_deal,
+          plazoDealType: typeof row.plazo_deal,
+          saleInfoPlazoDeal: saleInfo.plazo_deal,
+          saleInfoKeys: Object.keys(saleInfo)
+        }, 'commission-db');
       }
-    }));
+
+      return {
+        id: row.id,
+        commission_sale_id: row.commission_sale_id,
+        socio_name: row.socio_name,
+        participacion: Number(row.participacion),
+        total_commission_amount: Number(row.total_commission_amount),
+        sale_phase_amount: Number(row.sale_phase_amount),
+        post_sale_phase_amount: Number(row.post_sale_phase_amount),
+        collection_status: row.collection_status,
+        sale_phase_collection_status: row.sale_phase_collection_status || row.collection_status,
+        post_sale_phase_collection_status: row.post_sale_phase_collection_status || row.collection_status,
+        calculated_at: row.calculated_at,
+        sale_info: saleInfo
+      };
+    });
+
+    return commissions;
 
   } catch (error) {
     logger.error('Error obteniendo comisiones de socios', error, filters, 'commission-db');
@@ -2356,27 +2847,70 @@ export async function getPartnerCommissions(
 }
 
 /**
- * Actualiza el estado de cobro de una comisión a socio
+ * Actualiza el estado de cobro de una comisión a socio por fase
+ * Guarda la fecha de cobro cuando el estado cambia a 'collected'
  */
 export async function updatePartnerCommissionStatus(
   partnerCommissionId: number,
   newStatus: 'pending_invoice' | 'invoiced' | 'collected',
-  updatedBy: number
+  updatedBy: number,
+  phase: 'sale_phase' | 'post_sale_phase' = 'sale_phase'
 ): Promise<void> {
   try {
     const client = await getClient();
 
-    await client.query(`
-      UPDATE partner_commissions
-      SET collection_status = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [newStatus, partnerCommissionId]);
+    // Actualizar el estado según la fase especificada
+    // Si el estado es 'collected', guardar la fecha de cobro
+    if (phase === 'post_sale_phase') {
+      if (newStatus === 'collected') {
+        await client.query(`
+          UPDATE partner_commissions
+          SET 
+            post_sale_phase_collection_status = $1, 
+            post_sale_phase_collected_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+        `, [newStatus, partnerCommissionId]);
+      } else {
+        // Si cambia a otro estado, limpiar la fecha de cobro
+        await client.query(`
+          UPDATE partner_commissions
+          SET 
+            post_sale_phase_collection_status = $1, 
+            post_sale_phase_collected_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+        `, [newStatus, partnerCommissionId]);
+      }
+    } else {
+      if (newStatus === 'collected') {
+        await client.query(`
+          UPDATE partner_commissions
+          SET 
+            sale_phase_collection_status = $1, 
+            sale_phase_collected_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+        `, [newStatus, partnerCommissionId]);
+      } else {
+        // Si cambia a otro estado, limpiar la fecha de cobro
+        await client.query(`
+          UPDATE partner_commissions
+          SET 
+            sale_phase_collection_status = $1, 
+            sale_phase_collected_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+        `, [newStatus, partnerCommissionId]);
+      }
+    }
 
     client.release();
 
     logger.info('Estado de comisión a socio actualizado', {
       partnerCommissionId,
       newStatus,
+      phase,
       updatedBy
     }, 'commission-db');
 
@@ -2384,6 +2918,7 @@ export async function updatePartnerCommissionStatus(
     logger.error('Error actualizando estado de comisión a socio', error, {
       partnerCommissionId,
       newStatus,
+      phase,
       updatedBy
     }, 'commission-db');
     throw error;

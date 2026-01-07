@@ -464,7 +464,11 @@ export interface PartnerCommission {
   sale_phase_amount: number;
   post_sale_phase_amount: number;
 
-  // Estado de cobro (independiente del flujo interno)
+  // Estados de cobro por fase (independientes)
+  sale_phase_collection_status: PartnerCommissionStatus;
+  post_sale_phase_collection_status: PartnerCommissionStatus;
+  
+  // Estado de cobro legacy (deprecated, mantener por compatibilidad)
   collection_status: PartnerCommissionStatus;
 
   // Metadata

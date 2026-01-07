@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
 import { logger } from '@/lib/logger';
-import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus } from '@/lib/commission-db';
+import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/commission-db';
 import { calculatePartnerCommissionsForSale } from '@/lib/commission-calculator';
 import { getCommissionConfig } from '@/lib/commission-db';
 import type { APIResponse } from '@/types/documents';
@@ -22,8 +22,8 @@ const ALLOWED_ROLES = ['admin', 'ceo'];
 
 /**
  * GET /api/commissions/partner-commissions
- * Obtiene las comisiones por socio
- * Query params: ?desarrollo=xxx&year=2024 (ambos opcionales)
+ * Obtiene las comisiones por socio desde la base de datos
+ * Query params: ?desarrollo=xxx&year=2024&collection_status=xxx (todos opcionales)
  */
 export async function GET(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
@@ -57,63 +57,99 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const { searchParams } = new URL(request.url);
     const desarrollo = searchParams.get('desarrollo');
     const year = searchParams.get('year') ? parseInt(searchParams.get('year')!, 10) : undefined;
+    const collectionStatus = searchParams.get('collection_status');
+    const phase = searchParams.get('phase') as 'sale-phase' | 'post-sale-phase' | null;
 
-    // Obtener ventas comisionables con filtros
+    // Obtener ventas comisionables con filtros para asegurar que las comisiones estén calculadas
     const salesFilters: CommissionSalesFilters = {};
     if (desarrollo && desarrollo !== 'all') {
       salesFilters.desarrollo = desarrollo;
     }
     if (year) {
-      // Para filtrar por año, usar fecha_firma_from y fecha_firma_to
       salesFilters.fecha_firma_from = `${year}-01-01`;
       salesFilters.fecha_firma_to = `${year}-12-31`;
     }
 
-    const salesResult = await getCommissionSales(salesFilters, 1000, 0); // Obtener hasta 1000 ventas
-
+    const salesResult = await getCommissionSales(salesFilters, 1000, 0);
     const sales = salesResult?.sales || [];
 
-    // Calcular comisiones por socio para cada venta
-    const allPartnerCommissions: PartnerCommission[] = [];
-
+    // Calcular y guardar comisiones para cada venta que tenga socios pero no tenga comisiones calculadas
     for (const sale of sales) {
-      // Obtener los partners asociados a esta venta
       const partners = await getProductPartners(sale.id);
-
+      
       if (partners.length > 0) {
-        // Obtener la configuración para este desarrollo
-        const config: CommissionConfig | null = await getCommissionConfig(sale.desarrollo);
+        // Verificar si ya existen comisiones calculadas para esta venta
+        const existingCommissions = await getPartnerCommissions({
+          commission_sale_id: sale.id
+        });
 
-        if (config) {
-          // Calcular comisiones para estos partners usando la configuración
-          const partnerCommissions = calculatePartnerCommissionsForSale(sale, partners, {
-            phase_sale_percent: config.phase_sale_percent,
-            phase_post_sale_percent: config.phase_post_sale_percent,
-          });
-
-          // Agregar información adicional de la venta
-          const enrichedCommissions = partnerCommissions.map(commission => ({
-            ...commission,
-            sale_info: {
-              cliente_nombre: sale.cliente_nombre,
-              desarrollo: sale.desarrollo,
-              fecha_firma: sale.fecha_firma,
-              producto: sale.producto || null,
-              plazo_deal: sale.plazo_deal || null
-            }
-          }));
-
-          allPartnerCommissions.push(...enrichedCommissions);
-        } else {
-          logger.warn(`No se encontró configuración para el desarrollo: ${sale.desarrollo}`);
+        // Si no hay comisiones calculadas, calcularlas y guardarlas
+        if (existingCommissions.length === 0) {
+          try {
+            await calculatePartnerCommissions(sale.id, payload.userId);
+          } catch (error) {
+            logger.warn(`Error calculando comisiones para venta ${sale.id}`, error, {}, 'commissions-partner-commissions');
+            // Continuar con las demás ventas aunque falle una
+          }
         }
       }
     }
 
+    // Construir filtros para obtener las comisiones
+    const filters: {
+      desarrollo?: string;
+      fecha_firma_from?: string;
+      fecha_firma_to?: string;
+      collection_status?: string;
+      phase?: 'sale-phase' | 'post-sale-phase';
+    } = {};
+
+    if (desarrollo && desarrollo !== 'all') {
+      filters.desarrollo = desarrollo;
+    }
+
+    if (year) {
+      filters.fecha_firma_from = `${year}-01-01`;
+      filters.fecha_firma_to = `${year}-12-31`;
+    }
+
+    if (collectionStatus && collectionStatus !== 'all') {
+      filters.collection_status = collectionStatus;
+    }
+
+    if (phase) {
+      filters.phase = phase;
+    }
+
+    logger.info('Filtros aplicados para partner commissions', {
+      year,
+      desarrollo,
+      collectionStatus,
+      phase,
+      filters,
+      fecha_firma_from: filters.fecha_firma_from,
+      fecha_firma_to: filters.fecha_firma_to,
+    }, 'commissions-partner-commissions');
+
+    // Obtener comisiones desde la base de datos
+    const allPartnerCommissions = await getPartnerCommissions(filters);
+
+    logger.info('Comisiones obtenidas desde la base de datos', {
+      total: allPartnerCommissions.length,
+      sampleCommission: allPartnerCommissions[0] ? {
+        id: allPartnerCommissions[0].id,
+        commission_sale_id: allPartnerCommissions[0].commission_sale_id,
+        socio_name: allPartnerCommissions[0].socio_name,
+        sale_info: allPartnerCommissions[0].sale_info,
+      } : null,
+      phase,
+      year,
+    }, 'commissions-partner-commissions');
+
     return NextResponse.json({
       success: true,
       data: allPartnerCommissions,
-      message: `Se calcularon ${allPartnerCommissions.length} comisiones de socios para ${sales.length} ventas`
+      message: `Se obtuvieron ${allPartnerCommissions.length} comisiones de socios`
     });
   } catch (error) {
     logger.error('Error obteniendo comisiones por socio', error, {}, 'commissions-partner-commissions');
@@ -129,8 +165,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
 
 /**
  * PATCH /api/commissions/partner-commissions
- * Actualiza el estado de una comisión de socio
- * Body: { id: number, collection_status: 'pending_invoice' | 'invoiced' | 'collected' }
+ * Actualiza el estado de una comisión de socio por fase
+ * Body: { id: number, collection_status: 'pending_invoice' | 'invoiced' | 'collected', phase: 'sale_phase' | 'post_sale_phase' }
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
@@ -162,7 +198,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     }
 
     const body = await request.json();
-    const { id, collection_status } = body;
+    const { id, collection_status, phase } = body;
 
     if (!id || !collection_status) {
       return NextResponse.json(
@@ -178,8 +214,11 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
       );
     }
 
-    // Actualizar el estado
-    await updatePartnerCommissionStatus(id, collection_status, payload.userId);
+    // Validar fase
+    const validPhase = phase === 'post_sale_phase' ? 'post_sale_phase' : 'sale_phase';
+
+    // Actualizar el estado por fase
+    await updatePartnerCommissionStatus(id, collection_status, payload.userId, validPhase);
 
     return NextResponse.json({
       success: true,

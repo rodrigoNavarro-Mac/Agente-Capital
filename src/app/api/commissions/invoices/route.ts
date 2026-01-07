@@ -76,10 +76,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const distributionId = formData.get('distribution_id');
+    const partnerCommissionId = formData.get('partner_commission_id');
 
-    if (!file || !distributionId) {
+    if (!file || (!distributionId && !partnerCommissionId)) {
       return NextResponse.json(
-        { success: false, error: 'Archivo y distribution_id son requeridos' },
+        { success: false, error: 'Archivo y distribution_id o partner_commission_id son requeridos' },
         { status: 400 }
       );
     }
@@ -100,19 +101,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    // Verificar que la distribución existe
-    const distResult = await query<{ id: number }>(
-      'SELECT id FROM commission_distributions WHERE id = $1',
-      [parseInt(distributionId as string, 10)]
-    );
-
-    if (distResult.rows.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Distribución no encontrada' },
-        { status: 404 }
-      );
-    }
-
     // Crear directorio si no existe
     const invoicesDir = getInvoicesDir();
     if (!existsSync(invoicesDir)) {
@@ -122,7 +110,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // Generar nombre único para el archivo
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const filename = `invoice_${distributionId}_${timestamp}_${safeName}`;
+    const idToUse = distributionId || partnerCommissionId;
+    const filename = `invoice_${idToUse}_${timestamp}_${safeName}`;
     const filepath = join(invoicesDir, filename);
 
     // Leer y guardar el archivo
@@ -133,28 +122,92 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // Para compresión real, se podría usar una librería como pdf-lib o pdf2pic
     await writeFile(filepath, buffer);
 
-    // Si ya existe una factura anterior, eliminarla
-    const existingResult = await query<{ invoice_pdf_path: string | null }>(
-      'SELECT invoice_pdf_path FROM commission_distributions WHERE id = $1',
-      [parseInt(distributionId as string, 10)]
-    );
+    // Si es para distribución de comisión interna
+    if (distributionId) {
+      // Verificar que la distribución existe
+      const distResult = await query<{ id: number }>(
+        'SELECT id FROM commission_distributions WHERE id = $1',
+        [parseInt(distributionId as string, 10)]
+      );
 
-    if (existingResult.rows[0]?.invoice_pdf_path) {
-      try {
-        const oldPath = existingResult.rows[0].invoice_pdf_path;
-        if (existsSync(oldPath)) {
-          await unlink(oldPath);
+      if (distResult.rows.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Distribución no encontrada' },
+          { status: 404 }
+        );
+      }
+
+      // Si ya existe una factura anterior, eliminarla
+      const existingResult = await query<{ invoice_pdf_path: string | null }>(
+        'SELECT invoice_pdf_path FROM commission_distributions WHERE id = $1',
+        [parseInt(distributionId as string, 10)]
+      );
+
+      if (existingResult.rows[0]?.invoice_pdf_path) {
+        try {
+          const oldPath = existingResult.rows[0].invoice_pdf_path;
+          if (existsSync(oldPath)) {
+            await unlink(oldPath);
+          }
+        } catch (error) {
+          logger.warn('Error eliminando factura anterior', { error }, 'commissions-invoices');
         }
-      } catch (error) {
-        logger.warn('Error eliminando factura anterior', { error }, 'commissions-invoices');
+      }
+
+      // Guardar ruta en la base de datos
+      await query(
+        'UPDATE commission_distributions SET invoice_pdf_path = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [filepath, parseInt(distributionId as string, 10)]
+      );
+    } 
+    // Si es para comisión de socio
+    else if (partnerCommissionId) {
+      // Verificar que la comisión de socio existe
+      const partnerResult = await query<{ id: number }>(
+        'SELECT id FROM partner_commissions WHERE id = $1',
+        [parseInt(partnerCommissionId as string, 10)]
+      );
+
+      if (partnerResult.rows.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Comisión de socio no encontrada' },
+          { status: 404 }
+        );
+      }
+
+      // Buscar o crear factura para esta comisión
+      const invoiceResult = await query<{ id: number; invoice_pdf_path: string | null }>(
+        'SELECT id, invoice_pdf_path FROM partner_invoices WHERE partner_commission_id = $1',
+        [parseInt(partnerCommissionId as string, 10)]
+      );
+
+      // Si ya existe una factura anterior, eliminarla
+      if (invoiceResult.rows.length > 0 && invoiceResult.rows[0].invoice_pdf_path) {
+        try {
+          const oldPath = invoiceResult.rows[0].invoice_pdf_path;
+          if (existsSync(oldPath)) {
+            await unlink(oldPath);
+          }
+        } catch (error) {
+          logger.warn('Error eliminando factura anterior', { error }, 'commissions-invoices');
+        }
+
+        // Actualizar factura existente
+        await query(
+          'UPDATE partner_invoices SET invoice_pdf_path = $1, invoice_pdf_uploaded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+          [filepath, invoiceResult.rows[0].id]
+        );
+      } else {
+        // Crear nueva factura si no existe
+        // Usar la fecha actual como invoice_date
+        const invoiceDate = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+        await query(
+          `INSERT INTO partner_invoices (partner_commission_id, invoice_pdf_path, invoice_pdf_uploaded_at, invoice_date, invoice_amount, created_by)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, $3, 0, $4)`,
+          [parseInt(partnerCommissionId as string, 10), filepath, invoiceDate, payload.userId]
+        );
       }
     }
-
-    // Guardar ruta en la base de datos
-    await query(
-      'UPDATE commission_distributions SET invoice_pdf_path = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [filepath, parseInt(distributionId as string, 10)]
-    );
 
     return NextResponse.json({
       success: true,
