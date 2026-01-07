@@ -422,6 +422,32 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
           return result;
     } catch (error) {
       lastError = error;
+      
+      // Verificar si es un error de configuración (NO debe reintentarse)
+      // Estos errores indican problemas de configuración, no de disponibilidad de la BD
+      const isConfigurationError = error instanceof Error && (
+        error.message.includes('Tenant or user not found') ||
+        error.message.includes('password authentication failed') ||
+        error.message.includes('authentication failed') ||
+        error.message.includes('invalid oauth token') ||
+        (error.message.includes('role') && error.message.includes('does not exist'))
+      );
+      
+      // Si es un error de configuración, lanzar inmediatamente sin reintentar
+      if (isConfigurationError) {
+        recordFailure(error); // Registrar fallo (pero no afecta circuit breaker)
+        logger.error('⚠️ ERROR CRÍTICO: Problema de configuración de base de datos', error, { text, params }, 'postgres');
+        logger.error('   Esto indica que las credenciales en la cadena de conexión son incorrectas', undefined, undefined, 'postgres');
+        logger.error('   SOLUCIÓN PARA VERCEL:', undefined, undefined, 'postgres');
+        logger.error('   1. Ve a Vercel Dashboard > Tu Proyecto > Settings > Environment Variables', undefined, undefined, 'postgres');
+        logger.error('   2. Verifica que POSTGRES_URL o DATABASE_URL esté configurada', undefined, undefined, 'postgres');
+        logger.error('   3. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
+        logger.error('   4. Copia la cadena de "Connection pooling" (Transaction mode) y pégala en POSTGRES_URL', undefined, undefined, 'postgres');
+        logger.error('   5. Asegúrate de que la contraseña en la URL sea correcta', undefined, undefined, 'postgres');
+        logger.error('   6. Reinicia el deployment en Vercel después de cambiar las variables', undefined, undefined, 'postgres');
+        throw error; // Lanzar inmediatamente, no reintentar
+      }
+      
       recordFailure(error); // Registrar fallo
       
       // Verificar si es un error de conexión que puede recuperarse
