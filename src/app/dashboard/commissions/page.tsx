@@ -331,7 +331,9 @@ export default function CommissionsPage() {
           <SalesTab
             sales={sales}
             selectedDesarrollo={selectedDesarrollo}
+            selectedYear={selectedYear}
             onDesarrolloChange={setSelectedDesarrollo}
+            onYearChange={setSelectedYear}
             onRefresh={loadSales}
             loading={loading}
             availableDevelopments={availableDevelopmentsForFilter}
@@ -344,7 +346,9 @@ export default function CommissionsPage() {
             sales={sales}
             distributions={distributions}
             selectedDesarrollo={selectedDesarrollo}
+            selectedYear={selectedYear}
             onDesarrolloChange={setSelectedDesarrollo}
+            onYearChange={setSelectedYear}
             onRefresh={loadSales}
             loading={loading}
             availableDevelopments={availableDevelopmentsForFilter}
@@ -2106,14 +2110,18 @@ function ConfigTab({
 function SalesTab({
   sales,
   selectedDesarrollo,
+  selectedYear,
   onDesarrolloChange,
+  onYearChange,
   onRefresh,
   loading,
   availableDevelopments,
 }: {
   sales: CommissionSale[];
   selectedDesarrollo: string;
+  selectedYear: number;
   onDesarrolloChange: (desarrollo: string) => void;
+  onYearChange: (year: number) => void;
   onRefresh: () => void;
   loading: boolean;
   availableDevelopments: string[];
@@ -2122,6 +2130,18 @@ function SalesTab({
   const [partnersMap, setPartnersMap] = useState<Record<number, Array<{ socio: string; participacion: number }>>>({});
   const [loadingPartners, setLoadingPartners] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
+
+  // Filtrar ventas por desarrollo y año
+  const filteredSales = sales.filter(s => {
+    // Filtro por desarrollo
+    const matchesDesarrollo = selectedDesarrollo === 'all' || s.desarrollo === selectedDesarrollo;
+    
+    // Filtro por año (basado en fecha_firma)
+    const saleYear = new Date(s.fecha_firma).getFullYear();
+    const matchesYear = saleYear === selectedYear;
+    
+    return matchesDesarrollo && matchesYear;
+  });
 
   // Cargar socios del producto para múltiples ventas en batch (optimización)
   const loadPartnersBatch = useCallback(async (saleIds: number[]) => {
@@ -2197,7 +2217,7 @@ function SalesTab({
   // Cargar socios cuando se monta el componente o cambian las ventas (en batch)
   useEffect(() => {
     // Identificar ventas que necesitan cargar socios
-    const saleIdsToLoad = sales
+    const saleIdsToLoad = filteredSales
       .filter(sale => sale.zoho_deal_id && partnersMap[sale.id] === undefined && !loadingPartners[sale.id])
       .map(sale => sale.id);
 
@@ -2205,7 +2225,7 @@ function SalesTab({
     if (saleIdsToLoad.length > 0) {
       loadPartnersBatch(saleIdsToLoad);
     }
-  }, [sales, loadPartnersBatch, partnersMap, loadingPartners]);
+  }, [filteredSales, loadPartnersBatch, partnersMap, loadingPartners]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -2254,6 +2274,24 @@ function SalesTab({
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="year-filter-sales">Año:</Label>
+                <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value, 10))}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Seleccionar año" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const year = new Date().getFullYear() - 2 + i;
+                      return (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Todos los desarrollos" />
@@ -2310,7 +2348,7 @@ function SalesTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sales.length === 0 ? (
+              {filteredSales.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={13} className="text-center text-muted-foreground">
                     <div className="py-8 space-y-2">
@@ -2320,7 +2358,7 @@ function SalesTab({
                   </TableCell>
                 </TableRow>
               ) : (
-                sales.map((sale) => {
+                filteredSales.map((sale) => {
                   const partners = partnersMap[sale.id] || [];
                   const isLoading = loadingPartners[sale.id];
                   
@@ -2445,7 +2483,9 @@ function DistributionTab({
   sales,
   distributions: _distributions,
   selectedDesarrollo,
+  selectedYear,
   onDesarrolloChange,
+  onYearChange,
   onRefresh,
   loading,
   availableDevelopments,
@@ -2454,7 +2494,9 @@ function DistributionTab({
   sales: CommissionSale[];
   distributions: Record<number, CommissionDistribution[]>;
   selectedDesarrollo: string;
+  selectedYear: number;
   onDesarrolloChange: (desarrollo: string) => void;
+  onYearChange: (year: number) => void;
   onRefresh: () => void;
   loading: boolean;
   availableDevelopments: string[];
@@ -2467,10 +2509,17 @@ function DistributionTab({
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const { toast } = useToast();
 
-  // Filtrar ventas por desarrollo
-  const filteredSales = selectedDesarrollo === 'all' 
-    ? sales 
-    : sales.filter(s => s.desarrollo === selectedDesarrollo);
+  // Filtrar ventas por desarrollo y año
+  const filteredSales = sales.filter(s => {
+    // Filtro por desarrollo
+    const matchesDesarrollo = selectedDesarrollo === 'all' || s.desarrollo === selectedDesarrollo;
+    
+    // Filtro por año (basado en fecha_firma)
+    const saleYear = new Date(s.fecha_firma).getFullYear();
+    const matchesYear = saleYear === selectedYear;
+    
+    return matchesDesarrollo && matchesYear;
+  });
 
   const loadDistributions = useCallback(async (saleId: number) => {
     setLoadingDistributions(true);
@@ -2632,6 +2681,24 @@ function DistributionTab({
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="year-filter-distribution">Año:</Label>
+                <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value, 10))}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Seleccionar año" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const year = new Date().getFullYear() - 2 + i;
+                      return (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Todos los desarrollos" />
@@ -3532,6 +3599,7 @@ function DashboardTab({
                   ))}
                 </SelectContent>
               </Select>
+
             </div>
           </div>
         </CardHeader>
@@ -4315,6 +4383,11 @@ function PartnersTab({
   const [uploadingInvoice, setUploadingInvoice] = useState<number | null>(null);
   const [activePhaseTab, setActivePhaseTab] = useState<'sale-phase' | 'post-sale-phase'>('sale-phase');
 
+  // Calcular IVA (usando el mismo porcentaje que en otras partes del sistema)
+  const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
+  const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
+  const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+
   // Recargar automáticamente cuando cambian los filtros (año, estado, desarrollo)
   useEffect(() => {
     // Recargar la fase activa cuando cambian los filtros
@@ -4641,6 +4714,8 @@ function PartnersTab({
                                         <TableHead>Cliente</TableHead>
                                         <TableHead>Part.</TableHead>
                                         <TableHead>Monto</TableHead>
+                                        <TableHead>IVA</TableHead>
+                                        <TableHead>Total</TableHead>
                                         <TableHead>Estado</TableHead>
                                         <TableHead>Acciones</TableHead>
                                       </TableRow>
@@ -4675,6 +4750,18 @@ function PartnersTab({
                                             </TableCell>
                                             <TableCell className="font-mono text-sm">
                                               ${(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${calculateIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
@@ -5020,6 +5107,8 @@ function PartnersTab({
                                         <TableHead>Cliente</TableHead>
                                         <TableHead>Part.</TableHead>
                                         <TableHead>Monto</TableHead>
+                                        <TableHead>IVA</TableHead>
+                                        <TableHead>Total</TableHead>
                                         <TableHead>Estado</TableHead>
                                         <TableHead>Acciones</TableHead>
                                       </TableRow>
@@ -5091,6 +5180,18 @@ function PartnersTab({
                                             </TableCell>
                                             <TableCell className="font-mono text-sm">
                                               ${postSalePhaseTotal.toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${calculateIva(postSalePhaseTotal).toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                              })}
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              ${calculateTotalWithIva(postSalePhaseTotal).toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
