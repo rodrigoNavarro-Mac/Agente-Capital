@@ -2504,6 +2504,8 @@ function DistributionTab({
 }) {
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [saleDistributions, setSaleDistributions] = useState<CommissionDistribution[]>([]);
+  const [partnerCommissionsForSale, setPartnerCommissionsForSale] = useState<PartnerCommission[]>([]);
+  const [loadingPartnerCommissions, setLoadingPartnerCommissions] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loadingDistributions, setLoadingDistributions] = useState(false);
@@ -2543,14 +2545,53 @@ function DistributionTab({
     }
   }, []);
 
-  // Cargar distribuciones cuando se selecciona una venta
+  // Función para cargar comisiones por socio de una venta específica
+  const loadPartnerCommissionsForSale = useCallback(async (saleId: number) => {
+    setLoadingPartnerCommissions(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      // Usar el endpoint de partner-commissions con los filtros de año y desarrollo
+      // para reducir la carga de datos, luego filtrar por sale_id en el cliente
+      const params = new URLSearchParams();
+      params.append('year', selectedYear.toString());
+      if (selectedDesarrollo !== 'all') {
+        params.append('desarrollo', selectedDesarrollo);
+      }
+      
+      const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Filtrar las comisiones por el sale_id seleccionado
+        const filtered = (data.data || []).filter((pc: PartnerCommission) => 
+          pc.commission_sale_id === saleId
+        );
+        setPartnerCommissionsForSale(filtered);
+      } else {
+        logger.error('Error loading partner commissions:', data.error);
+        setPartnerCommissionsForSale([]);
+      }
+    } catch (error) {
+      logger.error('Error loading partner commissions:', error);
+      setPartnerCommissionsForSale([]);
+    } finally {
+      setLoadingPartnerCommissions(false);
+    }
+  }, [selectedYear, selectedDesarrollo]);
+
+  // Cargar distribuciones y comisiones por socio cuando se selecciona una venta
   useEffect(() => {
     if (selectedSaleId) {
       loadDistributions(selectedSaleId);
+      loadPartnerCommissionsForSale(selectedSaleId);
     } else {
       setSaleDistributions([]);
+      setPartnerCommissionsForSale([]);
     }
-  }, [selectedSaleId, loadDistributions]);
+  }, [selectedSaleId, loadDistributions, loadPartnerCommissionsForSale]);
 
   const handleCalculate = async (saleId: number, recalculate: boolean = false) => {
     setCalculating(true);
@@ -2764,6 +2805,181 @@ function DistributionTab({
                   </div>
                 )}
               </div>
+              
+              {/* Comisiones por Socio */}
+              {selectedSaleId && (
+                <div className="mt-4 space-y-2">
+                  <h3 className="font-semibold text-sm">Comisiones por Socio</h3>
+                  <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                    {loadingPartnerCommissions ? (
+                      <div className="p-4 flex items-center justify-center">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-sm text-muted-foreground">Cargando comisiones...</span>
+                      </div>
+                    ) : partnerCommissionsForSale.length === 0 ? (
+                      <div className="p-4 text-center text-muted-foreground text-sm">
+                        No hay comisiones por socio para esta venta
+                      </div>
+                    ) : (
+                      <div className="divide-y">
+                        {partnerCommissionsForSale.map((commission) => {
+                          // Calcular IVA
+                          const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
+                          const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
+                          const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+                          
+                          const salePhaseAmount = Number(commission.sale_phase_amount || 0);
+                          const postSalePhaseAmount = Number(commission.post_sale_phase_amount || 0);
+                          const totalAmount = Number(commission.total_commission_amount || 0);
+                          
+                          const salePhaseIva = calculateIva(salePhaseAmount);
+                          const postSalePhaseIva = calculateIva(postSalePhaseAmount);
+                          
+                          const salePhaseTotal = calculateTotalWithIva(salePhaseAmount);
+                          const postSalePhaseTotal = calculateTotalWithIva(postSalePhaseAmount);
+                          const totalWithIva = calculateTotalWithIva(totalAmount);
+                          
+                          return (
+                            <div key={commission.id} className="p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium text-sm">{commission.socio_name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Participación: {Number(commission.participacion || 0).toFixed(2)}%
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {/* Fase Venta */}
+                              {salePhaseAmount > 0 && (
+                                <div className="pl-4 border-l-2 border-blue-200 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-blue-700">Fase Venta</span>
+                                    <Badge 
+                                      variant="outline" 
+                                      className={`text-xs ${
+                                        commission.sale_phase_collection_status === 'collected' 
+                                          ? 'bg-green-50 text-green-700 border-green-300' 
+                                          : commission.sale_phase_collection_status === 'invoiced'
+                                          ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
+                                          : 'bg-gray-50 text-gray-700 border-gray-300'
+                                      }`}
+                                    >
+                                      {commission.sale_phase_collection_status === 'collected' 
+                                        ? 'Cobrado' 
+                                        : commission.sale_phase_collection_status === 'invoiced'
+                                        ? 'Facturado'
+                                        : 'Pendiente'}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-xs space-y-0.5">
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">Subtotal:</span>
+                                      <span className="font-medium">
+                                        ${salePhaseAmount.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">IVA:</span>
+                                      <span className="font-medium">
+                                        ${salePhaseIva.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between font-semibold text-blue-700">
+                                      <span>Total:</span>
+                                      <span>
+                                        ${salePhaseTotal.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Fase Postventa */}
+                              {postSalePhaseAmount > 0 && (
+                                <div className="pl-4 border-l-2 border-green-200 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-green-700">Fase Postventa</span>
+                                    <Badge 
+                                      variant="outline" 
+                                      className={`text-xs ${
+                                        commission.post_sale_phase_collection_status === 'collected' 
+                                          ? 'bg-green-50 text-green-700 border-green-300' 
+                                          : commission.post_sale_phase_collection_status === 'invoiced'
+                                          ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
+                                          : 'bg-gray-50 text-gray-700 border-gray-300'
+                                      }`}
+                                    >
+                                      {commission.post_sale_phase_collection_status === 'collected' 
+                                        ? 'Cobrado' 
+                                        : commission.post_sale_phase_collection_status === 'invoiced'
+                                        ? 'Facturado'
+                                        : 'Pendiente'}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-xs space-y-0.5">
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">Subtotal:</span>
+                                      <span className="font-medium">
+                                        ${postSalePhaseAmount.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">IVA:</span>
+                                      <span className="font-medium">
+                                        ${postSalePhaseIva.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between font-semibold text-green-700">
+                                      <span>Total:</span>
+                                      <span>
+                                        ${postSalePhaseTotal.toLocaleString('es-MX', { 
+                                          minimumFractionDigits: 2, 
+                                          maximumFractionDigits: 2 
+                                        })}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Total General */}
+                              {totalAmount > 0 && (
+                                <div className="pt-2 border-t mt-2">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-xs font-semibold">Total General:</span>
+                                    <span className="text-sm font-bold">
+                                      ${totalWithIva.toLocaleString('es-MX', { 
+                                        minimumFractionDigits: 2, 
+                                        maximumFractionDigits: 2 
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Distribuciones de la venta seleccionada */}
