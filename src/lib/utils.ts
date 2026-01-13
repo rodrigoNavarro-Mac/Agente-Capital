@@ -118,6 +118,25 @@ export function normalizeDevelopmentDisplay(name: string): string {
 }
 
 /**
+ * Normaliza un nombre de desarrollo para filtrado en backend (convierte a lowercase)
+ * Esto es lo opuesto a normalizeDevelopmentDisplay - convierte de UI a BD
+ */
+export function normalizeDevelopmentForFilter(name: string): string {
+  if (!name || typeof name !== 'string') return name;
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return trimmed;
+
+  // Caso especial: "P. Quintana Roo" -> "p. quintana roo"
+  const lowerTrimmed = trimmed.toLowerCase();
+  if (lowerTrimmed === 'p. quintana roo') {
+    return 'p. quintana roo';
+  }
+
+  // Para otros casos, convertir a lowercase para matching case-insensitive
+  return trimmed.toLowerCase();
+}
+
+/**
  * Convierte snake_case a Title Case
  */
 export function snakeToTitle(text: string): string {

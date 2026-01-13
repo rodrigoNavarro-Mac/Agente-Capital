@@ -43,7 +43,7 @@ import type {
 } from '@/types/commissions';
 import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
 import { logger } from '@/lib/logger';
-import { normalizeDevelopmentDisplay } from '@/lib/utils';
+import { normalizeDevelopmentDisplay, normalizeDevelopmentForFilter } from '@/lib/utils';
 
 export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
@@ -61,11 +61,21 @@ export default function CommissionsPage() {
   const [developmentDashboard, setDevelopmentDashboard] = useState<CommissionDevelopmentDashboard | null>(null);
   const [generalDashboard, setGeneralDashboard] = useState<CommissionGeneralDashboard | null>(null);
   const [availableDevelopmentsForFilter, setAvailableDevelopmentsForFilter] = useState<string[]>([]);
+  const [allAvailableDevelopments, setAllAvailableDevelopments] = useState<string[]>([]); // Lista completa persistente
 
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+
+  // Debug: Log cambios en filtros
+  useEffect(() => {
+    console.log('[DEBUG] Filter state changed:', {
+      selectedDesarrollo,
+      selectedYear,
+      selectedStatus
+    });
+  }, [selectedDesarrollo, selectedYear, selectedStatus]);
 
   // Verificar rol del usuario
   useEffect(() => {
@@ -105,20 +115,58 @@ export default function CommissionsPage() {
   }, []);
 
   const loadSales = useCallback(async () => {
+    console.log('[DEBUG] loadSales called with:', {
+      selectedDesarrollo,
+      selectedYear,
+      availableDevelopmentsForFilter
+    });
+
     const token = localStorage.getItem('accessToken');
     const params = new URLSearchParams();
     if (selectedDesarrollo !== 'all') {
-      params.append('desarrollo', selectedDesarrollo);
+      const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+      params.append('desarrollo', normalizedFilter);
+      console.log('[DEBUG] Adding desarrollo filter:', selectedDesarrollo, '-> normalized:', normalizedFilter);
     }
-    const response = await fetch(`/api/commissions/sales?${params.toString()}`, {
+    const url = `/api/commissions/sales?${params.toString()}`;
+    console.log('[DEBUG] loadSales URL:', url);
+
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
     });
     const data = await response.json();
+    console.log('[DEBUG] loadSales response:', {
+      success: data.success,
+      totalSales: data.data?.sales?.length || 0,
+      error: data.error,
+      selectedDesarrollo,
+      sampleSales: data.data?.sales?.slice(0, 3).map((s: any) => ({
+        id: s.id,
+        desarrollo: s.desarrollo,
+        fecha_firma: s.fecha_firma
+      }))
+    });
+
     if (data.success) {
       const loadedSales = data.data.sales || [];
-      setSales(loadedSales);
+      console.log('[DEBUG] About to set sales state:', {
+        currentSalesCount: sales.length,
+        newSalesCount: loadedSales.length,
+        selectedDesarrollo,
+        willOverwrite: loadedSales.length === 0 && sales.length > 0
+      });
+
+      // Protección contra sobrescritura con arrays vacíos
+      // Solo sobrescribir si hay datos nuevos O si estamos cambiando filtros intencionalmente
+      if (loadedSales.length > 0 || selectedDesarrollo !== 'all') {
+        setSales(loadedSales);
+      } else if (loadedSales.length === 0 && sales.length > 0) {
+        console.warn('[DEBUG] Preventing overwrite of existing sales data with empty array');
+      } else {
+        setSales(loadedSales); // Caso normal: primera carga o reset intencional
+      }
       
       // Obtener desarrollos únicos de las ventas para el filtro (normalizados)
       const devs = new Set<string>();
@@ -129,18 +177,78 @@ export default function CommissionsPage() {
           devs.add(normalized);
         }
       });
-      setAvailableDevelopmentsForFilter(Array.from(devs).sort());
+      const availableDevs = Array.from(devs).sort();
+
+      // Actualizar lista completa de desarrollos (persistente)
+      if (availableDevs.length > 0) {
+        setAllAvailableDevelopments(prev => {
+          const combined = new Set([...prev, ...availableDevs]);
+          const sorted = Array.from(combined).sort();
+          console.log('[DEBUG] All available developments updated:', sorted);
+          return sorted;
+        });
+      }
+
+      // Actualizar lista filtrada para el dropdown
+      setAvailableDevelopmentsForFilter(availableDevs);
+      console.log('[DEBUG] Filtered available developments updated:', availableDevs);
     }
-  }, [selectedDesarrollo]);
+  }, []); // Removida dependencia de selectedDesarrollo para evitar recargas automáticas
+
+  // Función para cargar lista completa de desarrollos disponibles
+  const loadAllDevelopments = useCallback(async () => {
+    console.log('[DEBUG] Loading all available developments');
+    const token = localStorage.getItem('accessToken');
+    const params = new URLSearchParams();
+    // No agregar filtro de desarrollo para obtener TODOS
+    params.append('year', selectedYear.toString());
+
+    const response = await fetch(`/api/commissions/sales?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+
+    if (data.success && data.data?.sales) {
+      const loadedSales = data.data.sales;
+      const devs = new Set<string>();
+      loadedSales.forEach((sale: CommissionSale) => {
+        if (sale.desarrollo) {
+          const normalized = normalizeDevelopmentDisplay(sale.desarrollo);
+          devs.add(normalized);
+        }
+      });
+      const allDevs = Array.from(devs).sort();
+      setAllAvailableDevelopments(allDevs);
+      console.log('[DEBUG] All developments loaded:', allDevs);
+    }
+  }, [selectedYear]);
+
+  // Función para recargar ventas con filtros aplicados (llamada manual)
+  const loadSalesWithFilters = useCallback(async () => {
+    console.log('[DEBUG] loadSalesWithFilters called manually');
+    await loadSales();
+  }, [loadSales]);
 
   const loadDashboard = useCallback(async () => {
+    console.log('[DEBUG] loadDashboard called with:', {
+      selectedDesarrollo,
+      selectedYear
+    });
+
     const token = localStorage.getItem('accessToken');
     const params = new URLSearchParams();
     params.append('year', selectedYear.toString());
     if (selectedDesarrollo !== 'all') {
-      params.append('desarrollo', selectedDesarrollo);
+      const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+      params.append('desarrollo', normalizedFilter);
+      console.log('[DEBUG] Adding desarrollo filter to dashboard:', selectedDesarrollo, '-> normalized:', normalizedFilter);
     }
-    const response = await fetch(`/api/commissions/dashboard?${params.toString()}`, {
+    const url = `/api/commissions/dashboard?${params.toString()}`;
+    console.log('[DEBUG] loadDashboard URL:', url);
+
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -156,28 +264,42 @@ export default function CommissionsPage() {
   }, [selectedDesarrollo, selectedYear]);
 
   const loadPartnerCommissions = useCallback(async (phase?: 'sale-phase' | 'post-sale-phase') => {
+    console.log('[DEBUG] loadPartnerCommissions called with:', {
+      selectedYear,
+      selectedDesarrollo,
+      selectedStatus,
+      phase
+    });
+
     const token = localStorage.getItem('accessToken');
     const params = new URLSearchParams();
     params.append('year', selectedYear.toString());
     if (selectedDesarrollo !== 'all') {
-      params.append('desarrollo', selectedDesarrollo);
+      const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+      params.append('desarrollo', normalizedFilter);
+      console.log('[DEBUG] Adding desarrollo filter to partner-commissions:', selectedDesarrollo, '-> normalized:', normalizedFilter);
     }
     if (selectedStatus !== 'all') {
       params.append('collection_status', selectedStatus);
+      console.log('[DEBUG] Adding status filter to partner-commissions:', selectedStatus);
     }
     if (phase) {
       params.append('phase', phase);
+      console.log('[DEBUG] Adding phase filter to partner-commissions:', phase);
     }
-    
+
+    const url = `/api/commissions/partner-commissions?${params.toString()}`;
+    console.log('[DEBUG] loadPartnerCommissions URL:', url);
+
     logger.info('Cargando partner commissions desde frontend', {
       selectedYear,
       selectedDesarrollo,
       selectedStatus,
       phase,
-      url: `/api/commissions/partner-commissions?${params.toString()}`,
+      url,
     }, 'commissions-partners');
-    
-    const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
+
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -222,17 +344,29 @@ export default function CommissionsPage() {
   }, []);
 
   const loadInitialData = useCallback(async () => {
+    console.log('[DEBUG] loadInitialData called for tab:', activeTab);
     setLoading(true);
     try {
       const token = localStorage.getItem('accessToken');
       if (!token) return;
 
+      // Cargar lista completa de desarrollos primero
+      await loadAllDevelopments();
+
       if (activeTab === 'config') {
         await loadConfigs();
       } else if (activeTab === 'sales') {
-        await loadSales();
+        console.log('[DEBUG] Loading sales tab data');
+        // Solo cargar ventas si no hay datos
+        if (sales.length === 0) {
+          await loadSales();
+        }
       } else if (activeTab === 'distribution') {
-        await loadSales();
+        console.log('[DEBUG] Loading distribution tab data');
+        // Solo cargar ventas si no hay datos
+        if (sales.length === 0) {
+          await loadSales();
+        }
       } else if (activeTab === 'partners') {
         await loadPartnerCommissions();
         await loadPartnerInvoices();
@@ -334,9 +468,9 @@ export default function CommissionsPage() {
             selectedYear={selectedYear}
             onDesarrolloChange={setSelectedDesarrollo}
             onYearChange={setSelectedYear}
-            onRefresh={loadSales}
+            onRefresh={loadSalesWithFilters}
             loading={loading}
-            availableDevelopments={availableDevelopmentsForFilter}
+            availableDevelopments={allAvailableDevelopments}
           />
         </TabsContent>
 
@@ -349,9 +483,9 @@ export default function CommissionsPage() {
             selectedYear={selectedYear}
             onDesarrolloChange={setSelectedDesarrollo}
             onYearChange={setSelectedYear}
-            onRefresh={loadSales}
+            onRefresh={loadSalesWithFilters}
             loading={loading}
-            availableDevelopments={availableDevelopmentsForFilter}
+            availableDevelopments={allAvailableDevelopments}
             configs={configs}
           />
         </TabsContent>
@@ -373,7 +507,7 @@ export default function CommissionsPage() {
               loadPartnerInvoices();
             }}
             loading={loading}
-            availableDevelopments={availableDevelopmentsForFilter}
+            availableDevelopments={allAvailableDevelopments}
             configs={configs}
           />
         </TabsContent>
@@ -2134,13 +2268,42 @@ function SalesTab({
   // Filtrar ventas por desarrollo y año
   const filteredSales = sales.filter(s => {
     // Filtro por desarrollo
-    const matchesDesarrollo = selectedDesarrollo === 'all' || s.desarrollo === selectedDesarrollo;
-    
+    const saleDesarrollo = s.desarrollo?.toLowerCase();
+    const filterDesarrollo = selectedDesarrollo?.toLowerCase();
+    const matchesDesarrollo = selectedDesarrollo === 'all' || saleDesarrollo === filterDesarrollo;
+
+    console.log('[DEBUG] SalesTab filter check:', {
+      saleId: s.id,
+      saleDesarrollo: s.desarrollo,
+      selectedDesarrollo,
+      saleDesarrolloLower: saleDesarrollo,
+      filterDesarrolloLower: filterDesarrollo,
+      matchesDesarrollo
+    });
+
     // Filtro por año (basado en fecha_firma)
     const saleYear = new Date(s.fecha_firma).getFullYear();
     const matchesYear = saleYear === selectedYear;
-    
-    return matchesDesarrollo && matchesYear;
+
+    const finalResult = matchesDesarrollo && matchesYear;
+    if (!finalResult) {
+      console.log('[DEBUG] SalesTab - Sale filtered out:', {
+        saleId: s.id,
+        matchesDesarrollo,
+        matchesYear,
+        saleYear,
+        selectedYear
+      });
+    }
+
+    return finalResult;
+  });
+
+  console.log('[DEBUG] SalesTab filteredSales result:', {
+    totalSales: sales.length,
+    filteredCount: filteredSales.length,
+    selectedDesarrollo,
+    selectedYear
   });
 
   // Cargar socios del producto para múltiples ventas en batch (optimización)
@@ -2514,13 +2677,42 @@ function DistributionTab({
   // Filtrar ventas por desarrollo y año
   const filteredSales = sales.filter(s => {
     // Filtro por desarrollo
-    const matchesDesarrollo = selectedDesarrollo === 'all' || s.desarrollo === selectedDesarrollo;
-    
+    const saleDesarrollo = s.desarrollo?.toLowerCase();
+    const filterDesarrollo = selectedDesarrollo?.toLowerCase();
+    const matchesDesarrollo = selectedDesarrollo === 'all' || saleDesarrollo === filterDesarrollo;
+
+    console.log('[DEBUG] DistributionTab filter check:', {
+      saleId: s.id,
+      saleDesarrollo: s.desarrollo,
+      selectedDesarrollo,
+      saleDesarrolloLower: saleDesarrollo,
+      filterDesarrolloLower: filterDesarrollo,
+      matchesDesarrollo
+    });
+
     // Filtro por año (basado en fecha_firma)
     const saleYear = new Date(s.fecha_firma).getFullYear();
     const matchesYear = saleYear === selectedYear;
-    
-    return matchesDesarrollo && matchesYear;
+
+    const finalResult = matchesDesarrollo && matchesYear;
+    if (!finalResult) {
+      console.log('[DEBUG] DistributionTab - Sale filtered out:', {
+        saleId: s.id,
+        matchesDesarrollo,
+        matchesYear,
+        saleYear,
+        selectedYear
+      });
+    }
+
+    return finalResult;
+  });
+
+  console.log('[DEBUG] DistributionTab filteredSales result:', {
+    totalSales: sales.length,
+    filteredCount: filteredSales.length,
+    selectedDesarrollo,
+    selectedYear
   });
 
   const loadDistributions = useCallback(async (saleId: number) => {
@@ -2555,9 +2747,10 @@ function DistributionTab({
       const params = new URLSearchParams();
       params.append('year', selectedYear.toString());
       if (selectedDesarrollo !== 'all') {
-        params.append('desarrollo', selectedDesarrollo);
+        const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+        params.append('desarrollo', normalizedFilter);
       }
-      
+
       const response = await fetch(`/api/commissions/partner-commissions?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -2827,9 +3020,25 @@ function DistributionTab({
                           const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
                           const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
                           const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
-                          
-                          const salePhaseAmount = Number(commission.sale_phase_amount || 0);
-                          const postSalePhaseAmount = Number(commission.post_sale_phase_amount || 0);
+
+                          // Calcular valor total de cada fase usando porcentajes
+                          const commissionBase = Number(selectedSale?.valor_total || 0);
+                          const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale?.desarrollo.toLowerCase());
+
+                          const salePhasePercentFromSale = selectedSale?.calculated_phase_sale_percent !== null && selectedSale?.calculated_phase_sale_percent !== undefined
+                            ? Number(selectedSale.calculated_phase_sale_percent)
+                            : null;
+                          const salePhasePercentFromConfig = config ? Number(config.phase_sale_percent) : 0;
+                          const salePhasePercent = salePhasePercentFromSale !== null ? salePhasePercentFromSale : salePhasePercentFromConfig;
+
+                          const postSalePhasePercentFromSale = selectedSale?.calculated_phase_post_sale_percent !== null && selectedSale?.calculated_phase_post_sale_percent !== undefined
+                            ? Number(selectedSale.calculated_phase_post_sale_percent)
+                            : null;
+                          const postSalePhasePercentFromConfig = config ? Number(config.phase_post_sale_percent) : 0;
+                          const postSalePhasePercent = postSalePhasePercentFromSale !== null ? postSalePhasePercentFromSale : postSalePhasePercentFromConfig;
+
+                          const salePhaseAmount = Number(((commissionBase * salePhasePercent) / 100).toFixed(2));
+                          const postSalePhaseAmount = Number(((commissionBase * postSalePhasePercent) / 100).toFixed(2));
                           const totalAmount = Number(commission.total_commission_amount || 0);
                           
                           const salePhaseIva = calculateIva(salePhaseAmount);
@@ -3537,7 +3746,8 @@ function DashboardTab({
       params.append('list', 'distributions');
       params.append('year', selectedYear.toString());
       if (selectedDesarrollo !== 'all') {
-        params.append('desarrollo', selectedDesarrollo);
+        const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+        params.append('desarrollo', normalizedFilter);
       }
       if (paymentStatusFilter !== 'all') {
         params.append('payment_status', paymentStatusFilter);
@@ -4606,12 +4816,20 @@ function PartnersTab({
 
   // Recargar automáticamente cuando cambian los filtros (año, estado, desarrollo)
   useEffect(() => {
+    console.log('[DEBUG] PartnersTab - Filter change detected:', {
+      selectedYear,
+      selectedStatus,
+      selectedDesarrollo,
+      activePhaseTab
+    });
+
     // Recargar la fase activa cuando cambian los filtros
     // Usar un pequeño delay para evitar múltiples llamadas simultáneas cuando cambian múltiples filtros a la vez
     const timeoutId = setTimeout(() => {
+      console.log('[DEBUG] PartnersTab - Triggering refresh for phase:', activePhaseTab);
       onRefresh(activePhaseTab);
     }, 150);
-    
+
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedYear, selectedStatus, selectedDesarrollo, activePhaseTab]);
@@ -4818,11 +5036,11 @@ function PartnersTab({
                 // Agrupar comisiones por mes y luego por socio usando fecha de firma para fase venta
                 const commissionsByMonth = partnerCommissions.reduce((acc, commission) => {
                   const saleInfo = sales.find(s => s.id === commission.commission_sale_id);
-                  
+
                   // Intentar obtener fecha_firma de saleInfo o sale_info
                   const saleInfoData = saleInfo || (commission as any).sale_info;
                   const fechaFirmaStr = saleInfoData?.fecha_firma || saleInfo?.fecha_firma;
-                  
+
                   // Si no hay fecha_firma, usar calculated_at como fallback
                   if (!fechaFirmaStr) {
                     const fechaFirma = new Date(commission.calculated_at);
@@ -4840,7 +5058,7 @@ function PartnersTab({
                     }
                     return acc;
                   }
-                  
+
                   const fechaFirma = new Date(fechaFirmaStr);
                   const monthKey = `${fechaFirma.getFullYear()}-${String(fechaFirma.getMonth() + 1).padStart(2, '0')}`;
 
@@ -4871,12 +5089,12 @@ function PartnersTab({
                       const [year, month] = monthKey.split('-');
                       const monthData = commissionsByMonth[monthKey];
                       const socios = Object.keys(monthData).sort();
-                      
+
                       // Calcular total del mes
                       const _totalMonthAmount = socios.reduce((sum, socio) => {
                         return sum + monthData[socio].reduce((s, c) => s + Number(c.sale_phase_amount || 0), 0);
                       }, 0);
-                      
+
                       // Contar socios y transacciones
                       const totalSocios = socios.length;
                       const totalTransacciones = socios.reduce((sum, socio) => sum + monthData[socio].length, 0);
@@ -4945,122 +5163,183 @@ function PartnersTab({
                                         const desarrollo = saleInfo?.desarrollo || 'N/A';
                                         const desarrolloCapitalizado = desarrollo !== 'N/A' ? desarrollo.charAt(0).toUpperCase() + desarrollo.slice(1) : desarrollo;
                                         const concepto = `Comisión   venta de lote ${lote} desarrollo ${desarrolloCapitalizado}`;
-                                        
+
                                         // Buscar si hay factura para esta comisión
                                         const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
                                         const hasInvoice = invoice?.invoice_pdf_path !== null && invoice?.invoice_pdf_path !== undefined;
-                                        
+
                                         return (
-                                          <TableRow key={commission.id}>
-                                            <TableCell className="text-sm">
-                                              {concepto}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                              {lote}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                              {cliente}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                              {Number(commission.participacion).toFixed(2)}%
-                                            </TableCell>
-                                            <TableCell className="font-mono text-sm">
-                                              ${(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
-                                            </TableCell>
-                                            <TableCell className="font-mono text-sm">
-                                              ${calculateIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
-                                            </TableCell>
-                                            <TableCell className="font-mono text-sm">
-                                              ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
-                                            </TableCell>
-                                            <TableCell>
-                                              <Select
-                                                value={commission.sale_phase_collection_status || commission.collection_status}
-                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'sale_phase')}
-                                                disabled={updatingStatus === commission.id}
-                                              >
-                                                <SelectTrigger 
-                                                  className={`w-40 h-7 text-xs ${
-                                                    (commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
-                                                    (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
-                                                    'border-border'
-                                                  }`}
+                                          <>
+                                            <TableRow key={commission.id}>
+                                              <TableCell className="text-sm">
+                                                {concepto}
+                                              </TableCell>
+                                              <TableCell className="text-sm">
+                                                {lote}
+                                              </TableCell>
+                                              <TableCell className="text-sm">
+                                                {cliente}
+                                              </TableCell>
+                                              <TableCell className="text-sm">
+                                                {Number(commission.participacion).toFixed(2)}%
+                                              </TableCell>
+                                              <TableCell className="font-mono text-sm">
+                                                ${(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2,
+                                                })}
+                                              </TableCell>
+                                              <TableCell className="font-mono text-sm">
+                                                ${calculateIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2,
+                                                })}
+                                              </TableCell>
+                                              <TableCell className="font-mono text-sm">
+                                                ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2,
+                                                })}
+                                              </TableCell>
+                                              <TableCell>
+                                                <Select
+                                                  value={commission.sale_phase_collection_status || commission.collection_status}
+                                                  onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'sale_phase')}
+                                                  disabled={updatingStatus === commission.id}
                                                 >
-                                                  {updatingStatus === commission.id ? (
-                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                  ) : (
-                                                    <SelectValue>
-                                                      {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                       (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                       'Cobrado'}
-                                                    </SelectValue>
-                                                  )}
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  <SelectItem value="pending_invoice">
-                                                    <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
-                                                  </SelectItem>
-                                                  <SelectItem value="invoiced">
-                                                    <Badge variant="secondary" className="text-xs">Facturado</Badge>
-                                                  </SelectItem>
-                                                  <SelectItem value="collected">
-                                                    <Badge variant="default" className="text-xs">Cobrado</Badge>
-                                                  </SelectItem>
-                                                </SelectContent>
-                                              </Select>
-                                            </TableCell>
-                                            <TableCell>
-                                              <div className="flex items-center gap-1">
-                                                {hasInvoice && (
-                                                  <Button variant="outline" size="sm">
-                                                    <Eye className="h-4 w-4" />
-                                                  </Button>
-                                                )}
-                                                {(commission.sale_phase_collection_status || commission.collection_status) === 'collected' && (
-                                                  <>
-                                                    <input
-                                                      type="file"
-                                                      accept=".pdf"
-                                                      id={`partner-invoice-upload-${commission.id}-sale`}
-                                                      className="hidden"
-                                                      onChange={(e) => {
-                                                        const file = e.target.files?.[0];
-                                                        if (file) {
-                                                          handleUploadPartnerInvoice(commission.id, file);
-                                                        }
-                                                      }}
-                                                      disabled={uploadingInvoice === commission.id}
-                                                    />
-                                                    <Button 
-                                                      variant="outline" 
-                                                      size="sm"
-                                                      className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
-                                                      disabled={uploadingInvoice === commission.id}
-                                                      onClick={() => {
-                                                        const input = document.getElementById(`partner-invoice-upload-${commission.id}-sale`) as HTMLInputElement;
-                                                        input?.click();
-                                                      }}
-                                                    >
-                                                      {uploadingInvoice === commission.id ? (
-                                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                                      ) : (
-                                                        <Upload className="h-4 w-4" />
-                                                      )}
+                                                  <SelectTrigger
+                                                    className={`w-40 h-7 text-xs ${
+                                                      (commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                      (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                      'border-border'
+                                                    }`}
+                                                  >
+                                                    {updatingStatus === commission.id ? (
+                                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                                    ) : (
+                                                      <SelectValue>
+                                                        {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                         (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                         'Cobrado'}
+                                                      </SelectValue>
+                                                    )}
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="pending_invoice">
+                                                      <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
+                                                    </SelectItem>
+                                                    <SelectItem value="invoiced">
+                                                      <Badge variant="secondary" className="text-xs">Facturado</Badge>
+                                                    </SelectItem>
+                                                    <SelectItem value="collected">
+                                                      <Badge variant="default" className="text-xs">Cobrado</Badge>
+                                                    </SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+                                              </TableCell>
+                                              <TableCell>
+                                                <div className="flex items-center gap-1">
+                                                  {hasInvoice && (
+                                                    <Button variant="outline" size="sm">
+                                                      <Eye className="h-4 w-4" />
                                                     </Button>
-                                                  </>
-                                                )}
-                                              </div>
-                                            </TableCell>
-                                          </TableRow>
+                                                  )}
+                                                  {(commission.sale_phase_collection_status || commission.collection_status) === 'collected' && (
+                                                    <>
+                                                      <input
+                                                        type="file"
+                                                        accept=".pdf"
+                                                        id={`partner-invoice-upload-${commission.id}-sale`}
+                                                        className="hidden"
+                                                        onChange={(e) => {
+                                                          const file = e.target.files?.[0];
+                                                          if (file) {
+                                                            handleUploadPartnerInvoice(commission.id, file);
+                                                          }
+                                                        }}
+                                                        disabled={uploadingInvoice === commission.id}
+                                                      />
+                                                      <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
+                                                        disabled={uploadingInvoice === commission.id}
+                                                        onClick={() => {
+                                                          const input = document.getElementById(`partner-invoice-upload-${commission.id}-sale`) as HTMLInputElement;
+                                                          input?.click();
+                                                        }}
+                                                      >
+                                                        {uploadingInvoice === commission.id ? (
+                                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                          <Upload className="h-4 w-4" />
+                                                        )}
+                                                      </Button>
+                                                    </>
+                                                  )}
+                                                </div>
+                                              </TableCell>
+                                            </TableRow>
+                                            {/* Indicador de estado de fase post-venta para esta comisión */}
+                                            {Number(commission.post_sale_phase_amount || 0) > 0 && (
+                                              <TableRow>
+                                                <TableCell colSpan={9} className="pt-2 pb-4">
+                                                  <div className="ml-4 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                                    <div className="flex items-center justify-between">
+                                                      <div className="flex items-center gap-2">
+                                                        <Clock className="h-3 w-3 text-blue-600" />
+                                                        <span className="text-xs font-medium text-blue-800">Fase Post-Venta</span>
+                                                      </div>
+                                                      <div className="flex items-center gap-3 text-xs text-blue-700">
+                                                        {(() => {
+                                                          // Calcular el monto total de la fase post-venta (lo que se cobra, no lo que se paga)
+                                                          const valorTotal = saleInfo?.valor_total != null
+                                                            ? Number(saleInfo.valor_total)
+                                                            : 0;
+
+                                                          // Obtener porcentaje de fase post-venta
+                                                          const postSalePhasePercent = saleInfo?.calculated_phase_post_sale_percent != null
+                                                            ? Number(saleInfo.calculated_phase_post_sale_percent)
+                                                            : (() => {
+                                                                const desarrollo = saleInfo?.desarrollo;
+                                                                const config = desarrollo ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
+                                                                return config ? Number(config.phase_post_sale_percent) : 0;
+                                                              })();
+
+                                                          const postSalePhaseTotal = postSalePhasePercent > 0 && valorTotal > 0
+                                                            ? Number(((valorTotal * postSalePhasePercent) / 100).toFixed(2))
+                                                            : 0;
+
+                                                          return (
+                                                            <>
+                                                              <span>
+                                                                ${postSalePhaseTotal.toLocaleString('es-MX', {
+                                                                  minimumFractionDigits: 2,
+                                                                  maximumFractionDigits: 2,
+                                                                })}
+                                                              </span>
+                                                              <Badge
+                                                                variant={
+                                                                  (commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'default' :
+                                                                  (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'secondary' :
+                                                                  'outline'
+                                                                }
+                                                                className="text-xs"
+                                                              >
+                                                                {(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'Cobrado' :
+                                                                 (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                                 'Pendiente'}
+                                                              </Badge>
+                                                            </>
+                                                          );
+                                                        })()}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                </TableCell>
+                                              </TableRow>
+                                            )}
+                                          </>
                                         );
                                       })}
                                     </TableBody>
