@@ -9,67 +9,12 @@
  * En desarrollo, usa un fallback en memoria si Upstash no está configurado.
  */
 
-import { Ratelimit } from '@upstash/ratelimit';
+import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { logger } from '@/lib/logger';
+import { RATE_LIMITS, type RateLimitKey } from './rate-limit-config';
 
-// =====================================================
-// CONFIGURACIÓN DE RATE LIMITS POR ENDPOINT
-// =====================================================
-
-/**
- * Define los límites de rate limiting para cada tipo de endpoint.
- * Los límites se aplican por usuario (identificado por userId o IP).
- * 
- * Formato: { requests: número, window: 'tiempo' }
- * - requests: número máximo de requests permitidos
- * - window: ventana de tiempo (ej: '10s', '1m', '1h')
- */
-export const RATE_LIMITS = {
-  // Endpoints de consulta RAG (costosos en recursos)
-  'rag-query': {
-    requests: 30, // 30 requests
-    window: '1m', // por minuto
-  },
-  
-  // Endpoints de autenticación (protección contra brute force)
-  'auth-login': {
-    requests: 5, // 5 intentos
-    window: '15m', // cada 15 minutos
-  },
-  
-  'auth-refresh': {
-    requests: 20, // 20 refreshes
-    window: '1m', // por minuto
-  },
-  
-  // Endpoints de upload (procesamiento pesado)
-  'upload': {
-    requests: 10, // 10 uploads
-    window: '1h', // por hora
-  },
-  
-  // Endpoints de Zoho (llamadas externas costosas)
-  'zoho': {
-    requests: 50, // 50 requests
-    window: '1m', // por minuto
-  },
-  
-  // Endpoints generales de API
-  'api': {
-    requests: 100, // 100 requests
-    window: '1m', // por minuto
-  },
-  
-  // Endpoints de feedback (menos frecuentes)
-  'rag-feedback': {
-    requests: 20, // 20 feedbacks
-    window: '1m', // por minuto
-  },
-} as const;
-
-// Tipo para las claves de rate limits
-export type RateLimitKey = keyof typeof RATE_LIMITS;
+export { type RateLimitKey };
 
 // =====================================================
 // INICIALIZACIÓN DE REDIS (UPSTASH)
@@ -81,7 +26,7 @@ export type RateLimitKey = keyof typeof RATE_LIMITS;
  */
 function validateAndCleanUpstashUrl(url: string): string | null {
   if (!url) return null;
-  
+
   // Detectar si es un comando de redis-cli (error común)
   if (url.includes('redis-cli') || url.startsWith('redis://')) {
     logger.error(
@@ -95,7 +40,7 @@ function validateAndCleanUpstashUrl(url: string): string | null {
     );
     return null;
   }
-  
+
   // Validar que sea una URL HTTPS válida
   try {
     const urlObj = new URL(url);
@@ -111,7 +56,7 @@ function validateAndCleanUpstashUrl(url: string): string | null {
       );
       return null;
     }
-    
+
     // Validar que sea un dominio de Upstash
     if (!urlObj.hostname.includes('upstash.io')) {
       logger.warn(
@@ -123,7 +68,7 @@ function validateAndCleanUpstashUrl(url: string): string | null {
         'rate-limit'
       );
     }
-    
+
     return url;
   } catch (error) {
     logger.error(
@@ -146,7 +91,7 @@ function validateAndCleanUpstashUrl(url: string): string | null {
 function initRedis(): Redis | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  
+
   if (!url || !token) {
     logger.warn(
       'Upstash Redis no configurado. Rate limiting usará fallback en memoria (solo desarrollo)',
@@ -157,7 +102,7 @@ function initRedis(): Redis | null {
     );
     return null;
   }
-  
+
   // Validar y limpiar la URL
   const cleanUrl = validateAndCleanUpstashUrl(url);
   if (!cleanUrl) {
@@ -172,7 +117,7 @@ function initRedis(): Redis | null {
     );
     return null;
   }
-  
+
   try {
     return new Redis({
       url: cleanUrl,
@@ -216,7 +161,7 @@ function getRedisClient(): Redis | null {
  */
 class InMemoryRateLimit {
   private store: Map<string, { count: number; resetAt: number }> = new Map();
-  
+
   /**
    * Verifica si un identificador ha excedido el límite.
    */
@@ -228,14 +173,14 @@ class InMemoryRateLimit {
     const now = Date.now();
     const key = identifier;
     const record = this.store.get(key);
-    
+
     // Si no existe registro o ya expiró, crear uno nuevo
     if (!record || now > record.resetAt) {
       this.store.set(key, {
         count: 1,
         resetAt: now + windowMs,
       });
-      
+
       return {
         success: true,
         limit,
@@ -243,7 +188,7 @@ class InMemoryRateLimit {
         reset: now + windowMs,
       };
     }
-    
+
     // Si ya alcanzó el límite
     if (record.count >= limit) {
       return {
@@ -253,11 +198,11 @@ class InMemoryRateLimit {
         reset: record.resetAt,
       };
     }
-    
+
     // Incrementar contador
     record.count++;
     this.store.set(key, record);
-    
+
     return {
       success: true,
       limit,
@@ -265,7 +210,7 @@ class InMemoryRateLimit {
       reset: record.resetAt,
     };
   }
-  
+
   /**
    * Limpia registros expirados (para evitar memory leaks).
    */
@@ -301,17 +246,17 @@ function parseWindow(window: string): number {
   if (!match) {
     throw new Error(`Formato de ventana inválido: ${window}`);
   }
-  
+
   const value = parseInt(match[1], 10);
   const unit = match[2];
-  
+
   const multipliers: Record<string, number> = {
     s: 1000,        // segundos
     m: 60 * 1000,   // minutos
     h: 60 * 60 * 1000, // horas
     d: 24 * 60 * 60 * 1000, // días
   };
-  
+
   return value * multipliers[unit];
 }
 
@@ -360,23 +305,23 @@ export async function checkRateLimit(
       reset: Date.now(),
     };
   }
-  
+
   const { requests, window } = config;
   const windowMs = parseWindow(window);
-  
+
   const redis = getRedisClient();
-  
+
   // Si Redis está disponible, usarlo (producción)
   if (redis) {
     try {
       const ratelimit = new Ratelimit({
         redis,
-        limiter: Ratelimit.slidingWindow(requests, window),
+        limiter: Ratelimit.slidingWindow(requests, window as Duration),
         analytics: true,
       });
-      
+
       const result = await ratelimit.limit(identifier);
-      
+
       return {
         success: result.success,
         limit: requests,
@@ -393,7 +338,7 @@ export async function checkRateLimit(
       // Fallback a memoria si Redis falla
     }
   }
-  
+
   // Fallback en memoria (solo desarrollo)
   return await inMemoryRateLimit.check(identifier, requests, windowMs);
 }
@@ -414,26 +359,26 @@ export async function applyRateLimit(
   try {
     // Obtener IP del request
     const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0].trim() : 
-               request.headers.get('x-real-ip') || 
-               'unknown';
-    
+    const ip = forwarded ? forwarded.split(',')[0].trim() :
+      request.headers.get('x-real-ip') ||
+      'unknown';
+
     // Crear identificador (priorizar userId si está disponible)
     const identifier = createIdentifier(userId, ip);
-    
+
     // Verificar rate limit
     const result = await checkRateLimit(endpoint, identifier);
-    
+
     if (!result.success) {
       // Calcular segundos hasta el reset
       const resetSeconds = Math.ceil((result.reset - Date.now()) / 1000);
-      
+
       logger.warn(
         `Rate limit excedido para ${endpoint}`,
         { identifier, limit: result.limit, resetSeconds },
         'rate-limit'
       );
-      
+
       // Retornar respuesta 429 (Too Many Requests)
       return new Response(
         JSON.stringify({
@@ -453,7 +398,7 @@ export async function applyRateLimit(
         }
       );
     }
-    
+
     // Rate limit OK, retornar null para continuar
     return null;
   } catch (error) {

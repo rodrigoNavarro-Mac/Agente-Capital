@@ -167,7 +167,7 @@ export default function CommissionsPage() {
       } else {
         setSales(loadedSales); // Caso normal: primera carga o reset intencional
       }
-      
+
       // Obtener desarrollos únicos de las ventas para el filtro (normalizados)
       const devs = new Set<string>();
       loadedSales.forEach((sale: CommissionSale) => {
@@ -193,6 +193,7 @@ export default function CommissionsPage() {
       setAvailableDevelopmentsForFilter(availableDevs);
       console.log('[DEBUG] Filtered available developments updated:', availableDevs);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Removida dependencia de selectedDesarrollo para evitar recargas automáticas
 
   // Función para cargar lista completa de desarrollos disponibles
@@ -305,7 +306,7 @@ export default function CommissionsPage() {
       },
     });
     const data = await response.json();
-    
+
     logger.info('Respuesta de partner commissions API', {
       success: data.success,
       totalCommissions: data.data?.length || 0,
@@ -318,7 +319,7 @@ export default function CommissionsPage() {
         sale_info: data.data[0].sale_info,
       } : null,
     }, 'commissions-partners');
-    
+
     if (data.success) {
       setPartnerCommissions(data.data || []);
     } else {
@@ -373,9 +374,9 @@ export default function CommissionsPage() {
       } else if (activeTab === 'dashboard') {
         await loadDashboard();
       }
-      } catch (error) {
-        logger.error('Error loading data:', error);
-        toast({
+    } catch (error) {
+      logger.error('Error loading data:', error);
+      toast({
         title: 'Error',
         description: 'Error al cargar los datos',
         variant: 'destructive',
@@ -383,6 +384,7 @@ export default function CommissionsPage() {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, toast, loadConfigs, loadSales, loadPartnerCommissions, loadPartnerInvoices, loadDashboard]);
 
   // Cargar datos iniciales
@@ -572,7 +574,7 @@ function ConfigTab({
   const [billingTargetYear, setBillingTargetYear] = useState<number>(new Date().getFullYear());
   const [billingTargetFormData, setBillingTargetFormData] = useState<Record<number, string>>({});
   const [savingBillingTarget, setSavingBillingTarget] = useState(false);
-  
+
   // Estados para metas de ventas
   const [_salesTargets, setSalesTargets] = useState<CommissionSalesTarget[]>([]);
   const [loadingSalesTargets, setLoadingSalesTargets] = useState(false);
@@ -584,8 +586,8 @@ function ConfigTab({
   const formatNumberWithCommas = useCallback((value: number | string): string => {
     if (value === undefined || value === null || value === '') return '';
     // Remover comas existentes y convertir a número
-    const numValue = typeof value === 'string' 
-      ? parseFloat(value.replace(/,/g, '')) 
+    const numValue = typeof value === 'string'
+      ? parseFloat(value.replace(/,/g, ''))
       : value;
     if (isNaN(numValue)) return '';
     // Formatear con comas cada 3 dígitos y mantener decimales
@@ -613,27 +615,27 @@ function ConfigTab({
       });
       return;
     }
-    
+
     // Remover solo comas (para permitir reescritura), pero mantener números y punto decimal
     let cleaned = inputValue.replace(/,/g, '');
-    
+
     // Validar que solo contenga números y un punto decimal
     if (!/^\d*\.?\d*$/.test(cleaned)) {
       // Si no es válido, mantener el valor anterior
       return;
     }
-    
+
     // Permitir solo un punto decimal
     const parts = cleaned.split('.');
     if (parts.length > 2) {
       cleaned = parts[0] + '.' + parts.slice(1).join('');
     }
-    
+
     // Limitar a 2 decimales
     if (parts.length === 2 && parts[1].length > 2) {
       cleaned = parts[0] + '.' + parts[1].substring(0, 2);
     }
-    
+
     // Guardar el valor sin formato mientras se escribe
     setBillingTargetFormData({
       ...billingTargetFormData,
@@ -651,27 +653,27 @@ function ConfigTab({
       });
       return;
     }
-    
+
     // Remover solo comas (para permitir reescritura), pero mantener números y punto decimal
     let cleaned = inputValue.replace(/,/g, '');
-    
+
     // Validar que solo contenga números y un punto decimal
     if (!/^\d*\.?\d*$/.test(cleaned)) {
       // Si no es válido, mantener el valor anterior
       return;
     }
-    
+
     // Permitir solo un punto decimal
     const parts = cleaned.split('.');
     if (parts.length > 2) {
       cleaned = parts[0] + '.' + parts.slice(1).join('');
     }
-    
+
     // Limitar a 2 decimales
     if (parts.length === 2 && parts[1].length > 2) {
       cleaned = parts[0] + '.' + parts[1].substring(0, 2);
     }
-    
+
     // Guardar el valor sin formato mientras se escribe
     setSalesTargetFormData({
       ...salesTargetFormData,
@@ -710,7 +712,7 @@ function ConfigTab({
           allDevelopments.add(normalized);
         });
       });
-      
+
       // También agregar desarrollos de configuraciones existentes (por si hay alguno nuevo)
       configs.forEach((config) => {
         if (config.desarrollo) {
@@ -740,14 +742,14 @@ function ConfigTab({
     if (formData.desarrollo) {
       // Normalizar el desarrollo seleccionado para comparar
       const normalizedSelected = normalizeDevelopmentDisplay(formData.desarrollo);
-      
+
       // Buscar si existe configuración para este desarrollo (comparación case-insensitive y normalizada)
       const existingConfig = configs.find((config) => {
         if (!config.desarrollo) return false;
         const normalizedConfig = normalizeDevelopmentDisplay(config.desarrollo);
         return normalizedConfig.toLowerCase() === normalizedSelected.toLowerCase();
       });
-      
+
       if (existingConfig) {
         // Cargar todos los valores de la configuración existente
         // Usar el nombre normalizado del desarrollo
@@ -793,7 +795,7 @@ function ConfigTab({
 
   const loadRules = useCallback(async () => {
     if (!formData.desarrollo) return;
-    
+
     setLoadingRules(true);
     try {
       const token = localStorage.getItem('accessToken');
@@ -875,10 +877,10 @@ function ConfigTab({
         setFormData({});
       } else {
         // Mostrar errores de validación si existen
-        const errorMessage = data.details && Array.isArray(data.details) 
+        const errorMessage = data.details && Array.isArray(data.details)
           ? data.details.join(', ')
           : data.error || 'Error al guardar la configuración';
-        
+
         toast({
           title: 'Error de validación',
           description: errorMessage,
@@ -903,7 +905,7 @@ function ConfigTab({
     try {
       const token = localStorage.getItem('accessToken');
       const configValue = globalFormData[configKey];
-      
+
       const response = await fetch('/api/commissions/config', {
         method: 'PUT',
         headers: {
@@ -949,9 +951,9 @@ function ConfigTab({
   };
 
   const handleSaveRule = async () => {
-    if (!ruleFormData.desarrollo || !ruleFormData.rule_name || !ruleFormData.periodo_type || 
-        !ruleFormData.periodo_value || !ruleFormData.operador || !ruleFormData.unidades_vendidas || 
-        ruleFormData.porcentaje_comision === undefined) {
+    if (!ruleFormData.desarrollo || !ruleFormData.rule_name || !ruleFormData.periodo_type ||
+      !ruleFormData.periodo_value || !ruleFormData.operador || !ruleFormData.unidades_vendidas ||
+      ruleFormData.porcentaje_comision === undefined) {
       toast({
         title: 'Error',
         description: 'Todos los campos son requeridos',
@@ -1324,9 +1326,9 @@ function ConfigTab({
                 value={formData.phase_sale_percent !== undefined ? formData.phase_sale_percent : ''}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                    phase_sale_percent: val === '' ? undefined : parseFloat(val) 
+                  setFormData({
+                    ...formData,
+                    phase_sale_percent: val === '' ? undefined : parseFloat(val)
                   });
                 }}
                 placeholder="0.000"
@@ -1344,9 +1346,9 @@ function ConfigTab({
                 value={formData.phase_post_sale_percent !== undefined ? formData.phase_post_sale_percent : ''}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                    phase_post_sale_percent: val === '' ? undefined : parseFloat(val) 
+                  setFormData({
+                    ...formData,
+                    phase_post_sale_percent: val === '' ? undefined : parseFloat(val)
                   });
                 }}
                 placeholder="0.000"
@@ -1360,63 +1362,63 @@ function ConfigTab({
           <div className="space-y-4 border-l-4 border-blue-500 pl-4">
             <h3 className="text-sm font-semibold text-blue-600">Fase Venta</h3>
             <div className="grid grid-cols-2 gap-4">
-            <div>
+              <div>
                 <Label>% Gerente de Ventas del Desarrollo</Label>
-              <Input
-                type="number"
+                <Input
+                  type="number"
                   step="0.001"
-                min="0"
-                max="100"
+                  min="0"
+                  max="100"
                   value={formData.sale_manager_percent !== undefined ? formData.sale_manager_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                      sale_manager_percent: val === '' ? undefined : parseFloat(val) 
-                  });
-                }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      sale_manager_percent: val === '' ? undefined : parseFloat(val)
+                    });
+                  }}
                   placeholder="0.000"
                   className="mt-2"
-              />
-            </div>
-            <div>
+                />
+              </div>
+              <div>
                 <Label>% Asesor Interno (Propietario del Lead)</Label>
-              <Input
-                type="number"
+                <Input
+                  type="number"
                   step="0.001"
-                min="0"
-                max="100"
+                  min="0"
+                  max="100"
                   value={formData.deal_owner_percent !== undefined ? formData.deal_owner_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                      deal_owner_percent: val === '' ? undefined : parseFloat(val) 
-                  });
-                }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      deal_owner_percent: val === '' ? undefined : parseFloat(val)
+                    });
+                  }}
                   placeholder="0.000"
                   className="mt-2"
-              />
-            </div>
-            <div>
+                />
+              </div>
+              <div>
                 <Label>% Asesor Externo (Opcional)</Label>
-              <Input
-                type="number"
+                <Input
+                  type="number"
                   step="0.001"
-                min="0"
-                max="100"
+                  min="0"
+                  max="100"
                   value={formData.external_advisor_percent !== undefined && formData.external_advisor_percent !== null ? formData.external_advisor_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                      external_advisor_percent: val === '' ? null : parseFloat(val) 
-                  });
-                }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      external_advisor_percent: val === '' ? null : parseFloat(val)
+                    });
+                  }}
                   placeholder="0.000"
                   className="mt-2"
-              />
-            </div>
+                />
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
                   <input
@@ -1431,26 +1433,26 @@ function ConfigTab({
                   </Label>
                 </div>
                 {formData.pool_enabled && (
-              <Input
-                type="number"
+                  <Input
+                    type="number"
                     step="0.001"
-                min="0"
-                max="100"
+                    min="0"
+                    max="100"
                     value={formData.sale_pool_total_percent !== undefined ? formData.sale_pool_total_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                        sale_pool_total_percent: val === '' ? undefined : parseFloat(val) 
-                  });
-                }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        sale_pool_total_percent: val === '' ? undefined : parseFloat(val)
+                      });
+                    }}
                     placeholder="% Pool Total"
-              />
+                  />
                 )}
                 <p className="text-xs text-muted-foreground">
                   Solo para gerente de ventas y asesores internos/externos
                 </p>
-            </div>
+              </div>
             </div>
           </div>
 
@@ -1475,23 +1477,23 @@ function ConfigTab({
                   </Label>
                 </div>
                 {formData.customer_service_enabled && (
-              <Input
-                type="number"
+                  <Input
+                    type="number"
                     step="0.001"
-                min="0"
-                max="100"
+                    min="0"
+                    max="100"
                     value={formData.customer_service_percent !== undefined && formData.customer_service_percent !== null ? formData.customer_service_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                        customer_service_percent: val === '' ? null : parseFloat(val) 
-                  });
-                }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        customer_service_percent: val === '' ? null : parseFloat(val)
+                      });
+                    }}
                     placeholder="0.000"
-              />
+                  />
                 )}
-            </div>
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
                   <input
@@ -1506,24 +1508,24 @@ function ConfigTab({
                   </Label>
                 </div>
                 {formData.deliveries_enabled && (
-              <Input
-                type="number"
+                  <Input
+                    type="number"
                     step="0.001"
-                min="0"
-                max="100"
+                    min="0"
+                    max="100"
                     value={formData.deliveries_percent !== undefined && formData.deliveries_percent !== null ? formData.deliveries_percent : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                        deliveries_percent: val === '' ? null : parseFloat(val) 
-                  });
-                }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        deliveries_percent: val === '' ? null : parseFloat(val)
+                      });
+                    }}
                     placeholder="0.000"
-              />
+                  />
                 )}
+              </div>
             </div>
-          </div>
           </div>
 
           <Button onClick={handleSave} disabled={saving} className="w-full">
@@ -1578,7 +1580,7 @@ function ConfigTab({
                 onClick={() => {
                   const currentYear = new Date().getFullYear();
                   const currentMonth = new Date().getMonth() + 1;
-                  
+
                   setRuleFormData({
                     desarrollo: formData.desarrollo,
                     periodo_type: 'mensual',
@@ -1637,7 +1639,7 @@ function ConfigTab({
                             const periodoType = value as CommissionRulePeriodType;
                             let periodoValue = '';
                             const currentYear = new Date().getFullYear();
-                            
+
                             // Generar valor por defecto según el tipo
                             // IMPORTANTE: Para trimestres, periodo_value es solo el año (ej: "2025")
                             // La regla se aplica a todos los trimestres de ese año
@@ -1650,7 +1652,7 @@ function ConfigTab({
                               // Para trimestres, solo el año (la regla se aplica a todos los trimestres)
                               periodoValue = currentYear.toString();
                             }
-                            
+
                             setRuleFormData({ ...ruleFormData, periodo_type: periodoType, periodo_value: periodoValue });
                           }}
                         >
@@ -1676,8 +1678,8 @@ function ConfigTab({
                           onChange={(e) => setRuleFormData({ ...ruleFormData, periodo_value: e.target.value })}
                           placeholder={
                             ruleFormData.periodo_type === 'trimestre' ? '2025-Q1' :
-                            ruleFormData.periodo_type === 'mensual' ? '2025-01' :
-                            '2025'
+                              ruleFormData.periodo_type === 'mensual' ? '2025-01' :
+                                '2025'
                           }
                         />
                         <p className="text-xs text-muted-foreground mt-1">
@@ -2109,62 +2111,62 @@ function ConfigTab({
           {/* Fase Venta */}
           <div className="space-y-4 border-l-4 border-blue-500 pl-4">
             <h3 className="text-sm font-semibold text-blue-600">Fase Venta</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label>% Coordinador de Operaciones de Venta</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
                     step="0.001"
-                  min="0"
-                  max="100"
-                  value={globalFormData.operations_coordinator_percent}
-                  onChange={(e) => setGlobalFormData({
-                    ...globalFormData,
-                    operations_coordinator_percent: parseFloat(e.target.value) || 0,
-                  })}
+                    min="0"
+                    max="100"
+                    value={globalFormData.operations_coordinator_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      operations_coordinator_percent: parseFloat(e.target.value) || 0,
+                    })}
                     placeholder="0.000"
-                />
-                <Button
-                  onClick={() => handleSaveGlobal('operations_coordinator_percent')}
-                  disabled={savingGlobal}
-                  variant="outline"
-                >
-                  {savingGlobal ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('operations_coordinator_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
+              <div className="space-y-2">
                 <Label>% Gerente de Marketing</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
                     step="0.001"
-                  min="0"
-                  max="100"
-                  value={globalFormData.marketing_percent}
-                  onChange={(e) => setGlobalFormData({
-                    ...globalFormData,
-                    marketing_percent: parseFloat(e.target.value) || 0,
-                  })}
+                    min="0"
+                    max="100"
+                    value={globalFormData.marketing_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      marketing_percent: parseFloat(e.target.value) || 0,
+                    })}
                     placeholder="0.000"
-                />
-                <Button
-                  onClick={() => handleSaveGlobal('marketing_percent')}
-                  disabled={savingGlobal}
-                  variant="outline"
-                >
-                  {savingGlobal ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('marketing_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -2468,8 +2470,8 @@ function SalesTab({
                   ))}
                 </SelectContent>
               </Select>
-              <Button 
-                onClick={handleSync} 
+              <Button
+                onClick={handleSync}
                 variant="default"
                 disabled={syncing}
               >
@@ -2524,7 +2526,7 @@ function SalesTab({
                 filteredSales.map((sale) => {
                   const partners = partnersMap[sale.id] || [];
                   const isLoading = loadingPartners[sale.id];
-                  
+
                   return (
                     <TableRow key={sale.id}>
                       <TableCell>{sale.cliente_nombre}</TableCell>
@@ -2555,21 +2557,21 @@ function SalesTab({
                         )}
                       </TableCell>
                       <TableCell>
-                        {sale.metros_cuadrados.toLocaleString('es-MX', { 
-                          minimumFractionDigits: 2, 
-                          maximumFractionDigits: 2 
+                        {sale.metros_cuadrados.toLocaleString('es-MX', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
                       <TableCell>
-                        ${Number(sale.precio_por_m2).toLocaleString('es-MX', { 
-                          minimumFractionDigits: 2, 
-                          maximumFractionDigits: 2 
+                        ${Number(sale.precio_por_m2).toLocaleString('es-MX', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
                       <TableCell>
-                        ${Number(sale.valor_total).toLocaleString('es-MX', { 
-                          minimumFractionDigits: 2, 
-                          maximumFractionDigits: 2 
+                        ${Number(sale.valor_total).toLocaleString('es-MX', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
                       <TableCell className="text-center">
@@ -2584,7 +2586,7 @@ function SalesTab({
                           ) : (
                             <div className="flex justify-center">
                               <Badge variant={allPaid ? 'default' : 'secondary'}>
-                              {label}
+                                {label}
                               </Badge>
                             </div>
                           );
@@ -2594,36 +2596,36 @@ function SalesTab({
                       <TableCell>
                         <Badge variant={
                           sale.internal_sale_phase_status === 'paid' ? 'default' :
-                          sale.internal_sale_phase_status === 'pending' ? 'secondary' :
-                          'outline'
+                            sale.internal_sale_phase_status === 'pending' ? 'secondary' :
+                              'outline'
                         }>
                           {sale.internal_sale_phase_status === 'visible' ? 'Visible' :
-                           sale.internal_sale_phase_status === 'pending' ? 'Pendiente' :
-                           'Pagada'}
+                            sale.internal_sale_phase_status === 'pending' ? 'Pendiente' :
+                              'Pagada'}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={
                           sale.internal_post_sale_phase_status === 'paid' ? 'default' :
-                          sale.internal_post_sale_phase_status === 'payable' ? 'secondary' :
-                          sale.internal_post_sale_phase_status === 'upcoming' ? 'outline' :
-                          'destructive'
+                            sale.internal_post_sale_phase_status === 'payable' ? 'secondary' :
+                              sale.internal_post_sale_phase_status === 'upcoming' ? 'outline' :
+                                'destructive'
                         }>
                           {sale.internal_post_sale_phase_status === 'hidden' ? 'Oculto' :
-                           sale.internal_post_sale_phase_status === 'upcoming' ? 'Activado' :
-                           sale.internal_post_sale_phase_status === 'payable' ? 'Pagable' :
-                           'Pagado'}
+                            sale.internal_post_sale_phase_status === 'upcoming' ? 'Activado' :
+                              sale.internal_post_sale_phase_status === 'payable' ? 'Pagable' :
+                                'Pagado'}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={
                           sale.partner_commission_status === 'collected' ? 'default' :
-                          sale.partner_commission_status === 'invoiced' ? 'secondary' :
-                          'outline'
+                            sale.partner_commission_status === 'invoiced' ? 'secondary' :
+                              'outline'
                         }>
                           {sale.partner_commission_status === 'pending_invoice' ? 'Pend. Facturar' :
-                           sale.partner_commission_status === 'invoiced' ? 'Facturado' :
-                           'Cobrado'}
+                            sale.partner_commission_status === 'invoiced' ? 'Facturado' :
+                              'Cobrado'}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -2759,7 +2761,7 @@ function DistributionTab({
       const data = await response.json();
       if (data.success) {
         // Filtrar las comisiones por el sale_id seleccionado
-        const filtered = (data.data || []).filter((pc: PartnerCommission) => 
+        const filtered = (data.data || []).filter((pc: PartnerCommission) =>
           pc.commission_sale_id === saleId
         );
         setPartnerCommissionsForSale(filtered);
@@ -2802,7 +2804,7 @@ function DistributionTab({
       if (data.success) {
         toast({
           title: recalculate ? 'Comisiones recalculadas' : 'Comisiones calculadas',
-          description: recalculate 
+          description: recalculate
             ? 'Las comisiones se han recalculado correctamente con la nueva configuración'
             : 'Las comisiones se han calculado correctamente',
         });
@@ -2816,7 +2818,7 @@ function DistributionTab({
           variant: 'destructive',
         });
         logger.error('Error calculating commissions:', data.error);
-        
+
         // Si el error es que ya existen distribuciones, cargar las existentes
         if (response.status === 409 && data.data?.existing_distributions) {
           setSaleDistributions(data.data.existing_distributions);
@@ -2878,9 +2880,9 @@ function DistributionTab({
       const data = await response.json();
       if (data.success) {
         // Actualizar el estado local
-        setSaleDistributions(prev => 
-          prev.map(dist => 
-            dist.id === distributionId 
+        setSaleDistributions(prev =>
+          prev.map(dist =>
+            dist.id === distributionId
               ? { ...dist, payment_status: newStatus }
               : dist
           )
@@ -2968,9 +2970,8 @@ function DistributionTab({
                       <div
                         key={sale.id}
                         onClick={() => setSelectedSaleId(sale.id)}
-                        className={`p-3 cursor-pointer hover:bg-muted transition-colors ${
-                          selectedSaleId === sale.id ? 'bg-muted border-l-4 border-primary' : ''
-                        }`}
+                        className={`p-3 cursor-pointer hover:bg-muted transition-colors ${selectedSaleId === sale.id ? 'bg-muted border-l-4 border-primary' : ''
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1">
@@ -2979,9 +2980,9 @@ function DistributionTab({
                               {normalizeDevelopmentDisplay(sale.desarrollo || '')} - {sale.producto || 'Sin producto'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              ${Number(sale.valor_total).toLocaleString('es-MX', { 
-                                minimumFractionDigits: 2, 
-                                maximumFractionDigits: 2 
+                              ${Number(sale.valor_total).toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
                               })} - {new Date(sale.fecha_firma).toLocaleDateString()}
                             </p>
                           </div>
@@ -2998,7 +2999,7 @@ function DistributionTab({
                   </div>
                 )}
               </div>
-              
+
               {/* Comisiones por Socio */}
               {selectedSaleId && (
                 <div className="mt-4 space-y-2">
@@ -3040,14 +3041,14 @@ function DistributionTab({
                           const salePhaseAmount = Number(((commissionBase * salePhasePercent) / 100).toFixed(2));
                           const postSalePhaseAmount = Number(((commissionBase * postSalePhasePercent) / 100).toFixed(2));
                           const totalAmount = Number(commission.total_commission_amount || 0);
-                          
+
                           const salePhaseIva = calculateIva(salePhaseAmount);
                           const postSalePhaseIva = calculateIva(postSalePhaseAmount);
-                          
+
                           const salePhaseTotal = calculateTotalWithIva(salePhaseAmount);
                           const postSalePhaseTotal = calculateTotalWithIva(postSalePhaseAmount);
                           const totalWithIva = calculateTotalWithIva(totalAmount);
-                          
+
                           return (
                             <div key={commission.id} className="p-3 space-y-2">
                               <div className="flex items-center justify-between">
@@ -3058,124 +3059,122 @@ function DistributionTab({
                                   </p>
                                 </div>
                               </div>
-                              
+
                               {/* Fase Venta */}
                               {salePhaseAmount > 0 && (
                                 <div className="pl-4 border-l-2 border-blue-200 space-y-1">
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs font-semibold text-blue-700">Fase Venta</span>
-                                    <Badge 
-                                      variant="outline" 
-                                      className={`text-xs ${
-                                        commission.sale_phase_collection_status === 'collected' 
-                                          ? 'bg-green-50 text-green-700 border-green-300' 
-                                          : commission.sale_phase_collection_status === 'invoiced'
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${commission.sale_phase_collection_status === 'collected'
+                                        ? 'bg-green-50 text-green-700 border-green-300'
+                                        : commission.sale_phase_collection_status === 'invoiced'
                                           ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
                                           : 'bg-gray-50 text-gray-700 border-gray-300'
-                                      }`}
+                                        }`}
                                     >
-                                      {commission.sale_phase_collection_status === 'collected' 
-                                        ? 'Cobrado' 
+                                      {commission.sale_phase_collection_status === 'collected'
+                                        ? 'Cobrado'
                                         : commission.sale_phase_collection_status === 'invoiced'
-                                        ? 'Facturado'
-                                        : 'Pendiente'}
+                                          ? 'Facturado'
+                                          : 'Pendiente'}
                                     </Badge>
                                   </div>
                                   <div className="text-xs space-y-0.5">
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Subtotal:</span>
                                       <span className="font-medium">
-                                        ${salePhaseAmount.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${salePhaseAmount.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">IVA:</span>
                                       <span className="font-medium">
-                                        ${salePhaseIva.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${salePhaseIva.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                     <div className="flex justify-between font-semibold text-blue-700">
                                       <span>Total:</span>
                                       <span>
-                                        ${salePhaseTotal.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${salePhaseTotal.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                   </div>
                                 </div>
                               )}
-                              
+
                               {/* Fase Postventa */}
                               {postSalePhaseAmount > 0 && (
                                 <div className="pl-4 border-l-2 border-green-200 space-y-1">
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs font-semibold text-green-700">Fase Postventa</span>
-                                    <Badge 
-                                      variant="outline" 
-                                      className={`text-xs ${
-                                        commission.post_sale_phase_collection_status === 'collected' 
-                                          ? 'bg-green-50 text-green-700 border-green-300' 
-                                          : commission.post_sale_phase_collection_status === 'invoiced'
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${commission.post_sale_phase_collection_status === 'collected'
+                                        ? 'bg-green-50 text-green-700 border-green-300'
+                                        : commission.post_sale_phase_collection_status === 'invoiced'
                                           ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
                                           : 'bg-gray-50 text-gray-700 border-gray-300'
-                                      }`}
+                                        }`}
                                     >
-                                      {commission.post_sale_phase_collection_status === 'collected' 
-                                        ? 'Cobrado' 
+                                      {commission.post_sale_phase_collection_status === 'collected'
+                                        ? 'Cobrado'
                                         : commission.post_sale_phase_collection_status === 'invoiced'
-                                        ? 'Facturado'
-                                        : 'Pendiente'}
+                                          ? 'Facturado'
+                                          : 'Pendiente'}
                                     </Badge>
                                   </div>
                                   <div className="text-xs space-y-0.5">
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Subtotal:</span>
                                       <span className="font-medium">
-                                        ${postSalePhaseAmount.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${postSalePhaseAmount.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">IVA:</span>
                                       <span className="font-medium">
-                                        ${postSalePhaseIva.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${postSalePhaseIva.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                     <div className="flex justify-between font-semibold text-green-700">
                                       <span>Total:</span>
                                       <span>
-                                        ${postSalePhaseTotal.toLocaleString('es-MX', { 
-                                          minimumFractionDigits: 2, 
-                                          maximumFractionDigits: 2 
+                                        ${postSalePhaseTotal.toLocaleString('es-MX', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
                                         })}
                                       </span>
                                     </div>
                                   </div>
                                 </div>
                               )}
-                              
+
                               {/* Total General */}
                               {totalAmount > 0 && (
                                 <div className="pt-2 border-t mt-2">
                                   <div className="flex justify-between items-center">
                                     <span className="text-xs font-semibold">Total General:</span>
                                     <span className="text-sm font-bold">
-                                      ${totalWithIva.toLocaleString('es-MX', { 
-                                        minimumFractionDigits: 2, 
-                                        maximumFractionDigits: 2 
+                                      ${totalWithIva.toLocaleString('es-MX', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
                                       })}
                                     </span>
                                   </div>
@@ -3270,7 +3269,7 @@ function DistributionTab({
                     </div>
                   ) : saleDistributions.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
-                      {selectedSale.commission_calculated 
+                      {selectedSale.commission_calculated
                         ? 'No hay distribuciones disponibles'
                         : 'Haz clic en "Calcular Comisiones" para generar la distribución'}
                     </div>
@@ -3281,9 +3280,9 @@ function DistributionTab({
                           <div>
                             <span className="text-muted-foreground">Monto total de la Venta:</span>
                             <p className="font-semibold text-xl">
-                              ${Number(selectedSale.valor_total).toLocaleString('es-MX', { 
-                                minimumFractionDigits: 2, 
-                                maximumFractionDigits: 2 
+                              ${Number(selectedSale.valor_total).toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
                               })}
                             </p>
                           </div>
@@ -3295,40 +3294,40 @@ function DistributionTab({
                             const postSalePaid = saleDistributions
                               .filter(d => d.phase === 'post_sale')
                               .reduce((sum, d) => sum + (Number(d.amount_calculated) || 0), 0);
-                            
+
                             // Calcular comisión base (100% del valor total por defecto)
                             const commissionBase = Number(selectedSale.valor_total);
-                            
+
                             // Usar porcentajes guardados cuando se calculó (estáticos) si están disponibles,
                             // de lo contrario usar los de la configuración actual
                             const salePhasePercentFromSale = selectedSale.calculated_phase_sale_percent !== null && selectedSale.calculated_phase_sale_percent !== undefined
                               ? Number(selectedSale.calculated_phase_sale_percent)
                               : null;
-                            
+
                             const config = configs.find(c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase());
                             const salePhasePercentFromConfig = config ? Number(config.phase_sale_percent) : 0;
                             const salePhasePercent = salePhasePercentFromSale !== null ? salePhasePercentFromSale : salePhasePercentFromConfig;
-                            
+
                             const postSalePhasePercentFromSale = selectedSale.calculated_phase_post_sale_percent !== null && selectedSale.calculated_phase_post_sale_percent !== undefined
                               ? Number(selectedSale.calculated_phase_post_sale_percent)
                               : null;
-                            
+
                             const postSalePhasePercentFromConfig = config ? Number(config.phase_post_sale_percent) : 0;
                             const postSalePhasePercent = postSalePhasePercentFromSale !== null ? postSalePhasePercentFromSale : postSalePhasePercentFromConfig;
-                            
+
                             // Calcular totales de fase usando los porcentajes (guardados o de configuración)
                             const salePhaseTotal = Number(((commissionBase * salePhasePercent) / 100).toFixed(2));
                             const postSalePhaseTotal = Number(((commissionBase * postSalePhasePercent) / 100).toFixed(2));
-                            
+
                             // Total de comisiones pagadas
                             const totalCommissionsPaid = salePaid + postSalePaid;
-                            
+
                             // Monto total de comisiones por fase
                             const totalCommissionsByPhase = salePhaseTotal + postSalePhaseTotal;
-                            
+
                             // Utilidad = Monto total comisiones por fase - Total de comisiones pagadas
                             const utility = totalCommissionsByPhase - totalCommissionsPaid;
-                            
+
                             return (
                               <>
                                 <div className="col-span-2 border-t pt-2 mt-2">
@@ -3336,18 +3335,18 @@ function DistributionTab({
                                   <div className="flex justify-between items-center mt-1">
                                     <span className="text-sm">Total: </span>
                                     <p className="font-semibold text-blue-600">
-                                      ${salePhaseTotal.toLocaleString('es-MX', { 
-                                        minimumFractionDigits: 2, 
-                                        maximumFractionDigits: 2 
+                                      ${salePhaseTotal.toLocaleString('es-MX', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
                                       })}
                                     </p>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Pagado en comisiones: </span>
                                     <p className="font-semibold text-blue-700">
-                                      ${salePaid.toLocaleString('es-MX', { 
-                                        minimumFractionDigits: 2, 
-                                        maximumFractionDigits: 2 
+                                      ${salePaid.toLocaleString('es-MX', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
                                       })}
                                     </p>
                                   </div>
@@ -3357,18 +3356,18 @@ function DistributionTab({
                                   <div className="flex justify-between items-center mt-1">
                                     <span className="text-sm">Total: </span>
                                     <p className="font-semibold text-green-600">
-                                      ${postSalePhaseTotal.toLocaleString('es-MX', { 
-                                        minimumFractionDigits: 2, 
-                                        maximumFractionDigits: 2 
+                                      ${postSalePhaseTotal.toLocaleString('es-MX', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
                                       })}
                                     </p>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Pagado en comisiones: </span>
                                     <p className="font-semibold text-green-700">
-                                      ${postSalePaid.toLocaleString('es-MX', { 
-                                        minimumFractionDigits: 2, 
-                                        maximumFractionDigits: 2 
+                                      ${postSalePaid.toLocaleString('es-MX', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
                                       })}
                                     </p>
                                   </div>
@@ -3376,18 +3375,18 @@ function DistributionTab({
                                 <div className="col-span-2 border-t pt-2 mt-2">
                                   <span className="text-muted-foreground">Total de Comisiones (Fase Venta + Postventa):</span>
                                   <p className="font-semibold text-xl">
-                                    ${totalCommissionsPaid.toLocaleString('es-MX', { 
-                                      minimumFractionDigits: 2, 
-                                      maximumFractionDigits: 2 
+                                    ${totalCommissionsPaid.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
                                     })}
                                   </p>
                                 </div>
                                 <div className="col-span-2 border-t pt-2 mt-2">
                                   <span className="text-muted-foreground">Utilidad:</span>
                                   <p className="font-semibold text-lg text-yellow-600">
-                                    ${utility.toLocaleString('es-MX', { 
-                                      minimumFractionDigits: 2, 
-                                      maximumFractionDigits: 2 
+                                    ${utility.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
                                     })}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
@@ -3399,7 +3398,7 @@ function DistributionTab({
                           })()}
                         </div>
                       </div>
-                      
+
                       {/* Distribuciones por Fase */}
                       <div className="divide-y">
                         <div className="p-2 bg-blue-50 border-b border-blue-200">
@@ -3429,15 +3428,15 @@ function DistributionTab({
                                   <TableCell>{normalizedName}</TableCell>
                                   <TableCell>{dist.percent_assigned}%</TableCell>
                                   <TableCell className="font-medium">
-                                    ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', { 
-                                      minimumFractionDigits: 2, 
-                                      maximumFractionDigits: 2 
+                                    ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
                                     })}
                                   </TableCell>
                                   <TableCell>
                                     <Select
                                       value={dist.payment_status || 'pending'}
-                                      onValueChange={(value: 'pending' | 'paid') => 
+                                      onValueChange={(value: 'pending' | 'paid') =>
                                         handlePaymentStatusChange(dist.id, value)
                                       }
                                     >
@@ -3512,15 +3511,15 @@ function DistributionTab({
                                   <TableCell>{normalizedName}</TableCell>
                                   <TableCell>{dist.percent_assigned}%</TableCell>
                                   <TableCell className="font-medium">
-                                    ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', { 
-                                      minimumFractionDigits: 2, 
-                                      maximumFractionDigits: 2 
+                                    ${Number(dist.amount_calculated || 0).toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
                                     })}
                                   </TableCell>
                                   <TableCell>
                                     <Select
                                       value={dist.payment_status || 'pending'}
-                                      onValueChange={(value: 'pending' | 'paid') => 
+                                      onValueChange={(value: 'pending' | 'paid') =>
                                         handlePaymentStatusChange(dist.id, value)
                                       }
                                     >
@@ -3573,7 +3572,7 @@ function DistributionTab({
                           const utilityDistributions = saleDistributions.filter(d => d.phase === 'utility');
                           const ruleDistributions = utilityDistributions.filter(d => d.role_type === 'rule_bonus' && d.person_name !== 'Utilidad Restante');
                           const remainingUtility = utilityDistributions.find(d => d.person_name === 'Utilidad Restante');
-                          
+
                           if (ruleDistributions.length > 0 || remainingUtility) {
                             return (
                               <>
@@ -3601,7 +3600,7 @@ function DistributionTab({
                                       let unidadesRequeridas = 1;
                                       let operador = '=';
                                       let isFulfilled = dist.amount_calculated > 0;
-                                      
+
                                       if (parts.length === 5) {
                                         ruleName = parts[0];
                                         unidadesVendidas = parseInt(parts[1]) || 1;
@@ -3613,10 +3612,10 @@ function DistributionTab({
                                         isFulfilled = !dist.person_name.includes('Regla no cumplida') && dist.amount_calculated > 0;
                                         ruleName = dist.person_name.replace('Regla no cumplida - ', '').replace('Utilidad - ', '');
                                       }
-                                      
+
                                       return (
-                                        <TableRow 
-                                          key={dist.id} 
+                                        <TableRow
+                                          key={dist.id}
                                           className={isFulfilled ? 'bg-green-50/50' : 'bg-red-50/50'}
                                         >
                                           <TableCell className="font-medium">
@@ -3626,11 +3625,10 @@ function DistributionTab({
                                             {unidadesVendidas} / {unidadesRequeridas} ({operador})
                                           </TableCell>
                                           <TableCell>
-                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                              isFulfilled 
-                                                ? 'bg-green-100 text-green-700' 
-                                                : 'bg-red-100 text-red-700'
-                                            }`}>
+                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${isFulfilled
+                                              ? 'bg-green-100 text-green-700'
+                                              : 'bg-red-100 text-red-700'
+                                              }`}>
                                               {isFulfilled ? 'Cumplida' : 'No cumplida'}
                                             </span>
                                           </TableCell>
@@ -3639,9 +3637,9 @@ function DistributionTab({
                                           </TableCell>
                                           <TableCell className={`font-medium ${isFulfilled ? 'text-green-700' : 'text-red-400'}`}>
                                             {dist.amount_calculated > 0 ? (
-                                              `$${Number(dist.amount_calculated).toLocaleString('es-MX', { 
-                                                minimumFractionDigits: 2, 
-                                                maximumFractionDigits: 2 
+                                              `$${Number(dist.amount_calculated).toLocaleString('es-MX', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2
                                               })}`
                                             ) : (
                                               <span className="text-gray-400 italic">-</span>
@@ -3658,9 +3656,9 @@ function DistributionTab({
                                         <TableCell>-</TableCell>
                                         <TableCell>{remainingUtility.percent_assigned}%</TableCell>
                                         <TableCell className="font-medium text-yellow-700">
-                                          ${Number(remainingUtility.amount_calculated).toLocaleString('es-MX', { 
-                                            minimumFractionDigits: 2, 
-                                            maximumFractionDigits: 2 
+                                          ${Number(remainingUtility.amount_calculated).toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
                                           })}
                                         </TableCell>
                                       </TableRow>
@@ -3716,7 +3714,7 @@ function DashboardTab({
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [personFilter, setPersonFilter] = useState<string>('all');
   const { toast } = useToast();
-  
+
   // Estados para controlar la visibilidad de las tablas
   const [monthlyStatsVisible, setMonthlyStatsVisible] = useState(true);
   const [monthlyMetricsVisible, setMonthlyMetricsVisible] = useState(true);
@@ -3752,7 +3750,7 @@ function DashboardTab({
       if (paymentStatusFilter !== 'all') {
         params.append('payment_status', paymentStatusFilter);
       }
-      
+
       const response = await fetch(`/api/commissions/dashboard?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -4039,9 +4037,9 @@ function DashboardTab({
                   </CardHeader>
                   <CardContent className="pt-2">
                     <div className="text-xl font-bold">
-                      ${developmentDashboard.total_annual.toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
+                      ${developmentDashboard.total_annual.toLocaleString('es-MX', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
                       })}
                     </div>
                   </CardContent>
@@ -4055,9 +4053,9 @@ function DashboardTab({
                   </CardHeader>
                   <CardContent className="pt-2">
                     <div className="text-xl font-bold text-green-600">
-                      ${(developmentDashboard.total_paid || 0).toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
+                      ${(developmentDashboard.total_paid || 0).toLocaleString('es-MX', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
                       })}
                     </div>
                   </CardContent>
@@ -4071,15 +4069,15 @@ function DashboardTab({
                   </CardHeader>
                   <CardContent className="pt-2">
                     <div className="text-xl font-bold text-yellow-600">
-                      ${(developmentDashboard.total_pending || 0).toLocaleString('es-MX', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
+                      ${(developmentDashboard.total_pending || 0).toLocaleString('es-MX', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
                       })}
                     </div>
                   </CardContent>
                 </Card>
               </div>
-              
+
               {/* Tabla mensual con estado de pago */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
@@ -4098,43 +4096,43 @@ function DashboardTab({
                   </Button>
                 </div>
                 {monthlyStatsVisible && (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="h-8">
-                        <TableHead className="text-xs py-1.5">Mes</TableHead>
-                        <TableHead className="text-xs py-1.5 text-right">Total</TableHead>
-                        <TableHead className="text-xs py-1.5 text-right">Pagadas</TableHead>
-                        <TableHead className="text-xs py-1.5 text-right">Pendientes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {developmentDashboard.monthly_stats.map((month) => (
-                        <TableRow key={month.month} className="h-8">
-                          <TableCell className="text-xs py-1.5 font-medium">{month.month_name}</TableCell>
-                          <TableCell className="text-xs py-1.5 text-right">
-                            ${month.commission_total.toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 text-right text-green-600">
-                            ${(month.commission_paid || 0).toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 text-right text-yellow-600">
-                            ${(month.commission_pending || 0).toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="h-8">
+                          <TableHead className="text-xs py-1.5">Mes</TableHead>
+                          <TableHead className="text-xs py-1.5 text-right">Total</TableHead>
+                          <TableHead className="text-xs py-1.5 text-right">Pagadas</TableHead>
+                          <TableHead className="text-xs py-1.5 text-right">Pendientes</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {developmentDashboard.monthly_stats.map((month) => (
+                          <TableRow key={month.month} className="h-8">
+                            <TableCell className="text-xs py-1.5 font-medium">{month.month_name}</TableCell>
+                            <TableCell className="text-xs py-1.5 text-right">
+                              ${month.commission_total.toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 text-right text-green-600">
+                              ${(month.commission_paid || 0).toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 text-right text-yellow-600">
+                              ${(month.commission_pending || 0).toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
             </div>
@@ -4158,120 +4156,120 @@ function DashboardTab({
                   </Button>
                 </div>
                 {monthlyMetricsVisible && (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="h-8">
-                        <TableHead className="text-xs py-1.5">Métrica</TableHead>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
-                            <div className="flex flex-col">
-                              <span>{month.month_name.substring(0, 3)}</span>
-                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
-                            </div>
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Ventas Totales</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            {month.ventas_totales}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Ticket promedio de Venta</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            ${month.ticket_promedio_venta.toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Comisiones</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            ${month.monto_comision.toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Meta de comisión</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            {month.meta_facturacion !== null
-                              ? `$${month.meta_facturacion.toLocaleString('es-MX', {
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="h-8">
+                          <TableHead className="text-xs py-1.5">Métrica</TableHead>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                              <div className="flex flex-col">
+                                <span>{month.month_name.substring(0, 3)}</span>
+                                <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                              </div>
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Ventas Totales</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              {month.ventas_totales}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Ticket promedio de Venta</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              ${month.ticket_promedio_venta.toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Comisiones</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              ${month.monto_comision.toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Meta de comisión</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              {month.meta_facturacion !== null
+                                ? `$${month.meta_facturacion.toLocaleString('es-MX', {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}`
-                              : '-'}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">% comisión alcanzado</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            {month.porcentaje_cumplimiento !== null ? (
-                              <span className={getCumplimientoColor(month.porcentaje_cumplimiento)}>
-                                {month.porcentaje_cumplimiento.toFixed(2)}%
-                              </span>
-                            ) : (
-                              <span className="text-gray-500">-</span>
-                            )}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Monto de ventas</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            ${month.monto_ventas.toLocaleString('es-MX', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">Meta de ventas</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            {month.meta_ventas !== null
-                              ? `$${month.meta_ventas.toLocaleString('es-MX', {
+                                : '-'}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">% comisión alcanzado</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              {month.porcentaje_cumplimiento !== null ? (
+                                <span className={getCumplimientoColor(month.porcentaje_cumplimiento)}>
+                                  {month.porcentaje_cumplimiento.toFixed(2)}%
+                                </span>
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Monto de ventas</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              ${month.monto_ventas.toLocaleString('es-MX', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">Meta de ventas</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              {month.meta_ventas !== null
+                                ? `$${month.meta_ventas.toLocaleString('es-MX', {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}`
-                              : '-'}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow className="h-8">
-                        <TableCell className="text-xs py-1.5 font-medium">% ventas alcanzado</TableCell>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                            {month.porcentaje_cumplimiento_ventas !== null ? (
-                              <span className={getCumplimientoColor(month.porcentaje_cumplimiento_ventas)}>
-                                {month.porcentaje_cumplimiento_ventas.toFixed(2)}%
-                              </span>
-                            ) : (
-                              <span className="text-gray-500">-</span>
-                            )}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
+                                : '-'}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="h-8">
+                          <TableCell className="text-xs py-1.5 font-medium">% ventas alcanzado</TableCell>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                              {month.porcentaje_cumplimiento_ventas !== null ? (
+                                <span className={getCumplimientoColor(month.porcentaje_cumplimiento_ventas)}>
+                                  {month.porcentaje_cumplimiento_ventas.toFixed(2)}%
+                                </span>
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
 
@@ -4293,58 +4291,58 @@ function DashboardTab({
                   </Button>
                 </div>
                 {commissionByDevelopmentVisible && (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="h-8">
-                        <TableHead className="text-xs py-1.5">Desarrollo</TableHead>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
-                            <div className="flex flex-col">
-                              <span>{month.month_name.substring(0, 3)}</span>
-                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
-                            </div>
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.keys(generalDashboard.commission_by_development)
-                        .sort()
-                        .map((desarrollo) => (
-                          <TableRow key={desarrollo} className="h-8">
-                            <TableCell className="text-xs py-1.5 font-medium capitalize">
-                              {desarrollo}
-                            </TableCell>
-                            {generalDashboard.monthly_metrics.map((month) => {
-                              const amount =
-                                generalDashboard.commission_by_development[desarrollo]?.[
-                                  month.month
-                                ] || 0;
-                              return (
-                                <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                                  ${amount.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
-                      {Object.keys(generalDashboard.commission_by_development).length === 0 && (
-                        <TableRow>
-                          <TableCell
-                            colSpan={13}
-                            className="text-center text-muted-foreground"
-                          >
-                            No hay datos de comisiones por desarrollo
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="h-8">
+                          <TableHead className="text-xs py-1.5">Desarrollo</TableHead>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                              <div className="flex flex-col">
+                                <span>{month.month_name.substring(0, 3)}</span>
+                                <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                              </div>
+                            </TableHead>
+                          ))}
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.keys(generalDashboard.commission_by_development)
+                          .sort()
+                          .map((desarrollo) => (
+                            <TableRow key={desarrollo} className="h-8">
+                              <TableCell className="text-xs py-1.5 font-medium capitalize">
+                                {desarrollo}
+                              </TableCell>
+                              {generalDashboard.monthly_metrics.map((month) => {
+                                const amount =
+                                  generalDashboard.commission_by_development[desarrollo]?.[
+                                  month.month
+                                  ] || 0;
+                                return (
+                                  <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                                    ${amount.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        {Object.keys(generalDashboard.commission_by_development).length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={13}
+                              className="text-center text-muted-foreground"
+                            >
+                              No hay datos de comisiones por desarrollo
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
 
@@ -4366,56 +4364,56 @@ function DashboardTab({
                   </Button>
                 </div>
                 {commissionBySalespersonVisible && (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="h-8">
-                        <TableHead className="text-xs py-1.5">Vendedor</TableHead>
-                        {generalDashboard.monthly_metrics.map((month) => (
-                          <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
-                            <div className="flex flex-col">
-                              <span>{month.month_name.substring(0, 3)}</span>
-                              <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
-                            </div>
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.keys(generalDashboard.commission_by_salesperson)
-                        .sort()
-                        .map((salesperson) => (
-                          <TableRow key={salesperson} className="h-8">
-                            <TableCell className="text-xs py-1.5 font-medium">{salesperson}</TableCell>
-                            {generalDashboard.monthly_metrics.map((month) => {
-                              const amount =
-                                generalDashboard.commission_by_salesperson[salesperson]?.[
-                                  month.month
-                                ] || 0;
-                              return (
-                                <TableCell key={month.month} className="text-xs py-1.5 text-center">
-                                  ${amount.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
-                      {Object.keys(generalDashboard.commission_by_salesperson).length === 0 && (
-                        <TableRow>
-                          <TableCell
-                            colSpan={13}
-                            className="text-center text-muted-foreground"
-                          >
-                            No hay datos de comisiones por vendedor
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="h-8">
+                          <TableHead className="text-xs py-1.5">Vendedor</TableHead>
+                          {generalDashboard.monthly_metrics.map((month) => (
+                            <TableHead key={month.month} className="text-xs py-1.5 text-center min-w-[90px]">
+                              <div className="flex flex-col">
+                                <span>{month.month_name.substring(0, 3)}</span>
+                                <span className="text-[10px] text-muted-foreground">{selectedYear}</span>
+                              </div>
+                            </TableHead>
+                          ))}
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.keys(generalDashboard.commission_by_salesperson)
+                          .sort()
+                          .map((salesperson) => (
+                            <TableRow key={salesperson} className="h-8">
+                              <TableCell className="text-xs py-1.5 font-medium">{salesperson}</TableCell>
+                              {generalDashboard.monthly_metrics.map((month) => {
+                                const amount =
+                                  generalDashboard.commission_by_salesperson[salesperson]?.[
+                                  month.month
+                                  ] || 0;
+                                return (
+                                  <TableCell key={month.month} className="text-xs py-1.5 text-center">
+                                    ${amount.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        {Object.keys(generalDashboard.commission_by_salesperson).length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={13}
+                              className="text-center text-muted-foreground"
+                            >
+                              No hay datos de comisiones por vendedor
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
             </div>
@@ -4486,285 +4484,285 @@ function DashboardTab({
               </div>
             </CardHeader>
             {distributionsVisible && (
-            <CardContent className="pt-3">
-              {loadingDistributions ? (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                </div>
-              ) : (() => {
-                // Aplicar filtros
-                const monthNames = [
-                  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-                ];
+              <CardContent className="pt-3">
+                {loadingDistributions ? (
+                  <div className="flex items-center justify-center p-4">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
+                ) : (() => {
+                  // Aplicar filtros
+                  const monthNames = [
+                    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                  ];
 
-                let filteredDistributions = distributions;
+                  let filteredDistributions = distributions;
 
-                // Filtrar por persona
-                if (personFilter !== 'all') {
-                  filteredDistributions = filteredDistributions.filter(d => d.person_name === personFilter);
-                }
+                  // Filtrar por persona
+                  if (personFilter !== 'all') {
+                    filteredDistributions = filteredDistributions.filter(d => d.person_name === personFilter);
+                  }
 
-                // Filtrar por estado de pago
-                if (paymentStatusFilter !== 'all') {
-                  filteredDistributions = filteredDistributions.filter(d => d.payment_status === paymentStatusFilter);
-                }
+                  // Filtrar por estado de pago
+                  if (paymentStatusFilter !== 'all') {
+                    filteredDistributions = filteredDistributions.filter(d => d.payment_status === paymentStatusFilter);
+                  }
 
-                if (filteredDistributions.length === 0) {
+                  if (filteredDistributions.length === 0) {
+                    return (
+                      <div className="text-center text-muted-foreground p-4 text-sm">
+                        No hay comisiones disponibles con los filtros seleccionados
+                      </div>
+                    );
+                  }
+
+                  // Agrupar por mes
+                  const groupedByMonth: Record<number, typeof filteredDistributions> = {};
+                  filteredDistributions.forEach(dist => {
+                    const fechaFirma = new Date(dist.fecha_firma);
+                    const month = fechaFirma.getMonth() + 1;
+                    if (!groupedByMonth[month]) {
+                      groupedByMonth[month] = [];
+                    }
+                    groupedByMonth[month].push(dist);
+                  });
+
+                  // Ordenar meses
+                  const sortedMonths = Object.keys(groupedByMonth)
+                    .map(m => parseInt(m, 10))
+                    .sort((a, b) => a - b);
+
                   return (
-                    <div className="text-center text-muted-foreground p-4 text-sm">
-                      No hay comisiones disponibles con los filtros seleccionados
+                    <div className="space-y-3">
+                      {sortedMonths.map(month => {
+                        const monthDistributions = groupedByMonth[month];
+
+                        // Calcular totales del mes
+                        const totalMonth = monthDistributions.reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
+                        const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0)), 0);
+                        const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0)), 0);
+                        const numTransacciones = monthDistributions.length;
+                        const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
+
+                        return (
+                          <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
+                            <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
+                              <div className="flex items-center gap-3">
+                                <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
+                                <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
+                                  {monthYear}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-4 text-right">
+                                <div>
+                                  <div className="text-[10px] text-muted-foreground">Subtotal</div>
+                                  <div className="text-sm font-semibold">
+                                    ${totalMonth.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-muted-foreground">IVA</div>
+                                  <div className="text-sm font-semibold">
+                                    ${totalIvaMonth.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-muted-foreground">Total Mes</div>
+                                  <div className="text-xl font-bold">
+                                    ${totalConIvaMonth.toLocaleString('es-MX', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="h-8">
+                                    <TableHead className="text-xs py-1.5 px-2">Producto</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Desarrollo</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Fecha</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Persona</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Rol</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Fase</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2 text-right">Comisión</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2 text-right">IVA</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2 text-right">Total</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Estado</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Factura</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {monthDistributions.map((dist) => {
+                                    const amount = Number(dist.amount_calculated || 0);
+                                    const iva = calculateIva(amount);
+                                    const totalConIva = calculateTotalWithIva(amount);
+
+                                    return (
+                                      <TableRow key={dist.id} className="h-8">
+                                        <TableCell className="text-xs py-1.5 px-2 font-medium">
+                                          {dist.producto || '-'}
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">{dist.cliente_nombre}</TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">{dist.desarrollo}</TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">
+                                          {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">{dist.person_name}</TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">{getRoleDisplayName(dist.role_type)}</TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">
+                                          <Badge variant="outline" className="text-[10px] py-0 px-1.5">
+                                            {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2 text-right font-medium">
+                                          ${amount.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2 text-right">
+                                          ${iva.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2 text-right font-bold">
+                                          ${totalConIva.toLocaleString('es-MX', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">
+                                          <Select
+                                            value={dist.payment_status}
+                                            onValueChange={(value: 'pending' | 'paid') => handlePaymentStatusChange(dist.id, value)}
+                                          >
+                                            <SelectTrigger className="w-[110px] h-7 text-xs">
+                                              <SelectValue>
+                                                {dist.payment_status === 'paid' ? (
+                                                  <div className="flex items-center gap-1">
+                                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                                    <span className="text-xs">Pagada</span>
+                                                  </div>
+                                                ) : (
+                                                  <div className="flex items-center gap-1">
+                                                    <Clock className="h-3 w-3 text-yellow-600" />
+                                                    <span className="text-xs">Pendiente</span>
+                                                  </div>
+                                                )}
+                                              </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="pending">
+                                                <div className="flex items-center gap-2">
+                                                  <Clock className="h-4 w-4 text-yellow-600" />
+                                                  Pendiente
+                                                </div>
+                                              </SelectItem>
+                                              <SelectItem value="paid">
+                                                <div className="flex items-center gap-2">
+                                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                                  Pagada
+                                                </div>
+                                              </SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </TableCell>
+                                        <TableCell className="text-xs py-1.5 px-2">
+                                          <div className="flex items-center gap-1">
+                                            {dist.invoice_pdf_path ? (
+                                              <>
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => handleViewInvoice(dist.id)}
+                                                  title="Ver factura"
+                                                  className="h-6 w-6 p-0"
+                                                >
+                                                  <Eye className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => handleDownloadInvoice(dist.id)}
+                                                  title="Descargar factura"
+                                                  className="h-6 w-6 p-0"
+                                                >
+                                                  <Download className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => handleDeleteInvoice(dist.id)}
+                                                  title="Eliminar factura"
+                                                  className="h-6 w-6 p-0"
+                                                >
+                                                  <X className="h-3 w-3 text-red-600" />
+                                                </Button>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <input
+                                                  type="file"
+                                                  accept=".pdf,application/pdf"
+                                                  className="hidden"
+                                                  id={`invoice-upload-${dist.id}`}
+                                                  onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                      handleUploadInvoice(dist.id, file);
+                                                    }
+                                                  }}
+                                                  disabled={uploadingInvoice === dist.id}
+                                                />
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  disabled={uploadingInvoice === dist.id}
+                                                  title="Subir factura PDF"
+                                                  onClick={() => {
+                                                    const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
+                                                    input?.click();
+                                                  }}
+                                                  className="h-6 px-2 text-xs"
+                                                >
+                                                  {uploadingInvoice === dist.id ? (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                  ) : (
+                                                    <Upload className="h-3 w-3" />
+                                                  )}
+                                                </Button>
+                                              </>
+                                            )}
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
-                }
-
-                // Agrupar por mes
-                const groupedByMonth: Record<number, typeof filteredDistributions> = {};
-                filteredDistributions.forEach(dist => {
-                  const fechaFirma = new Date(dist.fecha_firma);
-                  const month = fechaFirma.getMonth() + 1;
-                  if (!groupedByMonth[month]) {
-                    groupedByMonth[month] = [];
-                  }
-                  groupedByMonth[month].push(dist);
-                });
-
-                // Ordenar meses
-                const sortedMonths = Object.keys(groupedByMonth)
-                  .map(m => parseInt(m, 10))
-                  .sort((a, b) => a - b);
-
-                return (
-                  <div className="space-y-3">
-                    {sortedMonths.map(month => {
-                      const monthDistributions = groupedByMonth[month];
-                      
-                      // Calcular totales del mes
-                      const totalMonth = monthDistributions.reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
-                      const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0)), 0);
-                      const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0)), 0);
-                      const numTransacciones = monthDistributions.length;
-                      const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
-
-                      return (
-                        <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
-                          <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
-                            <div className="flex items-center gap-3">
-                              <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
-                              <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
-                                {monthYear}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-4 text-right">
-                              <div>
-                                <div className="text-[10px] text-muted-foreground">Subtotal</div>
-                                <div className="text-sm font-semibold">
-                                  ${totalMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-muted-foreground">IVA</div>
-                                <div className="text-sm font-semibold">
-                                  ${totalIvaMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-muted-foreground">Total Mes</div>
-                                <div className="text-xl font-bold">
-                                  ${totalConIvaMonth.toLocaleString('es-MX', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="overflow-x-auto">
-                            <Table>
-                              <TableHeader>
-                                <TableRow className="h-8">
-                                  <TableHead className="text-xs py-1.5 px-2">Producto</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Desarrollo</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Fecha</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Persona</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Rol</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Fase</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2 text-right">Comisión</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2 text-right">IVA</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2 text-right">Total</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Estado</TableHead>
-                                  <TableHead className="text-xs py-1.5 px-2">Factura</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {monthDistributions.map((dist) => {
-                                  const amount = Number(dist.amount_calculated || 0);
-                                  const iva = calculateIva(amount);
-                                  const totalConIva = calculateTotalWithIva(amount);
-                                  
-                                  return (
-                                    <TableRow key={dist.id} className="h-8">
-                                      <TableCell className="text-xs py-1.5 px-2 font-medium">
-                                        {dist.producto || '-'}
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">{dist.cliente_nombre}</TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">{dist.desarrollo}</TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">
-                                        {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">{dist.person_name}</TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">{getRoleDisplayName(dist.role_type)}</TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">
-                                        <Badge variant="outline" className="text-[10px] py-0 px-1.5">
-                                          {dist.phase === 'sale' ? 'Venta' : dist.phase === 'post_sale' ? 'Postventa' : 'Utilidad'}
-                                        </Badge>
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2 text-right font-medium">
-                                        ${amount.toLocaleString('es-MX', {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        })}
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2 text-right">
-                                        ${iva.toLocaleString('es-MX', {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        })}
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2 text-right font-bold">
-                                        ${totalConIva.toLocaleString('es-MX', {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        })}
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">
-                                        <Select
-                                          value={dist.payment_status}
-                                          onValueChange={(value: 'pending' | 'paid') => handlePaymentStatusChange(dist.id, value)}
-                                        >
-                                          <SelectTrigger className="w-[110px] h-7 text-xs">
-                                            <SelectValue>
-                                              {dist.payment_status === 'paid' ? (
-                                                <div className="flex items-center gap-1">
-                                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                                  <span className="text-xs">Pagada</span>
-                                                </div>
-                                              ) : (
-                                                <div className="flex items-center gap-1">
-                                                  <Clock className="h-3 w-3 text-yellow-600" />
-                                                  <span className="text-xs">Pendiente</span>
-                                                </div>
-                                              )}
-                                            </SelectValue>
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="pending">
-                                              <div className="flex items-center gap-2">
-                                                <Clock className="h-4 w-4 text-yellow-600" />
-                                                Pendiente
-                                              </div>
-                                            </SelectItem>
-                                            <SelectItem value="paid">
-                                              <div className="flex items-center gap-2">
-                                                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                                Pagada
-                                              </div>
-                                            </SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </TableCell>
-                                      <TableCell className="text-xs py-1.5 px-2">
-                                        <div className="flex items-center gap-1">
-                                          {dist.invoice_pdf_path ? (
-                                            <>
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => handleViewInvoice(dist.id)}
-                                                title="Ver factura"
-                                                className="h-6 w-6 p-0"
-                                              >
-                                                <Eye className="h-3 w-3" />
-                                              </Button>
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => handleDownloadInvoice(dist.id)}
-                                                title="Descargar factura"
-                                                className="h-6 w-6 p-0"
-                                              >
-                                                <Download className="h-3 w-3" />
-                                              </Button>
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => handleDeleteInvoice(dist.id)}
-                                                title="Eliminar factura"
-                                                className="h-6 w-6 p-0"
-                                              >
-                                                <X className="h-3 w-3 text-red-600" />
-                                              </Button>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <input
-                                                type="file"
-                                                accept=".pdf,application/pdf"
-                                                className="hidden"
-                                                id={`invoice-upload-${dist.id}`}
-                                                onChange={(e) => {
-                                                  const file = e.target.files?.[0];
-                                                  if (file) {
-                                                    handleUploadInvoice(dist.id, file);
-                                                  }
-                                                }}
-                                                disabled={uploadingInvoice === dist.id}
-                                              />
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                disabled={uploadingInvoice === dist.id}
-                                                title="Subir factura PDF"
-                                                onClick={() => {
-                                                  const input = document.getElementById(`invoice-upload-${dist.id}`) as HTMLInputElement;
-                                                  input?.click();
-                                                }}
-                                                className="h-6 px-2 text-xs"
-                                              >
-                                                {uploadingInvoice === dist.id ? (
-                                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                                ) : (
-                                                  <Upload className="h-3 w-3" />
-                                                )}
-                                              </Button>
-                                            </>
-                                          )}
-                                        </div>
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </CardContent>
+                })()}
+              </CardContent>
             )}
           </Card>
         </CardContent>
@@ -4876,7 +4874,7 @@ function PartnersTab({
   };
 
   const handleStatusChange = async (
-    commissionId: number, 
+    commissionId: number,
     newStatus: 'pending_invoice' | 'invoiced' | 'collected',
     phase: 'sale_phase' | 'post_sale_phase'
   ) => {
@@ -4897,7 +4895,7 @@ function PartnersTab({
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
         toast({
           title: 'Estado actualizado',
@@ -5208,19 +5206,18 @@ function PartnersTab({
                                                   disabled={updatingStatus === commission.id}
                                                 >
                                                   <SelectTrigger
-                                                    className={`w-40 h-7 text-xs ${
-                                                      (commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                    className={`w-40 h-7 text-xs ${(commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
                                                       (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
-                                                      'border-border'
-                                                    }`}
+                                                        'border-border'
+                                                      }`}
                                                   >
                                                     {updatingStatus === commission.id ? (
                                                       <Loader2 className="h-3 w-3 animate-spin" />
                                                     ) : (
                                                       <SelectValue>
                                                         {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                         (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                         'Cobrado'}
+                                                          (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                            'Cobrado'}
                                                       </SelectValue>
                                                     )}
                                                   </SelectTrigger>
@@ -5301,10 +5298,10 @@ function PartnersTab({
                                                           const postSalePhasePercent = saleInfo?.calculated_phase_post_sale_percent != null
                                                             ? Number(saleInfo.calculated_phase_post_sale_percent)
                                                             : (() => {
-                                                                const desarrollo = saleInfo?.desarrollo;
-                                                                const config = desarrollo ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
-                                                                return config ? Number(config.phase_post_sale_percent) : 0;
-                                                              })();
+                                                              const desarrollo = saleInfo?.desarrollo;
+                                                              const config = desarrollo ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
+                                                              return config ? Number(config.phase_post_sale_percent) : 0;
+                                                            })();
 
                                                           const postSalePhaseTotal = postSalePhasePercent > 0 && valorTotal > 0
                                                             ? Number(((valorTotal * postSalePhasePercent) / 100).toFixed(2))
@@ -5321,14 +5318,14 @@ function PartnersTab({
                                                               <Badge
                                                                 variant={
                                                                   (commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'default' :
-                                                                  (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'secondary' :
-                                                                  'outline'
+                                                                    (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'secondary' :
+                                                                      'outline'
                                                                 }
                                                                 className="text-xs"
                                                               >
                                                                 {(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'Cobrado' :
-                                                                 (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                                 'Pendiente'}
+                                                                  (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                                    'Pendiente'}
                                                               </Badge>
                                                             </>
                                                           );
@@ -5386,12 +5383,12 @@ function PartnersTab({
                     plazoDeal,
                     commissionId
                   }, 'commissions-partners-postventa');
-                  
+
                   if (!plazoDeal) {
                     logger.warn('No hay plazo_deal, retornando null', { commissionId }, 'commissions-partners-postventa');
                     return null;
                   }
-                  
+
                   // Intentar parsear el plazo (puede venir como "12 meses", "12", "12m", etc.)
                   // Buscar cualquier número en el string
                   const plazoMatch = plazoDeal.match(/(\d+)/);
@@ -5399,20 +5396,20 @@ function PartnersTab({
                     logger.warn('No se pudo parsear el plazo_deal', { plazoDeal, commissionId }, 'commissions-partners-postventa');
                     return null;
                   }
-                  
+
                   const meses = parseInt(plazoMatch[1], 10);
                   if (isNaN(meses) || meses < 0) {
                     logger.warn('Meses inválidos parseados del plazo', { meses, plazoDeal, commissionId }, 'commissions-partners-postventa');
                     return null;
                   }
-                  
+
                   // Crear una nueva fecha para no modificar la original
                   const fechaEscrituracion = new Date(fechaFirma);
-                  
+
                   // Sumar los meses al mes actual
                   // setMonth maneja automáticamente el desbordamiento (ej: mes 13 -> mes 1 del año siguiente)
                   fechaEscrituracion.setMonth(fechaEscrituracion.getMonth() + meses);
-                  
+
                   logger.info('Fecha de escrituración calculada', {
                     fechaFirma: fechaFirma.toISOString(),
                     plazoDeal,
@@ -5421,19 +5418,19 @@ function PartnersTab({
                     monthKey: `${fechaEscrituracion.getFullYear()}-${String(fechaEscrituracion.getMonth() + 1).padStart(2, '0')}`,
                     commissionId
                   }, 'commissions-partners-postventa');
-                  
+
                   return fechaEscrituracion;
                 };
 
                 // Agrupar comisiones por mes y luego por socio usando fecha de escrituración para fase postventa
                 const commissionsByMonth = partnerCommissions.reduce((acc, commission) => {
                   const saleInfo = sales.find(s => s.id === commission.commission_sale_id);
-                  
+
                   // Intentar obtener fecha_firma y plazo_deal de saleInfo o sale_info
                   const saleInfoData = saleInfo || (commission as any).sale_info;
                   const fechaFirmaStr = saleInfoData?.fecha_firma || saleInfo?.fecha_firma;
                   const plazoDeal = saleInfoData?.plazo_deal || saleInfo?.plazo_deal;
-                  
+
                   logger.info('Procesando comisión de postventa para agrupación', {
                     commissionId: commission.id,
                     commissionSaleId: commission.commission_sale_id,
@@ -5452,7 +5449,7 @@ function PartnersTab({
                     fullSaleInfoData: saleInfoData,
                     fullCommissionSaleInfo: (commission as any).sale_info
                   }, 'commissions-partners-postventa');
-                  
+
                   // Si no hay fecha_firma, no podemos calcular fecha de escrituración, omitir
                   if (!fechaFirmaStr) {
                     logger.warn('No hay fecha_firma, omitiendo comisión de postventa', {
@@ -5462,15 +5459,15 @@ function PartnersTab({
                     }, 'commissions-partners-postventa');
                     return acc;
                   }
-                  
+
                   const fechaFirma = new Date(fechaFirmaStr);
                   const fechaEscrituracion = calcularFechaEscrituracion(fechaFirma, plazoDeal, commission.id);
-                  
+
                   // Si no se puede calcular fecha de escrituración (no hay plazo_deal), pero SÍ hay monto de postventa,
                   // usar la fecha de firma para agrupar (es contado, pero tiene comisión de postventa)
                   let fechaFinal: Date;
                   let esContado = false;
-                  
+
                   if (!fechaEscrituracion) {
                     // Si no hay plazo_deal pero SÍ hay monto de postventa, usar fecha de firma
                     if (Number(commission.post_sale_phase_amount || 0) > 0) {
@@ -5496,7 +5493,7 @@ function PartnersTab({
                   } else {
                     fechaFinal = fechaEscrituracion;
                   }
-                  
+
                   const monthKey = `${fechaFinal.getFullYear()}-${String(fechaFinal.getMonth() + 1).padStart(2, '0')}`;
 
                   logger.info('Comisión agrupada por mes', {
@@ -5518,10 +5515,10 @@ function PartnersTab({
                     if (!acc[monthKey][socioName]) {
                       acc[monthKey][socioName] = [];
                     }
-                    acc[monthKey][socioName].push({ 
-                      ...commission, 
-                      saleInfo, 
-                      ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}), 
+                    acc[monthKey][socioName].push({
+                      ...commission,
+                      saleInfo,
+                      ...((commission as any).sale_info ? { sale_info: (commission as any).sale_info } : {}),
                       fechaEscrituracion: fechaFinal,
                       esContado: esContado
                     } as any);
@@ -5542,13 +5539,13 @@ function PartnersTab({
                       const [year, month] = monthKey.split('-');
                       const monthData = commissionsByMonth[monthKey];
                       const socios = Object.keys(monthData).sort();
-                      
+
                       // Calcular total del mes
                       const _totalMonthAmount = socios.reduce((sum: number, socio: string) => {
                         const socioComms = monthData[socio] || [];
                         return sum + socioComms.reduce((s: number, c: any) => s + Number(c.post_sale_phase_amount || 0), 0);
                       }, 0);
-                      
+
                       // Contar socios y transacciones
                       const totalSocios = socios.length;
                       const totalTransacciones = socios.reduce((sum: number, socio: string) => sum + (monthData[socio]?.length || 0), 0);
@@ -5614,44 +5611,44 @@ function PartnersTab({
                                         const saleInfoFromAPI = (commission as any).sale_info || commission.saleInfo;
                                         const saleInfoFromSales = sales.find(s => s.id === commission.commission_sale_id);
                                         const saleInfo = saleInfoFromAPI || saleInfoFromSales;
-                                        
+
                                         const lote = saleInfo?.producto || 'N/A';
                                         const cliente = saleInfo?.cliente_nombre || 'N/A';
                                         const concepto = `Comisión por Fase postventa de ${lote} ${cliente}`;
                                         const esContado = (commission as any).esContado === true;
-                                        
+
                                         // Calcular el monto total de la fase postventa (igual al que se muestra en "Total" en distribución)
                                         // Usar valor_total y calculated_phase_post_sale_percent de la venta
                                         // Primero intentar desde sale_info de la API, luego desde sales array, finalmente desde config
-                                        const valorTotal = saleInfo?.valor_total != null 
-                                          ? Number(saleInfo.valor_total) 
+                                        const valorTotal = saleInfo?.valor_total != null
+                                          ? Number(saleInfo.valor_total)
                                           : (saleInfoFromSales?.valor_total != null ? Number(saleInfoFromSales.valor_total) : 0);
-                                        
+
                                         // Obtener porcentaje: primero desde sale_info, luego desde sales, finalmente desde config (igual que en Distribución)
                                         const postSalePhasePercentFromSale = saleInfo?.calculated_phase_post_sale_percent != null
                                           ? Number(saleInfo.calculated_phase_post_sale_percent)
-                                          : (saleInfoFromSales?.calculated_phase_post_sale_percent != null 
-                                              ? Number(saleInfoFromSales.calculated_phase_post_sale_percent) 
-                                              : null);
-                                        
+                                          : (saleInfoFromSales?.calculated_phase_post_sale_percent != null
+                                            ? Number(saleInfoFromSales.calculated_phase_post_sale_percent)
+                                            : null);
+
                                         // Si no hay porcentaje guardado, usar el de la configuración (igual que en Distribución)
                                         const desarrollo = saleInfo?.desarrollo || saleInfoFromSales?.desarrollo;
                                         const config = desarrollo ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
                                         const postSalePhasePercentFromConfig = config ? Number(config.phase_post_sale_percent) : 0;
-                                        
-                                        const postSalePhasePercent = postSalePhasePercentFromSale != null 
-                                          ? postSalePhasePercentFromSale 
+
+                                        const postSalePhasePercent = postSalePhasePercentFromSale != null
+                                          ? postSalePhasePercentFromSale
                                           : postSalePhasePercentFromConfig;
-                                        
+
                                         // Calcular monto total de fase postventa: valor_total * porcentaje / 100
                                         const postSalePhaseTotal = postSalePhasePercent > 0 && valorTotal > 0
                                           ? Number(((valorTotal * postSalePhasePercent) / 100).toFixed(2))
                                           : 0;
-                                        
+
                                         // Buscar si hay factura para esta comisión
                                         const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
                                         const hasInvoice = invoice?.invoice_pdf_path !== null && invoice?.invoice_pdf_path !== undefined;
-                                        
+
                                         return (
                                           <TableRow key={commission.id}>
                                             <TableCell className="text-sm">
@@ -5697,20 +5694,19 @@ function PartnersTab({
                                                 onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'post_sale_phase')}
                                                 disabled={updatingStatus === commission.id}
                                               >
-                                                <SelectTrigger 
-                                                  className={`w-40 h-7 text-xs ${
-                                                    (commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                <SelectTrigger
+                                                  className={`w-40 h-7 text-xs ${(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
                                                     (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
-                                                    'border-border'
-                                                  }`}
+                                                      'border-border'
+                                                    }`}
                                                 >
                                                   {updatingStatus === commission.id ? (
                                                     <Loader2 className="h-3 w-3 animate-spin" />
                                                   ) : (
                                                     <SelectValue>
                                                       {(commission.post_sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                       (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                       'Cobrado'}
+                                                        (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                          'Cobrado'}
                                                     </SelectValue>
                                                   )}
                                                 </SelectTrigger>
@@ -5749,8 +5745,8 @@ function PartnersTab({
                                                       }}
                                                       disabled={uploadingInvoice === commission.id}
                                                     />
-                                                    <Button 
-                                                      variant="outline" 
+                                                    <Button
+                                                      variant="outline"
                                                       size="sm"
                                                       className="bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500"
                                                       disabled={uploadingInvoice === commission.id}

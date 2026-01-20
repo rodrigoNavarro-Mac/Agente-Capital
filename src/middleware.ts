@@ -7,8 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { applyRateLimit, type RateLimitKey } from '@/lib/rate-limit';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { applyRateLimit } from '@/lib/rate-limit-edge';
+import { type RateLimitKey } from '@/lib/rate-limit-config';
+import { extractTokenFromHeader, verifyAccessTokenEdge } from '@/lib/auth-edge';
 
 /**
  * Mapeo de rutas a sus respectivos rate limits.
@@ -29,53 +30,65 @@ const ROUTE_RATE_LIMITS: Record<string, RateLimitKey> = {
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  
+
   // Solo aplicar rate limiting a rutas de API
   if (!pathname.startsWith('/api/')) {
     return NextResponse.next();
   }
-  
+
   // Determinar qué tipo de rate limit aplicar según la ruta
   let rateLimitKey: RateLimitKey = 'api';
-  
+
   for (const [route, limitKey] of Object.entries(ROUTE_RATE_LIMITS)) {
     if (pathname.startsWith(route)) {
       rateLimitKey = limitKey;
       break;
     }
   }
-  
+
+  // Rutas públicas que no requieren autenticación
+  const publicRoutes = ['/api/auth/login', '/api/auth/refresh'];
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+
   // Intentar obtener userId del token si está disponible
   let userId: number | string | undefined;
-  
+
   try {
     const authHeader = request.headers.get('authorization');
     if (authHeader) {
       const token = extractTokenFromHeader(authHeader);
       if (token) {
-        const payload = verifyAccessToken(token);
+        // Usar la versión Edge-compatible de verificación
+        const payload = await verifyAccessTokenEdge(token);
         if (payload?.userId) {
           userId = payload.userId;
         }
       }
     }
   } catch {
-    // Si hay error al verificar el token, continuar sin userId
-    // (el endpoint se encargará de la autenticación)
+    // Token inválido o expirado
   }
-  
+
+  // ENFORCEMENT: Si es ruta protegida (no pública) y no hay userId válido, rechazar
+  if (!isPublicRoute && !userId) {
+    return NextResponse.json(
+      { success: false, error: 'No autorizado: Token inválido o ausente' },
+      { status: 401 }
+    );
+  }
+
   // Aplicar rate limiting
   const rateLimitResponse = await applyRateLimit(
     request,
     rateLimitKey,
     userId
   );
-  
+
   // Si rate limiting retorna una respuesta, significa que se excedió el límite
   if (rateLimitResponse) {
     return rateLimitResponse;
   }
-  
+
   // Continuar con la request normalmente
   return NextResponse.next();
 }
@@ -95,4 +108,3 @@ export const config = {
     '/api/:path*',
   ],
 };
-
