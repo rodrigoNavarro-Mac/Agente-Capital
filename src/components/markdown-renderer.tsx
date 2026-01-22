@@ -6,7 +6,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils/utils';
 import { useMemo } from 'react';
 
 interface MarkdownRendererProps {
@@ -347,4 +347,5 @@ export function MarkdownRenderer({ content, className, sources, onCitationClick 
     </div>
   );
 }
+
 

@@ -9,9 +9,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserById, updateUser, deactivateUser, getUserByEmail } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
-import { validateRequest, updateUserRequestSchema } from '@/lib/validation';
+import { getUserById, updateUser, deactivateUser, getUserByEmail } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, updateUserRequestSchema } from '@/lib/utils/validation';
 import type { User, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -245,4 +245,5 @@ export async function DELETE(
     );
   }
 }
+
 

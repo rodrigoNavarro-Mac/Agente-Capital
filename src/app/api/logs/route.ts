@@ -8,9 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getQueryLogs, getActionLogs, getUserById } from '@/lib/postgres';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
+import { getQueryLogs, getActionLogs, getUserById } from '@/lib/db/postgres';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
 import type { QueryLog, ActionLog, APIResponse, ActionType, ResourceType, Zone } from '@/types/documents';
 
 // Forzar renderizado din?mico (esta ruta usa request.url que es din?mico)
@@ -172,4 +172,7 @@ export async function GET(
     );
   }
 }
+
+
+
 

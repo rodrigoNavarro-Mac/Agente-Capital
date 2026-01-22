@@ -7,7 +7,7 @@
 
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 /**
  * Combina clases de Tailwind con merge inteligente
@@ -193,4 +193,5 @@ export function isValidEmail(email: string): boolean {
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
+
 

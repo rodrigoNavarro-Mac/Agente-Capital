@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { changePassword, getUser, getUserDevelopments, getQueryLogs } from '@/lib/api';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import { Lock, Eye, EyeOff, Loader2, User, Mail, Shield, Building2, CheckCircle2, XCircle, MapPin, MessageSquare, Upload as UploadIcon, BarChart3, Star, TrendingUp, Clock } from 'lucide-react';
 import type { User as UserType, UserDevelopment, UserRole, QueryLog } from '@/types/documents';
 
@@ -705,4 +705,5 @@ export default function ProfilePage() {
     </div>
   );
 }
+
 

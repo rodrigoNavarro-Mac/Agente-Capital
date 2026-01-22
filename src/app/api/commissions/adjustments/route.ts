@@ -6,15 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import {
   createCommissionAdjustment,
   getCommissionAdjustments,
   getCommissionDistribution,
   updateCommissionDistribution,
-} from '@/lib/commission-db';
-import { logger } from '@/lib/logger';
-import { validateRequest, commissionAdjustmentInputSchema } from '@/lib/validation';
+} from '@/lib/db/commission-db';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, commissionAdjustmentInputSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionAdjustmentInput } from '@/types/commissions';
 
@@ -188,4 +188,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     );
   }
 }
+
+
+
 

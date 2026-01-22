@@ -6,9 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { getProductPartners, getProductPartnersForSales } from '@/lib/commission-db';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { getProductPartners, getProductPartnersForSales } from '@/lib/db/commission-db';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -122,4 +122,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
+
 

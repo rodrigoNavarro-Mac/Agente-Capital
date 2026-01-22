@@ -8,9 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import { 
-  getZohoLeads, 
-  getZohoDeals, 
+import {
+  getZohoLeads,
+  getZohoDeals,
   getZohoStats,
   getZohoNotesInsightsAI,
   getZohoNotesInsightsStored,
@@ -22,19 +22,19 @@ import {
   type ZohoNoteForAI,
   type ZohoNotesInsightsResponse
 } from '@/lib/api';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { getDevelopmentColors, getChartColor } from '@/lib/development-colors';
-import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, type TimePeriod } from '@/lib/time-buckets';
-import { logger } from '@/lib/logger';
+import { getDevelopmentColors, getChartColor } from '@/lib/utils/development-colors';
+import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, type TimePeriod } from '@/lib/utils/time-buckets';
+import { logger } from '@/lib/utils/logger';
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [activeTab, setActiveTab] = useState('stats');
-  
+
   // Datos
   const [stats, setStats] = useState<ZohoStats | null>(null);
   const [lastMonthStats, setLastMonthStats] = useState<ZohoStats | null>(null);
@@ -53,7 +53,7 @@ export default function ZohoCRMPage() {
   const [error, setError] = useState<string | null>(null);
   // Desarrollos asignados al usuario (para sales_manager)
   const [assignedDevelopments, setAssignedDevelopments] = useState<string[]>([]);
-  
+
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
@@ -63,7 +63,7 @@ export default function ZohoCRMPage() {
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(true);
-  
+
   const { toast } = useToast();
 
   // Verificar rol del usuario y obtener desarrollos asignados
@@ -73,7 +73,7 @@ export default function ZohoCRMPage() {
       const payload = decodeAccessToken(token);
       if (payload) {
         setUserRole(payload.role as UserRole);
-        
+
         // Si es sales_manager, obtener desarrollos asignados
         if (payload.role === 'sales_manager' && payload.userId) {
           getUserDevelopments(payload.userId)
@@ -114,7 +114,7 @@ export default function ZohoCRMPage() {
   // Normalizar nombres para evitar duplicados por diferencias de mayúsculas/minúsculas
   const availableDevelopments = useMemo(() => {
     const developmentsMap = new Map<string, string>(); // Map<normalized, original>
-    
+
     // Agregar desarrollos de los datos cargados
     leads.forEach(lead => {
       // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
@@ -122,9 +122,9 @@ export default function ZohoCRMPage() {
       if (leadDesarrollo) {
         const normalized = normalizeDevelopmentDisplay(leadDesarrollo);
         // Si ya existe, mantener el original que tenga mejor formato (con mayúscula)
-        if (!developmentsMap.has(normalized) || 
-            (leadDesarrollo.charAt(0) === leadDesarrollo.charAt(0).toUpperCase() && 
-             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+        if (!developmentsMap.has(normalized) ||
+          (leadDesarrollo.charAt(0) === leadDesarrollo.charAt(0).toUpperCase() &&
+            developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
           developmentsMap.set(normalized, leadDesarrollo);
         }
       }
@@ -135,28 +135,28 @@ export default function ZohoCRMPage() {
       if (dealDesarrollo) {
         const normalized = normalizeDevelopmentDisplay(dealDesarrollo);
         // Si ya existe, mantener el original que tenga mejor formato (con mayúscula)
-        if (!developmentsMap.has(normalized) || 
-            (dealDesarrollo.charAt(0) === dealDesarrollo.charAt(0).toUpperCase() && 
-             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+        if (!developmentsMap.has(normalized) ||
+          (dealDesarrollo.charAt(0) === dealDesarrollo.charAt(0).toUpperCase() &&
+            developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
           developmentsMap.set(normalized, dealDesarrollo);
         }
       }
     });
-    
+
     // Para sales_manager, agregar también los desarrollos asignados
     // Esto asegura que aparezcan en la lista incluso si no hay datos para algunos
     if (userRole === 'sales_manager' && assignedDevelopments.length > 0) {
       assignedDevelopments.forEach((dev) => {
         const normalized = normalizeDevelopmentDisplay(dev);
         // Si ya existe, mantener el original que tenga mejor formato
-        if (!developmentsMap.has(normalized) || 
-            (dev.charAt(0) === dev.charAt(0).toUpperCase() && 
-             developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
+        if (!developmentsMap.has(normalized) ||
+          (dev.charAt(0) === dev.charAt(0).toUpperCase() &&
+            developmentsMap.get(normalized)?.charAt(0) !== developmentsMap.get(normalized)?.charAt(0).toUpperCase())) {
           developmentsMap.set(normalized, dev);
         }
       });
     }
-    
+
     // Retornar los nombres normalizados ordenados
     return Array.from(developmentsMap.keys()).sort();
   }, [leads, deals, userRole, assignedDevelopments]);
@@ -322,14 +322,14 @@ export default function ZohoCRMPage() {
 
     // Minimal Spanish stopwords list (extend as needed)
     const STOPWORDS = new Set([
-      'de','la','que','el','en','y','a','los','del','se','las','por','un','para','con','no','una','su','al','lo',
-      'como','mas','pero','sus','le','ya','o','este','si','porque','esta','son','entre','cuando','muy','sin','sobre',
-      'tambien','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra',
-      'otros','ese','eso','ante','ellos','e','esto','mi','mis','tu','tus','te','usted','ustedes','hoy','ayer','manana',
-      'cliente','clientes','lead','leads','deal','deals','cita','visita','whatsapp','mensaje','llamada','llamadas',
-      'contacto','contactar','info','informacion','datos','telefono','correo','email','nombre','precio','mxn','peso','pesos',
+      'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo',
+      'como', 'mas', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'si', 'porque', 'esta', 'son', 'entre', 'cuando', 'muy', 'sin', 'sobre',
+      'tambien', 'me', 'hasta', 'hay', 'donde', 'quien', 'desde', 'todo', 'nos', 'durante', 'todos', 'uno', 'les', 'ni', 'contra',
+      'otros', 'ese', 'eso', 'ante', 'ellos', 'e', 'esto', 'mi', 'mis', 'tu', 'tus', 'te', 'usted', 'ustedes', 'hoy', 'ayer', 'manana',
+      'cliente', 'clientes', 'lead', 'leads', 'deal', 'deals', 'cita', 'visita', 'whatsapp', 'mensaje', 'llamada', 'llamadas',
+      'contacto', 'contactar', 'info', 'informacion', 'datos', 'telefono', 'correo', 'email', 'nombre', 'precio', 'mxn', 'peso', 'pesos',
       // English/common templates
-      'find','recording','here','call','calls','assets',
+      'find', 'recording', 'here', 'call', 'calls', 'assets',
     ]);
 
     const tokenize = (input: string) => {
@@ -815,8 +815,8 @@ export default function ZohoCRMPage() {
       }
     });
 
-    const averageDealValue = filteredDeals.length > 0 
-      ? totalDealValue / filteredDeals.length 
+    const averageDealValue = filteredDeals.length > 0
+      ? totalDealValue / filteredDeals.length
       : 0;
 
     // Estadísticas por desarrollo (normalizar nombres para evitar duplicados)
@@ -911,8 +911,8 @@ export default function ZohoCRMPage() {
     });
 
     // KPIs básicos
-    const conversionRate = filteredLeads.length > 0 
-      ? Math.round((filteredDeals.length / filteredLeads.length) * 10000) / 100 
+    const conversionRate = filteredLeads.length > 0
+      ? Math.round((filteredDeals.length / filteredLeads.length) * 10000) / 100
       : 0;
 
     const discardedLeads = Object.values(leadsDiscardReasons).reduce((sum, count) => sum + count, 0);
@@ -937,8 +937,8 @@ export default function ZohoCRMPage() {
     Object.keys({ ...leadsBySource, ...dealsBySource }).forEach(source => {
       const leadsCount = leadsBySource[source] || 0;
       const dealsCount = dealsBySource[source] || 0;
-      conversionBySource[source] = leadsCount > 0 
-        ? Math.round((dealsCount / leadsCount) * 10000) / 100 
+      conversionBySource[source] = leadsCount > 0
+        ? Math.round((dealsCount / leadsCount) * 10000) / 100
         : 0;
     });
 
@@ -984,12 +984,12 @@ export default function ZohoCRMPage() {
       const minutes = p.hour * 60 + p.minute;
       return minutes >= businessStart && minutes <= businessEnd;
     };
-    
+
     filteredLeads.forEach(lead => {
       const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
       const firstContactTime = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
       const tiempoEntreContacto = (lead as any).Tiempo_entre_primer_contacto;
-      
+
       if (createdTime) {
         const created = new Date(createdTime);
         if (Number.isNaN(created.getTime())) return;
@@ -1020,7 +1020,7 @@ export default function ZohoCRMPage() {
         }
       }
     });
-    
+
     const averageTimeToFirstContact = countWithFirstContact > 0
       ? Math.round((totalTimeToFirstContact / countWithFirstContact) * 10) / 10
       : 0;
@@ -1106,15 +1106,15 @@ export default function ZohoCRMPage() {
     Object.keys({ ...leadsByDate, ...dealsByDate }).forEach(date => {
       const leadsCount = leadsByDate[date] || 0;
       const dealsCount = dealsByDate[date] || 0;
-      conversionByDate[date] = leadsCount > 0 
-        ? Math.round((dealsCount / leadsCount) * 10000) / 100 
+      conversionByDate[date] = leadsCount > 0
+        ? Math.round((dealsCount / leadsCount) * 10000) / 100
         : 0;
     });
 
     // Embudo del ciclo de vida
     // 1. Leads: total de leads filtrados
     const totalLeadsCount = filteredLeads.length;
-    
+
     // 2. Deals: TODOS los deals filtrados (independientemente de si tienen cita o están cerrados)
     // Cambio: ahora incluimos todos los deals, no solo los que no están cerrados
     const dealsWithAppointment = filteredDeals.length;
@@ -1123,7 +1123,7 @@ export default function ZohoCRMPage() {
     const closedStages = ['Ganado', 'Won', 'Cerrado Ganado', 'Perdido', 'Lost', 'Cerrado Perdido'];
     const closedDealsInFiltered = filteredDeals.filter(deal => {
       const stage = deal.Stage || '';
-      return closedStages.some(closedStage => 
+      return closedStages.some(closedStage =>
         stage.toLowerCase().includes(closedStage.toLowerCase())
       );
     }).length;
@@ -1133,7 +1133,7 @@ export default function ZohoCRMPage() {
     if (filteredDeals.length > 0) {
       console.log(`📊 Embudo de ventas - Total Deals: ${filteredDeals.length}, Activos: ${activeDealsInFiltered}, Cerrados: ${closedDealsInFiltered}`);
     }
-    
+
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
     // Importante: este KPI usa la fecha de cierre (Closing_Date) y NO la fecha de creación.
     const closedWon = closedWonByCloseDate;
@@ -1243,7 +1243,7 @@ export default function ZohoCRMPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       // Función helper para obtener todos los leads
       const getAllLeads = async (): Promise<ZohoLead[]> => {
@@ -1258,11 +1258,11 @@ export default function ZohoCRMPage() {
             if (leadsData.data && leadsData.data.length > 0) {
               allLeads.push(...leadsData.data);
             }
-            
+
             // Verificar si hay más registros
             hasMore = leadsData.info?.more_records === true;
             currentPage++;
-            
+
             // Limitar a 50 páginas (10,000 registros) para evitar loops infinitos
             if (currentPage > 50) {
               console.warn('⚠️ Límite de páginas alcanzado para leads (50 páginas = 10,000 registros)');
@@ -1296,11 +1296,11 @@ export default function ZohoCRMPage() {
             if (dealsData.data && dealsData.data.length > 0) {
               allDeals.push(...dealsData.data);
             }
-            
+
             // Verificar si hay más registros
             hasMore = dealsData.info?.more_records === true;
             currentPage++;
-            
+
             // Limitar a 50 páginas (10,000 registros) para evitar loops infinitos
             if (currentPage > 50) {
               console.warn('⚠️ Límite de páginas alcanzado para deals (50 páginas = 10,000 registros)');
@@ -1326,10 +1326,10 @@ export default function ZohoCRMPage() {
         getAllLeads().catch(() => []),
         getAllDeals().catch(() => []),
       ]);
-      
+
       setLeads(allLeads);
       setDeals(allDeals);
-      
+
     } catch (err) {
       console.error('Error cargando datos de ZOHO:', err);
       setError(err instanceof Error ? err.message : 'Error cargando datos de ZOHO CRM');
@@ -1371,7 +1371,7 @@ export default function ZohoCRMPage() {
     try {
       // Primero intentar cargar datos (esto sincronizará automáticamente si la BD está vacía)
       await loadData();
-      
+
       toast({
         title: '✅ Datos actualizados',
         description: 'Los datos de ZOHO CRM se han actualizado correctamente',
@@ -1406,7 +1406,7 @@ export default function ZohoCRMPage() {
         title: '✅ Sincronización completada',
         description: `Se sincronizaron ${result.recordsSynced} registros (${result.recordsCreated} nuevos, ${result.recordsUpdated} actualizados)`,
       });
-      
+
       // Recargar datos después de sincronizar
       await loadData();
     } catch (error) {
@@ -1877,12 +1877,12 @@ export default function ZohoCRMPage() {
                           </p>
                         </div>
                       )}
-                      {(!displayedStats?.channelConcentration || Object.keys(displayedStats.channelConcentration).length === 0) && 
-                       (!displayedStats?.discardedLeadsPercentage || displayedStats.discardedLeadsPercentage < 30) &&
-                       displayedAvgTimeToFirstContact <= 60 &&
-                       (displayedStats?.conversionRate || 0) >= 10 && (
-                        <p className="text-sm text-muted-foreground">No se detectaron riesgos significativos</p>
-                      )}
+                      {(!displayedStats?.channelConcentration || Object.keys(displayedStats.channelConcentration).length === 0) &&
+                        (!displayedStats?.discardedLeadsPercentage || displayedStats.discardedLeadsPercentage < 30) &&
+                        displayedAvgTimeToFirstContact <= 60 &&
+                        (displayedStats?.conversionRate || 0) >= 10 && (
+                          <p className="text-sm text-muted-foreground">No se detectaron riesgos significativos</p>
+                        )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1923,18 +1923,18 @@ export default function ZohoCRMPage() {
                         stats &&
                         lastMonthStats &&
                         (stats?.totalLeads ?? 0) > (lastMonthStats?.totalLeads ?? 0) && (
-                        <div className="p-3 bg-green-50 rounded-lg">
-                          <p className="text-sm font-medium text-green-800">Crecimiento en Leads</p>
-                          <p className="text-xs text-green-600 mt-1">
-                            +{(stats?.totalLeads ?? 0) - (lastMonthStats?.totalLeads ?? 0)} leads vs periodo anterior
-                          </p>
-                        </div>
-                      )}
+                          <div className="p-3 bg-green-50 rounded-lg">
+                            <p className="text-sm font-medium text-green-800">Crecimiento en Leads</p>
+                            <p className="text-xs text-green-600 mt-1">
+                              +{(stats?.totalLeads ?? 0) - (lastMonthStats?.totalLeads ?? 0)} leads vs periodo anterior
+                            </p>
+                          </div>
+                        )}
                       {displayedAvgTimeToFirstContact > 30 &&
-                       (!displayedStats.conversionRate || displayedStats.conversionRate < 15) &&
-                       (!displayedStats.qualityLeadsPercentage || displayedStats.qualityLeadsPercentage <= 50) && (
-                        <p className="text-sm text-muted-foreground">Oportunidades de mejora identificadas en las métricas principales</p>
-                      )}
+                        (!displayedStats.conversionRate || displayedStats.conversionRate < 15) &&
+                        (!displayedStats.qualityLeadsPercentage || displayedStats.qualityLeadsPercentage <= 50) && (
+                          <p className="text-sm text-muted-foreground">Oportunidades de mejora identificadas en las métricas principales</p>
+                        )}
                     </div>
                   </CardContent>
                 </Card>
@@ -2047,187 +2047,181 @@ export default function ZohoCRMPage() {
 
               {/* Tarjetas KPI Principales */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {/* Total Leads */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Leads Totales</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">{displayedStats?.totalLeads || 0}</div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads > 0 && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      stats.totalLeads >= lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {stats.totalLeads >= lastMonthStats.totalLeads ? (
+                {/* Total Leads */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Leads Totales</CardTitle>
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">{displayedStats?.totalLeads || 0}</div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads > 0 && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${stats.totalLeads >= lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {stats.totalLeads >= lastMonthStats.totalLeads ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
+                        {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}% vs periodo anterior
+                      </p>
+                    )}
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
+                      <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
                         <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
-                      {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}% vs periodo anterior
+                        Nuevo (sin datos previos)
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {showLastMonth ? 'Leads del periodo anterior' : 'Leads registrados'}
                     </p>
-                  )}
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
-                    <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-                      <TrendingUp className="h-3 w-3" />
-                      Nuevo (sin datos previos)
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {showLastMonth ? 'Leads del periodo anterior' : 'Leads registrados'}
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* Total Deals */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Deals Creados</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">{displayedStats?.totalDeals || 0}</div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals > 0 && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      stats.totalDeals >= lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {stats.totalDeals >= lastMonthStats.totalDeals ? (
+                {/* Total Deals */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Deals Creados</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">{displayedStats?.totalDeals || 0}</div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals > 0 && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${stats.totalDeals >= lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {stats.totalDeals >= lastMonthStats.totalDeals ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
+                        {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}% vs periodo anterior
+                      </p>
+                    )}
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
+                      <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
                         <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
-                      {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}% vs periodo anterior
+                        Nuevo (sin datos previos)
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {showLastMonth ? 'Deals del periodo anterior' : 'Oportunidades activas'}
                     </p>
-                  )}
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
-                    <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
-                      <TrendingUp className="h-3 w-3" />
-                      Nuevo (sin datos previos)
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {showLastMonth ? 'Deals del periodo anterior' : 'Oportunidades activas'}
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* % Conversión */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">% Conversión</CardTitle>
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">
-                    {((displayedStats?.conversionRate || 0)).toFixed(1)}%
-                  </div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.conversionRate !== undefined && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      (stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? '+' : ''}
-                      {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                {/* % Conversión */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">% Conversión</CardTitle>
+                    <Target className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">
+                      {((displayedStats?.conversionRate || 0)).toFixed(1)}%
+                    </div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.conversionRate !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {((stats.conversionRate || 0) >= (lastMonthStats.conversionRate || 0)) ? '+' : ''}
+                        {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Meta: 15%
                     </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Meta: 15%
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* Tiempo de contacto dentro de horario laboral (tiempo promedio a primer contacto) */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Tiempo de contacto dentro de horario laboral</CardTitle>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">
-                    {displayedAvgTimeToFirstContact.toFixed(1)} min
-                  </div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      (stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
-                      {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs periodo anterior
+                {/* Tiempo de contacto dentro de horario laboral (tiempo promedio a primer contacto) */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Tiempo de contacto dentro de horario laboral</CardTitle>
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">
+                      {displayedAvgTimeToFirstContact.toFixed(1)} min
+                    </div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                        {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs periodo anterior
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Meta: 30 min (dentro de horario laboral)
                     </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Meta: 30 min (dentro de horario laboral)
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* % Leads Fuera de Horario Laboral */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">% Fuera Horario</CardTitle>
-                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">
-                    {((displayedStats?.leadsOutsideBusinessHoursPercentage || 0)).toFixed(1)}%
-                  </div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      (stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
-                      {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                {/* % Leads Fuera de Horario Laboral */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">% Fuera Horario</CardTitle>
+                    <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">
+                      {((displayedStats?.leadsOutsideBusinessHoursPercentage || 0)).toFixed(1)}%
+                    </div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
+                        {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Horario: 08:00-20:30
                     </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Horario: 08:00-20:30
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* % Leads Descartados */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">% Descartados</CardTitle>
-                  <TrendingDown className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold">
-                    {((displayedStats?.discardedLeadsPercentage || 0)).toFixed(1)}%
-                  </div>
-                  {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
-                    <p className={`text-xs flex items-center gap-1 mt-1 ${
-                      (stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3" />
-                      )}
-                      {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? '-' : '+'}
-                      {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                {/* % Leads Descartados */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">% Descartados</CardTitle>
+                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">
+                      {((displayedStats?.discardedLeadsPercentage || 0)).toFixed(1)}%
+                    </div>
+                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                        {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? '-' : '+'}
+                        {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {displayedStats?.discardedLeads || 0} leads descartados
                     </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {displayedStats?.discardedLeads || 0} leads descartados
-                  </p>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
               </div>
 
               {/* SECCIÓN: EMBUDO DE VENTAS INMOBILIARIO - DISEÑO EJECUTIVO */}
@@ -2240,11 +2234,11 @@ export default function ZohoCRMPage() {
                   <CardContent className="pt-4">
                     {/* Función helper para determinar estado de salud */}
                     {(() => {
-                      const leadsToDealsRate = displayedLifecycleFunnel.leads > 0 
-                        ? (displayedLifecycleFunnel.dealsWithAppointment / displayedLifecycleFunnel.leads) * 100 
+                      const leadsToDealsRate = displayedLifecycleFunnel.leads > 0
+                        ? (displayedLifecycleFunnel.dealsWithAppointment / displayedLifecycleFunnel.leads) * 100
                         : 0;
-                      const dealsToWonRate = displayedLifecycleFunnel.dealsWithAppointment > 0 
-                        ? (displayedLifecycleFunnel.closedWon / displayedLifecycleFunnel.dealsWithAppointment) * 100 
+                      const dealsToWonRate = displayedLifecycleFunnel.dealsWithAppointment > 0
+                        ? (displayedLifecycleFunnel.closedWon / displayedLifecycleFunnel.dealsWithAppointment) * 100
                         : 0;
 
                       const getHealthStatus = (rate: number, thresholds: { optimal: number; attention: number }) => {
@@ -2296,17 +2290,16 @@ export default function ZohoCRMPage() {
                                   <span className="text-xs font-semibold text-gray-700">
                                     {leadsToDealsRate.toFixed(1)}%
                                   </span>
-                                  <div className={`w-1.5 h-1.5 rounded-full ${
-                                    leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
-                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                    'bg-red-500'
-                                  }`}></div>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
+                                      leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                        'bg-red-500'
+                                    }`}></div>
                                 </div>
                               </div>
                             </div>
 
                             {/* Etapa 2: Deals (Agendó cita) */}
-                            <div 
+                            <div
                               className="w-full max-w-3xl"
                               style={{
                                 width: `${Math.max(35, Math.min(90, (displayedLifecycleFunnel.dealsWithAppointment / displayedLifecycleFunnel.leads) * 100))}%`
@@ -2335,17 +2328,16 @@ export default function ZohoCRMPage() {
                                   <span className="text-xs font-semibold text-gray-700">
                                     {dealsToWonRate.toFixed(1)}%
                                   </span>
-                                  <div className={`w-1.5 h-1.5 rounded-full ${
-                                    dealsToWonHealth.color === 'green' ? 'bg-green-500' :
-                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                    'bg-red-500'
-                                  }`}></div>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${dealsToWonHealth.color === 'green' ? 'bg-green-500' :
+                                      dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                        'bg-red-500'
+                                    }`}></div>
                                 </div>
                               </div>
                             </div>
 
                             {/* Etapa 3: Cerrado Ganado */}
-                            <div 
+                            <div
                               className="w-full max-w-3xl"
                               style={{
                                 width: `${Math.max(25, Math.min(70, (displayedLifecycleFunnel.closedWon / displayedLifecycleFunnel.leads) * 100))}%`
@@ -2377,11 +2369,10 @@ export default function ZohoCRMPage() {
                               <div className="rounded-lg border p-4" style={{ backgroundColor: `${leadsColor}15`, borderColor: `${leadsColor}40` }}>
                                 <div className="flex items-center justify-between mb-2">
                                   <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Leads → Deals</p>
-                                  <div className={`w-2 h-2 rounded-full ${
-                                    leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
-                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                    'bg-red-500'
-                                  }`}></div>
+                                  <div className={`w-2 h-2 rounded-full ${leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
+                                      leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                        'bg-red-500'
+                                    }`}></div>
                                 </div>
                                 <p className="text-xl font-bold text-gray-900 mb-1">
                                   {leadsToDealsRate.toFixed(1)}%
@@ -2398,11 +2389,10 @@ export default function ZohoCRMPage() {
                               <div className="rounded-lg border p-4" style={{ backgroundColor: `${dealsColor}15`, borderColor: `${dealsColor}40` }}>
                                 <div className="flex items-center justify-between mb-2">
                                   <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Deals → Cerrado Ganado</p>
-                                  <div className={`w-2 h-2 rounded-full ${
-                                    dealsToWonHealth.color === 'green' ? 'bg-green-500' :
-                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                    'bg-red-500'
-                                  }`}></div>
+                                  <div className={`w-2 h-2 rounded-full ${dealsToWonHealth.color === 'green' ? 'bg-green-500' :
+                                      dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                        'bg-red-500'
+                                    }`}></div>
                                 </div>
                                 <p className="text-xl font-bold text-gray-900 mb-1">
                                   {dealsToWonRate.toFixed(1)}%
@@ -2944,7 +2934,7 @@ export default function ZohoCRMPage() {
                               <div className="w-full bg-muted rounded-full h-2">
                                 <div
                                   className="h-2 rounded-full"
-                                  style={{ 
+                                  style={{
                                     width: `${percentage}%`,
                                     backgroundColor: percentage > 50 ? colors.danger : percentage > 30 ? colors.warning : colors.success
                                   }}
@@ -2973,44 +2963,44 @@ export default function ZohoCRMPage() {
                   <CardContent>
                     <div>
                       <h4 className="text-sm font-medium mb-4">Tabla de Descartes</h4>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b">
-                                <th className="text-left p-2">Motivo</th>
-                                <th className="text-right p-2">Cantidad</th>
-                                <th className="text-right p-2">%</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {Object.entries(displayedStats.leadsDiscardReasons)
-                                .sort(([, a], [, b]) => b - a)
-                                .map(([motivo, count]) => {
-                                  const porcentaje = displayedStats.totalLeads > 0 
-                                    ? Math.round((count / displayedStats.totalLeads) * 10000) / 100 
-                                    : 0;
-                                  return (
-                                    <tr key={motivo} className="border-b">
-                                      <td className="p-2">{motivo}</td>
-                                      <td className="text-right p-2">{count}</td>
-                                      <td className="text-right p-2">{porcentaje.toFixed(1)}%</td>
-                                    </tr>
-                                  );
-                                })}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="mt-4 p-3 bg-muted rounded-lg">
-                          <p className="text-xs font-medium mb-1">Principales Causas:</p>
-                          <ul className="text-xs text-muted-foreground list-disc list-inside">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left p-2">Motivo</th>
+                              <th className="text-right p-2">Cantidad</th>
+                              <th className="text-right p-2">%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
                             {Object.entries(displayedStats.leadsDiscardReasons)
                               .sort(([, a], [, b]) => b - a)
-                              .slice(0, 3)
-                              .map(([motivo, count]) => (
-                                <li key={motivo}>{motivo}: {count} leads</li>
-                              ))}
-                          </ul>
-                        </div>
+                              .map(([motivo, count]) => {
+                                const porcentaje = displayedStats.totalLeads > 0
+                                  ? Math.round((count / displayedStats.totalLeads) * 10000) / 100
+                                  : 0;
+                                return (
+                                  <tr key={motivo} className="border-b">
+                                    <td className="p-2">{motivo}</td>
+                                    <td className="text-right p-2">{count}</td>
+                                    <td className="text-right p-2">{porcentaje.toFixed(1)}%</td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-4 p-3 bg-muted rounded-lg">
+                        <p className="text-xs font-medium mb-1">Principales Causas:</p>
+                        <ul className="text-xs text-muted-foreground list-disc list-inside">
+                          {Object.entries(displayedStats.leadsDiscardReasons)
+                            .sort(([, a], [, b]) => b - a)
+                            .slice(0, 3)
+                            .map(([motivo, count]) => (
+                              <li key={motivo}>{motivo}: {count} leads</li>
+                            ))}
+                        </ul>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -3081,67 +3071,67 @@ export default function ZohoCRMPage() {
               {/* Estadísticas por Estado y Etapa */}
               <div className="grid gap-4 md:grid-cols-2">
 
-              {/* Leads por Estado */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Leads por Estado</CardTitle>
-                  <CardDescription>Distribución de leads según su estado</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {Object.entries(displayedStats?.leadsByStatus || {}).map(([status, count]) => {
-                      const total = displayedStats?.totalLeads || 1;
-                      return (
-                        <div key={status} className="flex items-center justify-between">
-                          <span className="text-sm">{status}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-32 bg-muted rounded-full h-2">
-                              <div
-                                className="bg-primary h-2 rounded-full"
-                                style={{
-                                  width: `${(count / total) * 100}%`,
-                                }}
-                              />
+                {/* Leads por Estado */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Leads por Estado</CardTitle>
+                    <CardDescription>Distribución de leads según su estado</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {Object.entries(displayedStats?.leadsByStatus || {}).map(([status, count]) => {
+                        const total = displayedStats?.totalLeads || 1;
+                        return (
+                          <div key={status} className="flex items-center justify-between">
+                            <span className="text-sm">{status}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-32 bg-muted rounded-full h-2">
+                                <div
+                                  className="bg-primary h-2 rounded-full"
+                                  style={{
+                                    width: `${(count / total) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <Badge variant="secondary">{count}</Badge>
                             </div>
-                            <Badge variant="secondary">{count}</Badge>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* Deals por Etapa */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Deals por Etapa</CardTitle>
-                  <CardDescription>Distribución de deals según su etapa</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {Object.entries(displayedStats?.dealsByStage || {}).map(([stage, count]) => {
-                      const total = displayedStats?.totalDeals || 1;
-                      return (
-                        <div key={stage} className="flex items-center justify-between">
-                          <span className="text-sm">{stage}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-32 bg-muted rounded-full h-2">
-                              <div
-                                className="bg-primary h-2 rounded-full"
-                                style={{
-                                  width: `${(count / total) * 100}%`,
-                                }}
-                              />
+                {/* Deals por Etapa */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Deals por Etapa</CardTitle>
+                    <CardDescription>Distribución de deals según su etapa</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {Object.entries(displayedStats?.dealsByStage || {}).map(([stage, count]) => {
+                        const total = displayedStats?.totalDeals || 1;
+                        return (
+                          <div key={stage} className="flex items-center justify-between">
+                            <span className="text-sm">{stage}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-32 bg-muted rounded-full h-2">
+                                <div
+                                  className="bg-primary h-2 rounded-full"
+                                  style={{
+                                    width: `${(count / total) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <Badge variant="secondary">{count}</Badge>
                             </div>
-                            <Badge variant="secondary">{count}</Badge>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </div>
           ) : (
@@ -3181,7 +3171,7 @@ export default function ZohoCRMPage() {
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis type="number" />
                           <YAxis dataKey="estado" type="category" width={150} />
-                          <Tooltip 
+                          <Tooltip
                             formatter={(value: number, name: string, _props: any) => {
                               if (name === 'cantidad') {
                                 return [`${value} leads (${_props.payload.porcentaje}%)`, 'Cantidad'];
@@ -3365,7 +3355,7 @@ export default function ZohoCRMPage() {
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis type="number" />
                           <YAxis dataKey="etapa" type="category" width={150} />
-                          <Tooltip 
+                          <Tooltip
                             formatter={(value: number, name: string, _props: any) => {
                               if (name === 'cantidad') {
                                 return [`${value} deals (${_props.payload.porcentaje}%)`, 'Cantidad'];
@@ -3516,4 +3506,5 @@ export default function ZohoCRMPage() {
     </div>
   );
 }
+
 

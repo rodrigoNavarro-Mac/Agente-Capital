@@ -11,8 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { Upload, FileText, CheckCircle2 } from 'lucide-react';
 import { uploadDocument, getUserDevelopments } from '@/lib/api';
-import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/constants';
-import { decodeAccessToken } from '@/lib/auth';
+import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/config/constants';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserDevelopment } from '@/types/documents';
 
 export default function UploadPage() {
@@ -320,4 +320,5 @@ export default function UploadPage() {
     </div>
   );
 }
+
 

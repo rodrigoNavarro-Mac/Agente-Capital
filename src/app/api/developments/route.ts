@@ -7,11 +7,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDevelopmentsByZone, getStaticDevelopments } from '@/lib/postgres';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
-import { validateRequest, developmentRequestSchema } from '@/lib/validation';
-import { normalizeDevelopmentDisplay } from '@/lib/utils';
+import { getDevelopmentsByZone, getStaticDevelopments } from '@/lib/db/postgres';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, developmentRequestSchema } from '@/lib/utils/validation';
+import { normalizeDevelopmentDisplay } from '@/lib/utils/utils';
 
 import type { DevelopmentsByZone, APIResponse } from '@/types/documents';
 
@@ -172,4 +172,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

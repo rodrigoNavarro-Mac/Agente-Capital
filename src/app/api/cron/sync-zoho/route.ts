@@ -9,9 +9,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllZohoLeads, getAllZohoDeals } from '@/lib/zoho-crm';
-import { syncZohoLead, syncZohoDeal, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getAllZohoLeads, getAllZohoDeals } from '@/lib/services/zoho-crm';
+import { syncZohoLead, syncZohoDeal, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -263,6 +263,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+
+
 
 
 

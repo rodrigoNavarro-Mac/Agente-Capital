@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils/utils';
 
 interface LoadingProps {
   text?: string;
@@ -43,4 +43,5 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
     </div>
   );
 }
+
 

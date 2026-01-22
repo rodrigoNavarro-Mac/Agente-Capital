@@ -19,8 +19,8 @@
  */
 
 import { queryWithKeyset, type KeysetPaginationResult } from './postgres-serverless';
-import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
-import { logger } from '@/lib/logger';
+import type { ZohoLead, ZohoDeal } from '@/lib/services/zoho-crm';
+import { logger } from '@/lib/utils/logger';
 
 /**
  * Obtiene leads usando keyset pagination (cursor-based)
@@ -283,4 +283,6 @@ export async function getZohoDealsFromDBKeyset(options: {
     total,
   };
 }
+
+
 

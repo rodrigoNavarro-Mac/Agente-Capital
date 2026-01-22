@@ -6,8 +6,8 @@
  */
 
 import { query, getClient } from './postgres';
-import { logger } from '@/lib/logger';
-import { getProductPartnersFromDeal } from './zoho-crm';
+import { logger } from '@/lib/utils/logger';
+import { getProductPartnersFromDeal } from '@/lib/services/zoho-crm';
 import type {
   CommissionConfig,
   CommissionConfigInput,
@@ -2986,4 +2986,5 @@ export async function createPartnerInvoice(
     throw error;
   }
 }
+
 

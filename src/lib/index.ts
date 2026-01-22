@@ -6,14 +6,13 @@
  */
 
 // Clientes de servicios externos
-export * from './pinecone';
-export * from './llm';
-export * from './postgres';
+export * from './db/pinecone';
+export * from './services/llm';
+export * from './db/postgres';
 
 // Utilidades de procesamiento de texto
-export * from './chunker';
-export * from './cleanText';
+export * from './utils/chunker';
+export * from './utils/cleanText';
 
 // System Prompt
-export * from './systemPrompt';
-
+export * from './config/systemPrompt';

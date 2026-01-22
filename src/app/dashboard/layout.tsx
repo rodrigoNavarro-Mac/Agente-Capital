@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import { Loading } from '@/components/loading';
 import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { SidebarProvider, useSidebar } from '@/contexts/sidebar-context';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils/utils';
 import { usePageVisit } from '@/hooks/use-page-visit';
 
 export default function DashboardLayout({
@@ -32,7 +32,7 @@ export default function DashboardLayout({
 
       // Decodificar token (verificación básica en cliente)
       const payload = decodeAccessToken(token);
-      
+
       if (!payload) {
         // Token inválido o expirado, limpiar y redirigir
         localStorage.removeItem('accessToken');
@@ -73,14 +73,14 @@ export default function DashboardLayout({
 // Componente interno que usa el contexto del sidebar
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useSidebar();
-  
+
   // Rastrear visitas a páginas automáticamente
   usePageVisit();
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div 
+      <div
         className={cn(
           'flex-1 flex flex-col overflow-hidden transition-all duration-300 ease-in-out',
           // En móviles no hay margen (sidebar es overlay)
@@ -99,3 +99,4 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+

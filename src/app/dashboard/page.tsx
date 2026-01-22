@@ -7,9 +7,9 @@ import { FileText, MessageSquare, Activity, Database, Building2, MapPin, Star, T
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { checkHealth, getDashboardStats, type DashboardStats, getDocuments, getQueryLogs, getChatHistory, getUser, getUserDevelopments, getAllUsers, getAgentConfig } from '@/lib/api';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole, UserDevelopment, QueryLog, DocumentMetadata } from '@/types/documents';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 interface DevelopmentStats {
   zone: string;
@@ -76,7 +76,7 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const token = localStorage.getItem('accessToken');
       if (!token) return;
 
@@ -87,7 +87,7 @@ export default function DashboardPage() {
       const userData = await getUser(payload.userId);
       const role = userData.role || null;
       setUserRole(role);
-      
+
       // Verificar si es admin o ceo
       const adminRoles: UserRole[] = ['admin', 'ceo'];
       const isAdminUser = role && adminRoles.includes(role);
@@ -115,7 +115,7 @@ export default function DashboardPage() {
       setLmStudioStatus(health.lmStudio || 'unavailable');
       setOpenAIStatus(health.openai || 'unavailable');
       setCurrentProvider(health.current || 'lmstudio');
-      
+
       // Obtener modelo LLM desde la configuración
       try {
         const _config = await getAgentConfig();
@@ -148,7 +148,7 @@ export default function DashboardPage() {
 
       // Obtener todos los documentos
       const allDocuments = await getDocuments();
-      
+
       // Documentos por tipo
       const documentsByType: Record<string, number> = {};
       allDocuments.forEach(doc => {
@@ -170,7 +170,7 @@ export default function DashboardPage() {
       // Usamos un límite mayor para obtener suficientes datos
       const logsResponse = await getQueryLogs({ limit: 500 });
       const allQueries = logsResponse.queries || [];
-      
+
       // Consultas recientes (últimas 10)
       const recentQueries = allQueries
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -185,17 +185,17 @@ export default function DashboardPage() {
       // Calcular estadísticas de exactitud
       const ratedQueries = allQueries.filter(q => q.feedback_rating && q.feedback_rating > 0);
       const totalRated = ratedQueries.length;
-      
+
       // Distribución de calificaciones
       const excellent = ratedQueries.filter(q => q.feedback_rating === 5).length;
       const good = ratedQueries.filter(q => q.feedback_rating === 4).length;
       const average = ratedQueries.filter(q => q.feedback_rating === 3).length;
       const poor = ratedQueries.filter(q => q.feedback_rating && (q.feedback_rating === 1 || q.feedback_rating === 2)).length;
-      
+
       // Calcular porcentaje de exactitud (respuestas con 4-5 estrellas)
       const accurateResponses = excellent + good;
-      const accuracyPercentage = totalRated > 0 
-        ? Math.round((accurateResponses / totalRated) * 100) 
+      const accuracyPercentage = totalRated > 0
+        ? Math.round((accurateResponses / totalRated) * 100)
         : 0;
 
       setAdminStats({
@@ -241,13 +241,13 @@ export default function DashboardPage() {
   const loadUserDashboard = async (userId: number, role: UserRole | null) => {
     // Roles con acceso completo
     const rolesWithFullAccess: UserRole[] = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
-    
+
     // Obtener desarrollos asignados
     if (role && rolesWithFullAccess.includes(role)) {
       // Si tiene acceso completo, obtener todos los documentos
       const allDocuments = await getDocuments();
       const statsMap = new Map<string, DevelopmentStats>();
-      
+
       allDocuments.forEach(doc => {
         const key = `${doc.zone}-${doc.development}`;
         if (!statsMap.has(key)) {
@@ -262,13 +262,13 @@ export default function DashboardPage() {
         const stat = statsMap.get(key)!;
         stat.documentCount++;
       });
-      
+
       setDevelopmentStats(Array.from(statsMap.values()));
     } else {
       // Obtener desarrollos específicos del usuario
       const developments = await getUserDevelopments(userId);
       setUserDevelopments(developments);
-      
+
       // Obtener estadísticas por desarrollo
       const statsPromises = developments.map(async (dev) => {
         const documents = await getDocuments({ zone: dev.zone, development: dev.development });
@@ -280,7 +280,7 @@ export default function DashboardPage() {
           similarQueries: 0,
         };
       });
-      
+
       const devStats = await Promise.all(statsPromises);
       setDevelopmentStats(devStats);
     }
@@ -370,7 +370,7 @@ export default function DashboardPage() {
         if (index === otherIndex || processedQueries.has(otherIndex)) return;
 
         const otherNormalized = normalizeQuery(otherQ.query);
-        
+
         // Primero verificar si son exactamente iguales (después de normalizar)
         if (normalized === otherNormalized) {
           group.push(otherQ.query);
@@ -411,16 +411,16 @@ export default function DashboardPage() {
 
     // Actualizar estadísticas de desarrollos con calificaciones
     setDevelopmentStats(prev => prev.map(stat => {
-      const devQueries = userQueries.filter(q => 
+      const devQueries = userQueries.filter(q =>
         q.zone === stat.zone && q.development === stat.development
       );
       const goodRatingsCount = devQueries.filter(q => q.feedback_rating && q.feedback_rating >= 4).length;
-      
+
       // Contar consultas únicas vs totales para detectar repeticiones
       const uniqueQueries = new Set(devQueries.map(q => normalizeQuery(q.query)));
-      const similarCount = devQueries.length > uniqueQueries.size ? 
+      const similarCount = devQueries.length > uniqueQueries.size ?
         devQueries.length - uniqueQueries.size : 0;
-      
+
       return {
         ...stat,
         goodRatings: goodRatingsCount,
@@ -472,7 +472,7 @@ export default function DashboardPage() {
       <div className="pl-0 sm:pl-4">
         <h1 className="text-lg font-bold navy-text">Dashboard</h1>
         <p className="text-xs text-muted-foreground">
-          {isAdmin 
+          {isAdmin
             ? 'Vista administrativa del sistema'
             : 'Resumen de tus desarrollos y actividad'
           }
@@ -488,611 +488,609 @@ export default function DashboardPage() {
       {isAdmin && (
         <>
 
-      {/* Status Cards */}
-      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Proveedor LLM</CardTitle>
-            <Database className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Badge variant={currentProvider === 'openai' ? (openAIStatus === 'available' ? 'default' : 'destructive') : (lmStudioStatus === 'available' ? 'default' : 'destructive')}>
-                {currentProvider === 'openai' ? 'OpenAI' : 'LM Studio'}
-              </Badge>
-              {currentProvider === 'openai' ? (
-                <Badge variant={openAIStatus === 'available' ? 'default' : 'destructive'} className="text-xs">
-                  {openAIStatus === 'available' ? '✓' : '✗'}
-                </Badge>
-              ) : (
-                <Badge variant={lmStudioStatus === 'available' ? 'default' : 'destructive'} className="text-xs">
-                  {lmStudioStatus === 'available' ? '✓' : '✗'}
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {currentProvider === 'openai' ? 'OpenAI API' : 'Servidor LLM Local'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Documentos</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">
-              {loading ? '...' : error ? '-' : stats?.totalDocuments.toLocaleString() || '0'}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Documentos procesados
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Consultas</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">
-              {loading ? '...' : error ? '-' : stats?.totalQueriesThisMonth.toLocaleString() || '0'}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Consultas este mes
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tiempo de Respuesta</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">
-              {loading ? '...' : error ? '-' : stats?.averageResponseTime ? `${stats.averageResponseTime}s` : '0s'}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Tiempo promedio
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Calificación Promedio */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Calificación Promedio</CardTitle>
-            <Star className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <div className="text-xl font-bold">
-                {loading ? '...' : error ? '-' : stats?.averageRating ? stats.averageRating.toFixed(1) : 'N/A'}
-              </div>
-              {stats?.averageRating && stats.averageRating > 0 && (
-                <div className="flex gap-0.5">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`h-3 w-3 ${
-                        star <= Math.round(stats.averageRating)
-                          ? 'fill-yellow-400 text-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Promedio de calificaciones
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Usuarios Activos */}
-        {adminStats && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Usuarios</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">
-                {adminStats.activeUsers}/{adminStats.totalUsers}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Activos / Total
-              </p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Estadísticas Adicionales */}
-      {adminStats && (
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
-          {/* Documentos por Tipo */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-capital-navy" />
-                <CardTitle>Documentos por Tipo</CardTitle>
-              </div>
-              <CardDescription>
-                Distribución de documentos en el sistema
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {Object.entries(adminStats.documentsByType)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between">
-                      <span className="text-sm">{getDocumentTypeName(type)}</span>
-                      <Badge variant="secondary">{count}</Badge>
-                    </div>
-                  ))}
-                {Object.keys(adminStats.documentsByType).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay documentos aún
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Documentos por Zona */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-capital-navy" />
-                <CardTitle>Documentos por Zona</CardTitle>
-              </div>
-              <CardDescription>
-                Distribución geográfica de documentos
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {Object.entries(adminStats.documentsByZone)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([zone, count]) => (
-                    <div key={zone} className="flex items-center justify-between">
-                      <span className="text-sm">{getZoneName(zone)}</span>
-                      <Badge variant="secondary">{count}</Badge>
-                    </div>
-                  ))}
-                {Object.keys(adminStats.documentsByZone).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay documentos aún
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Documentos Recientes */}
-      {adminStats && adminStats.recentDocuments.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-capital-navy" />
-              <CardTitle>Documentos Recientes</CardTitle>
-            </div>
-            <CardDescription>
-              Últimos documentos subidos al sistema
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {adminStats.recentDocuments.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.filename}</p>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">
-                        <MapPin className="h-3 w-3 mr-1" />
-                        {getZoneName(doc.zone)}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        <Building2 className="h-3 w-3 mr-1" />
-                        {doc.development}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {doc.type ? getDocumentTypeName(doc.type) : 'N/A'}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground ml-4 flex-shrink-0">
-                    {doc.created_at && new Date(doc.created_at).toLocaleDateString('es-MX', {
-                      day: 'numeric',
-                      month: 'short',
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Consultas Recientes */}
-      {adminStats && adminStats.recentQueries.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-capital-navy" />
-              <CardTitle>Consultas Recientes</CardTitle>
-            </div>
-            <CardDescription>
-              Últimas consultas realizadas en el sistema
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {adminStats.recentQueries.slice(0, 5).map((query) => (
-                <div
-                  key={query.id}
-                  className="p-3 border rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <p className="text-sm font-medium line-clamp-2 mb-2">{query.query}</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      <MapPin className="h-3 w-3 mr-1" />
-                      {getZoneName(query.zone)}
+          {/* Status Cards */}
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Proveedor LLM</CardTitle>
+                <Database className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <Badge variant={currentProvider === 'openai' ? (openAIStatus === 'available' ? 'default' : 'destructive') : (lmStudioStatus === 'available' ? 'default' : 'destructive')}>
+                    {currentProvider === 'openai' ? 'OpenAI' : 'LM Studio'}
+                  </Badge>
+                  {currentProvider === 'openai' ? (
+                    <Badge variant={openAIStatus === 'available' ? 'default' : 'destructive'} className="text-xs">
+                      {openAIStatus === 'available' ? '✓' : '✗'}
                     </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      <Building2 className="h-3 w-3 mr-1" />
-                      {query.development}
+                  ) : (
+                    <Badge variant={lmStudioStatus === 'available' ? 'default' : 'destructive'} className="text-xs">
+                      {lmStudioStatus === 'available' ? '✓' : '✗'}
                     </Badge>
-                    {query.feedback_rating && (
-                      <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        {query.feedback_rating}/5
-                      </Badge>
-                    )}
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(query.created_at).toLocaleDateString('es-MX', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  {currentProvider === 'openai' ? 'OpenAI API' : 'Servidor LLM Local'}
+                </p>
+              </CardContent>
+            </Card>
 
-      {/* Mejores Respuestas Calificadas */}
-      {adminStats && adminStats.topRatedQueries.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-yellow-500" />
-              <CardTitle>Mejores Respuestas</CardTitle>
-            </div>
-            <CardDescription>
-              Respuestas con calificación perfecta (5/5)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Accordion type="single" collapsible className="w-full">
-              {adminStats.topRatedQueries.map((query) => (
-                <AccordionItem 
-                  key={query.id} 
-                  value={`top-${query.id}`}
-                  className="border rounded-lg mb-3 last:mb-0 px-3 sm:px-4 py-2 hover:bg-gray-50 transition-colors"
-                >
-                  <AccordionTrigger className="hover:no-underline py-3">
-                    <div className="flex items-start gap-3 w-full text-left">
-                      <div className="flex-shrink-0">
-                        <div className="flex items-center gap-1">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              className="h-4 w-4 fill-yellow-400 text-yellow-400"
-                            />
-                          ))}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Documentos</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">
+                  {loading ? '...' : error ? '-' : stats?.totalDocuments.toLocaleString() || '0'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Documentos procesados
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Consultas</CardTitle>
+                <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">
+                  {loading ? '...' : error ? '-' : stats?.totalQueriesThisMonth.toLocaleString() || '0'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Consultas este mes
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Tiempo de Respuesta</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">
+                  {loading ? '...' : error ? '-' : stats?.averageResponseTime ? `${stats.averageResponseTime}s` : '0s'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Tiempo promedio
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Calificación Promedio */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Calificación Promedio</CardTitle>
+                <Star className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <div className="text-xl font-bold">
+                    {loading ? '...' : error ? '-' : stats?.averageRating ? stats.averageRating.toFixed(1) : 'N/A'}
+                  </div>
+                  {stats?.averageRating && stats.averageRating > 0 && (
+                    <div className="flex gap-0.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className={`h-3 w-3 ${star <= Math.round(stats.averageRating)
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-gray-300'
+                            }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Promedio de calificaciones
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Usuarios Activos */}
+            {adminStats && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Usuarios</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl font-bold">
+                    {adminStats.activeUsers}/{adminStats.totalUsers}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Activos / Total
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Estadísticas Adicionales */}
+          {adminStats && (
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
+              {/* Documentos por Tipo */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-capital-navy" />
+                    <CardTitle>Documentos por Tipo</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Distribución de documentos en el sistema
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {Object.entries(adminStats.documentsByType)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([type, count]) => (
+                        <div key={type} className="flex items-center justify-between">
+                          <span className="text-sm">{getDocumentTypeName(type)}</span>
+                          <Badge variant="secondary">{count}</Badge>
                         </div>
-                      </div>
+                      ))}
+                    {Object.keys(adminStats.documentsByType).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No hay documentos aún
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Documentos por Zona */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-capital-navy" />
+                    <CardTitle>Documentos por Zona</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Distribución geográfica de documentos
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {Object.entries(adminStats.documentsByZone)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([zone, count]) => (
+                        <div key={zone} className="flex items-center justify-between">
+                          <span className="text-sm">{getZoneName(zone)}</span>
+                          <Badge variant="secondary">{count}</Badge>
+                        </div>
+                      ))}
+                    {Object.keys(adminStats.documentsByZone).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No hay documentos aún
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Documentos Recientes */}
+          {adminStats && adminStats.recentDocuments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-capital-navy" />
+                  <CardTitle>Documentos Recientes</CardTitle>
+                </div>
+                <CardDescription>
+                  Últimos documentos subidos al sistema
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {adminStats.recentDocuments.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+                    >
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                          {query.query}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <p className="text-sm font-medium truncate">{doc.filename}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
                           <Badge variant="outline" className="text-xs">
                             <MapPin className="h-3 w-3 mr-1" />
-                            {getZoneName(query.zone)}
+                            {getZoneName(doc.zone)}
                           </Badge>
                           <Badge variant="outline" className="text-xs">
                             <Building2 className="h-3 w-3 mr-1" />
-                            {query.development}
+                            {doc.development}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {doc.type ? getDocumentTypeName(doc.type) : 'N/A'}
                           </Badge>
                         </div>
                       </div>
+                      <div className="text-xs text-muted-foreground ml-4 flex-shrink-0">
+                        {doc.created_at && new Date(doc.created_at).toLocaleDateString('es-MX', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </div>
                     </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2 pb-4">
-                    <div className="ml-7 space-y-3">
-                      {query.response && (
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
-                          <div className="flex items-start gap-2 mb-3">
-                            <Bot className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <h4 className="text-sm font-semibold text-blue-900">Respuesta del Agente</h4>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Consultas Recientes */}
+          {adminStats && adminStats.recentQueries.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-capital-navy" />
+                  <CardTitle>Consultas Recientes</CardTitle>
+                </div>
+                <CardDescription>
+                  Últimas consultas realizadas en el sistema
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {adminStats.recentQueries.slice(0, 5).map((query) => (
+                    <div
+                      key={query.id}
+                      className="p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <p className="text-sm font-medium line-clamp-2 mb-2">{query.query}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          <MapPin className="h-3 w-3 mr-1" />
+                          {getZoneName(query.zone)}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          <Building2 className="h-3 w-3 mr-1" />
+                          {query.development}
+                        </Badge>
+                        {query.feedback_rating && (
+                          <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                            <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                            {query.feedback_rating}/5
+                          </Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(query.created_at).toLocaleDateString('es-MX', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mejores Respuestas Calificadas */}
+          {adminStats && adminStats.topRatedQueries.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Award className="h-5 w-5 text-yellow-500" />
+                  <CardTitle>Mejores Respuestas</CardTitle>
+                </div>
+                <CardDescription>
+                  Respuestas con calificación perfecta (5/5)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Accordion type="single" collapsible className="w-full">
+                  {adminStats.topRatedQueries.map((query) => (
+                    <AccordionItem
+                      key={query.id}
+                      value={`top-${query.id}`}
+                      className="border rounded-lg mb-3 last:mb-0 px-3 sm:px-4 py-2 hover:bg-gray-50 transition-colors"
+                    >
+                      <AccordionTrigger className="hover:no-underline py-3">
+                        <div className="flex items-start gap-3 w-full text-left">
+                          <div className="flex-shrink-0">
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  className="h-4 w-4 fill-yellow-400 text-yellow-400"
+                                />
+                              ))}
+                            </div>
                           </div>
-                          <div className="text-sm">
-                            <MarkdownRenderer 
-                              content={query.response}
-                              sources={query.sources_used?.map((source, idx) => ({
-                                filename: source,
-                                page: 0,
-                                chunk: idx,
-                                relevance_score: 0,
-                                text_preview: source,
-                              }))}
-                            />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                              {query.query}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <Badge variant="outline" className="text-xs">
+                                <MapPin className="h-3 w-3 mr-1" />
+                                {getZoneName(query.zone)}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                <Building2 className="h-3 w-3 mr-1" />
+                                {query.development}
+                              </Badge>
+                            </div>
                           </div>
                         </div>
-                      )}
-                      {query.feedback_comment && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                          <p className="text-xs font-semibold text-green-900 mb-1">Comentario:</p>
-                          <p className="text-xs text-green-800">&quot;{query.feedback_comment}&quot;</p>
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-2 pb-4">
+                        <div className="ml-7 space-y-3">
+                          {query.response && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+                              <div className="flex items-start gap-2 mb-3">
+                                <Bot className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                <h4 className="text-sm font-semibold text-blue-900">Respuesta del Agente</h4>
+                              </div>
+                              <div className="text-sm">
+                                <MarkdownRenderer
+                                  content={query.response}
+                                  sources={query.sources_used?.map((source, idx) => ({
+                                    filename: source,
+                                    page: 0,
+                                    chunk: idx,
+                                    relevance_score: 0,
+                                    text_preview: source,
+                                  }))}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {query.feedback_comment && (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <p className="text-xs font-semibold text-green-900 mb-1">Comentario:</p>
+                              <p className="text-xs text-green-800">&quot;{query.feedback_comment}&quot;</p>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </CardContent>
-        </Card>
-      )}
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Mostrador de Exactitud */}
-      {adminStats && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              <CardTitle>Exactitud de las Respuestas</CardTitle>
-            </div>
-            <CardDescription>
-              Métricas de calidad basadas en calificaciones de usuarios
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {adminStats.accuracyStats.totalRated > 0 ? (
-              <div className="space-y-4">
-                {/* Porcentaje de Exactitud Principal */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Exactitud General</p>
-                    <p className="text-xl font-bold mt-1">
-                      {adminStats.accuracyStats.accuracyPercentage}%
+          {/* Mostrador de Exactitud */}
+          {adminStats && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <CardTitle>Exactitud de las Respuestas</CardTitle>
+                </div>
+                <CardDescription>
+                  Métricas de calidad basadas en calificaciones de usuarios
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {adminStats.accuracyStats.totalRated > 0 ? (
+                  <div className="space-y-4">
+                    {/* Porcentaje de Exactitud Principal */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Exactitud General</p>
+                        <p className="text-xl font-bold mt-1">
+                          {adminStats.accuracyStats.accuracyPercentage}%
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {adminStats.accuracyStats.totalRated} respuestas calificadas
+                        </p>
+                      </div>
+                      <div className="relative w-24 h-24">
+                        <svg className="transform -rotate-90 w-24 h-24">
+                          <circle
+                            cx="48"
+                            cy="48"
+                            r="40"
+                            stroke="currentColor"
+                            strokeWidth="8"
+                            fill="none"
+                            className="text-gray-200"
+                          />
+                          <circle
+                            cx="48"
+                            cy="48"
+                            r="40"
+                            stroke="currentColor"
+                            strokeWidth="8"
+                            fill="none"
+                            strokeDasharray={`${2 * Math.PI * 40}`}
+                            strokeDashoffset={`${2 * Math.PI * 40 * (1 - adminStats.accuracyStats.accuracyPercentage / 100)}`}
+                            className={`${adminStats.accuracyStats.accuracyPercentage >= 80
+                                ? 'text-green-600'
+                                : adminStats.accuracyStats.accuracyPercentage >= 60
+                                  ? 'text-yellow-600'
+                                  : 'text-red-600'
+                              }`}
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-xl font-bold">
+                            {adminStats.accuracyStats.accuracyPercentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Distribución de Calificaciones */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t">
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        </div>
+                        <p className="text-xl font-bold text-green-600">{adminStats.accuracyStats.excellent}</p>
+                        <p className="text-xs text-muted-foreground">Excelente</p>
+                      </div>
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                        </div>
+                        <p className="text-xl font-bold text-blue-600">{adminStats.accuracyStats.good}</p>
+                        <p className="text-xs text-muted-foreground">Buena</p>
+                      </div>
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                        </div>
+                        <p className="text-xl font-bold text-yellow-600">{adminStats.accuracyStats.average}</p>
+                        <p className="text-xs text-muted-foreground">Regular</p>
+                      </div>
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Star className="h-4 w-4 fill-red-400 text-red-400" />
+                          <Star className="h-4 w-4 fill-red-400 text-red-400" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                          <Star className="h-4 w-4 text-gray-300" />
+                        </div>
+                        <p className="text-xl font-bold text-red-600">{adminStats.accuracyStats.poor}</p>
+                        <p className="text-xs text-muted-foreground">Pobre</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <CheckCircle2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600 mb-2">Aún no hay respuestas calificadas</p>
+                    <p className="text-sm text-gray-500">
+                      Las métricas de exactitud aparecerán cuando los usuarios califiquen las respuestas del agente
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {adminStats.accuracyStats.totalRated} respuestas calificadas
-                    </p>
                   </div>
-                  <div className="relative w-24 h-24">
-                    <svg className="transform -rotate-90 w-24 h-24">
-                      <circle
-                        cx="48"
-                        cy="48"
-                        r="40"
-                        stroke="currentColor"
-                        strokeWidth="8"
-                        fill="none"
-                        className="text-gray-200"
-                      />
-                      <circle
-                        cx="48"
-                        cy="48"
-                        r="40"
-                        stroke="currentColor"
-                        strokeWidth="8"
-                        fill="none"
-                        strokeDasharray={`${2 * Math.PI * 40}`}
-                        strokeDashoffset={`${2 * Math.PI * 40 * (1 - adminStats.accuracyStats.accuracyPercentage / 100)}`}
-                        className={`${
-                          adminStats.accuracyStats.accuracyPercentage >= 80
-                            ? 'text-green-600'
-                            : adminStats.accuracyStats.accuracyPercentage >= 60
-                            ? 'text-yellow-600'
-                            : 'text-red-600'
-                        }`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xl font-bold">
-                        {adminStats.accuracyStats.accuracyPercentage}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-                {/* Distribución de Calificaciones */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t">
-                  <div className="text-center">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+          {/* Información del Sistema y Acciones Rápidas */}
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Acciones Rápidas</CardTitle>
+                <CardDescription>
+                  Accede a las funciones principales
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <a
+                  href="/dashboard/upload"
+                  className="block rounded-lg border p-4 hover:bg-accent transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-5 w-5" />
+                    <div>
+                      <h3 className="font-semibold">Subir Documento</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Procesar nuevos documentos
+                      </p>
                     </div>
-                    <p className="text-xl font-bold text-green-600">{adminStats.accuracyStats.excellent}</p>
-                    <p className="text-xs text-muted-foreground">Excelente</p>
                   </div>
-                  <div className="text-center">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 text-gray-300" />
+                </a>
+                <a
+                  href="/dashboard/agent"
+                  className="block rounded-lg border p-4 hover:bg-accent transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="h-5 w-5" />
+                    <div>
+                      <h3 className="font-semibold">Consultar Agente</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Hacer preguntas al agente
+                      </p>
                     </div>
-                    <p className="text-xl font-bold text-blue-600">{adminStats.accuracyStats.good}</p>
-                    <p className="text-xs text-muted-foreground">Buena</p>
                   </div>
-                  <div className="text-center">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <Star className="h-4 w-4 text-gray-300" />
-                      <Star className="h-4 w-4 text-gray-300" />
+                </a>
+                <a
+                  href="/dashboard/documents"
+                  className="block rounded-lg border p-4 hover:bg-accent transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-5 w-5" />
+                    <div>
+                      <h3 className="font-semibold">Gestionar Documentos</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Ver y administrar documentos
+                      </p>
                     </div>
-                    <p className="text-xl font-bold text-yellow-600">{adminStats.accuracyStats.average}</p>
-                    <p className="text-xs text-muted-foreground">Regular</p>
                   </div>
-                  <div className="text-center">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Star className="h-4 w-4 fill-red-400 text-red-400" />
-                      <Star className="h-4 w-4 fill-red-400 text-red-400" />
-                      <Star className="h-4 w-4 text-gray-300" />
-                      <Star className="h-4 w-4 text-gray-300" />
-                      <Star className="h-4 w-4 text-gray-300" />
+                </a>
+                <a
+                  href="/dashboard/users"
+                  className="block rounded-lg border p-4 hover:bg-accent transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Users className="h-5 w-5" />
+                    <div>
+                      <h3 className="font-semibold">Gestionar Usuarios</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Administrar usuarios y permisos
+                      </p>
                     </div>
-                    <p className="text-xl font-bold text-red-600">{adminStats.accuracyStats.poor}</p>
-                    <p className="text-xs text-muted-foreground">Pobre</p>
                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <CheckCircle2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-2">Aún no hay respuestas calificadas</p>
-                <p className="text-sm text-gray-500">
-                  Las métricas de exactitud aparecerán cuando los usuarios califiquen las respuestas del agente
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+                </a>
+              </CardContent>
+            </Card>
 
-      {/* Información del Sistema y Acciones Rápidas */}
-      <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Acciones Rápidas</CardTitle>
-            <CardDescription>
-              Accede a las funciones principales
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <a
-              href="/dashboard/upload"
-              className="block rounded-lg border p-4 hover:bg-accent transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5" />
-                <div>
-                  <h3 className="font-semibold">Subir Documento</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Procesar nuevos documentos
-                  </p>
+            <Card>
+              <CardHeader>
+                <CardTitle>Información del Sistema</CardTitle>
+                <CardDescription>
+                  Estado y configuración actual
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Modelo LLM</span>
+                  <Badge variant="outline">{llmModel}</Badge>
                 </div>
-              </div>
-            </a>
-            <a
-              href="/dashboard/agent"
-              className="block rounded-lg border p-4 hover:bg-accent transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <MessageSquare className="h-5 w-5" />
-                <div>
-                  <h3 className="font-semibold">Consultar Agente</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Hacer preguntas al agente
-                  </p>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Proveedor</span>
+                  <Badge variant="outline">{currentProvider === 'openai' ? 'OpenAI' : 'LM Studio'}</Badge>
                 </div>
-              </div>
-            </a>
-            <a
-              href="/dashboard/documents"
-              className="block rounded-lg border p-4 hover:bg-accent transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5" />
-                <div>
-                  <h3 className="font-semibold">Gestionar Documentos</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Ver y administrar documentos
-                  </p>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Vector DB</span>
+                  <Badge variant="outline">Pinecone</Badge>
                 </div>
-              </div>
-            </a>
-            <a
-              href="/dashboard/users"
-              className="block rounded-lg border p-4 hover:bg-accent transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Users className="h-5 w-5" />
-                <div>
-                  <h3 className="font-semibold">Gestionar Usuarios</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Administrar usuarios y permisos
-                  </p>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Database</span>
+                  <Badge variant="outline">Supabase - PostgreSQL</Badge>
                 </div>
-              </div>
-            </a>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Información del Sistema</CardTitle>
-            <CardDescription>
-              Estado y configuración actual
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Modelo LLM</span>
-              <Badge variant="outline">{llmModel}</Badge>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Proveedor</span>
-              <Badge variant="outline">{currentProvider === 'openai' ? 'OpenAI' : 'LM Studio'}</Badge>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Vector DB</span>
-              <Badge variant="outline">Pinecone</Badge>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Database</span>
-              <Badge variant="outline">Supabase - PostgreSQL</Badge>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Embedding</span>
-              <Badge variant="outline">llama-text-embed-v2</Badge>
-            </div>
-            <div className="flex justify-between items-center pt-2 border-t">
-              <span className="text-sm font-medium">Estado del Sistema</span>
-              <Badge variant={lmStudioStatus === 'available' || openAIStatus === 'available' ? 'default' : 'destructive'}>
-                {lmStudioStatus === 'available' || openAIStatus === 'available' ? 'Operativo' : 'Error'}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Embedding</span>
+                  <Badge variant="outline">llama-text-embed-v2</Badge>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t">
+                  <span className="text-sm font-medium">Estado del Sistema</span>
+                  <Badge variant={lmStudioStatus === 'available' || openAIStatus === 'available' ? 'default' : 'destructive'}>
+                    {lmStudioStatus === 'available' || openAIStatus === 'available' ? 'Operativo' : 'Error'}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </>
       )}
 
@@ -1166,8 +1164,8 @@ export default function DashboardPage() {
               {goodRatings.length > 0 ? (
                 <Accordion type="single" collapsible className="w-full">
                   {goodRatings.map((rating) => (
-                    <AccordionItem 
-                      key={rating.id} 
+                    <AccordionItem
+                      key={rating.id}
                       value={`rating-${rating.id}`}
                       className="border rounded-lg mb-3 last:mb-0 px-3 sm:px-4 py-2 hover:bg-gray-50 transition-colors"
                     >
@@ -1178,11 +1176,10 @@ export default function DashboardPage() {
                               {[1, 2, 3, 4, 5].map((star) => (
                                 <Star
                                   key={star}
-                                  className={`h-4 w-4 ${
-                                    star <= (rating.feedback_rating || 0)
+                                  className={`h-4 w-4 ${star <= (rating.feedback_rating || 0)
                                       ? 'fill-yellow-400 text-yellow-400'
                                       : 'text-gray-300'
-                                  }`}
+                                    }`}
                                 />
                               ))}
                             </div>
@@ -1219,7 +1216,7 @@ export default function DashboardPage() {
                                 <h4 className="text-sm font-semibold text-blue-900">Respuesta del Agente</h4>
                               </div>
                               <div className="text-sm">
-                                <MarkdownRenderer 
+                                <MarkdownRenderer
                                   content={rating.response}
                                   sources={rating.sources_used?.map((source, idx) => ({
                                     filename: source,
@@ -1232,7 +1229,7 @@ export default function DashboardPage() {
                               </div>
                             </div>
                           )}
-                          
+
                           {/* Fuentes utilizadas */}
                           {rating.sources_used && rating.sources_used.length > 0 && (
                             <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4">
@@ -1356,4 +1353,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
 

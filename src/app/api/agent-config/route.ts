@@ -18,10 +18,10 @@ import {
   deleteConfig,
   hasPermission,
   saveActionLog
-} from '@/lib/postgres';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
-import { validateRequest, agentConfigUpdateWithMetaSchema, agentConfigBulkUpdateSchema, type AgentConfigUpdateWithMeta } from '@/lib/validation';
+} from '@/lib/db/postgres';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, agentConfigUpdateWithMetaSchema, agentConfigBulkUpdateSchema, type AgentConfigUpdateWithMeta } from '@/lib/utils/validation';
 
 import type { 
   APIResponse, 
@@ -446,4 +446,7 @@ function validateConfigValue(key: string, value: unknown): string | null {
 
   return null;
 }
+
+
+
 

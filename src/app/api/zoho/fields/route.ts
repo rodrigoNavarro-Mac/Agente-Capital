@@ -7,8 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { getZohoFields } from '@/lib/zoho-crm';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { getZohoFields } from '@/lib/services/zoho-crm';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -129,6 +129,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
 
 
 

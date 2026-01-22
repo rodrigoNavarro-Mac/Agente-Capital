@@ -8,10 +8,10 @@
 
 import type { LMStudioMessage } from '@/types/documents';
 import type { PineconeMatch } from '@/types/documents';
-import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
+import { getSystemPrompt, NO_CONTEXT_RESPONSE } from '@/lib/config/systemPrompt';
 import { runLLM as runLLMProvider, checkLLMHealth, checkAllProvidersHealth } from './llm-provider';
-import { validateResponseAgainstChunks } from './responseValidator';
-import { logger } from '@/lib/logger';
+import { validateResponseAgainstChunks } from '@/lib/utils/responseValidator';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -252,4 +252,6 @@ export default {
   summarizeText,
   getAllProvidersHealth,
 };
+
+
 

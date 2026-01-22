@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { hasPermission } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { hasPermission } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { Permission } from '@/types/documents';
 
 // Marcar la ruta como dinámica porque usa request.headers y request.url
@@ -59,4 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+
+
 

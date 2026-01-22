@@ -6,17 +6,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import {
   getCommissionConfig,
   getAllCommissionConfigs,
   upsertCommissionConfig,
   getCommissionGlobalConfigs,
   updateCommissionGlobalConfig,
-} from '@/lib/commission-db';
-import { validateCommissionConfig } from '@/lib/commission-calculator';
-import { logger } from '@/lib/logger';
-import { validateRequest, commissionConfigInputSchema } from '@/lib/validation';
+} from '@/lib/db/commission-db';
+import { validateCommissionConfig } from '@/lib/domain/commission-calculator';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, commissionConfigInputSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionConfigInput } from '@/types/commissions';
 
@@ -277,4 +277,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
+
 

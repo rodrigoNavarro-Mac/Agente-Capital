@@ -16,9 +16,9 @@ import {
   updateUserDevelopment,
   removeUserDevelopment,
   getUserById 
-} from '@/lib/postgres';
-import { logger } from '@/lib/logger';
-import { validateRequest, userDevelopmentRequestSchema } from '@/lib/validation';
+} from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, userDevelopmentRequestSchema } from '@/lib/utils/validation';
 import { z } from 'zod';
 import type { UserDevelopment, APIResponse, Zone } from '@/types/documents';
 
@@ -298,4 +298,5 @@ export async function DELETE(
     );
   }
 }
+
 

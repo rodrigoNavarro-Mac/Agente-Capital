@@ -7,7 +7,7 @@
 
 import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { RATE_LIMITS, type RateLimitKey } from './rate-limit-config';
+import { RATE_LIMITS, type RateLimitKey } from '@/lib/config/rate-limit-config';
 
 // Inicializar Redis solo si las variables están seteadas
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -82,3 +82,4 @@ export async function applyRateLimit(
         return null;
     }
 }
+

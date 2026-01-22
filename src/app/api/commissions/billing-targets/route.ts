@@ -6,13 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
 import {
   getCommissionBillingTargets,
   upsertCommissionBillingTarget,
   deleteCommissionBillingTarget,
-} from '@/lib/commission-db';
+} from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionBillingTargetInput } from '@/types/commissions';
 
@@ -263,4 +263,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse<APIResp
     );
   }
 }
+
+
+
 

@@ -11,8 +11,8 @@
 
 import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { logger } from '@/lib/logger';
-import { RATE_LIMITS, type RateLimitKey } from './rate-limit-config';
+import { logger } from '@/lib/utils/logger';
+import { RATE_LIMITS, type RateLimitKey } from '@/lib/config/rate-limit-config';
 
 export { type RateLimitKey };
 
@@ -413,4 +413,6 @@ export async function applyRateLimit(
     return null;
   }
 }
+
+
 

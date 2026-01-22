@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { query } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
-import { getCommissionBillingTargets, getCommissionSalesTargets, getCommissionDistributionsWithSaleInfo } from '@/lib/commission-db';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { query } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
+import { getCommissionBillingTargets, getCommissionSalesTargets, getCommissionDistributionsWithSaleInfo } from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type {
   CommissionDevelopmentDashboard,
@@ -411,4 +411,8 @@ async function getGeneralDashboard(year: number): Promise<CommissionGeneralDashb
     commission_by_salesperson: commissionBySalesperson,
   };
 }
+
+
+
+
 

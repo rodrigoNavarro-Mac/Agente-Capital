@@ -12,10 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { FileText, Filter, Trash2, Loader2, AlertTriangle, Eye, Database, RefreshCw } from 'lucide-react';
 import { getDocuments, deleteDocument, getDocumentChunks } from '@/lib/api';
-import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/constants';
-import { formatDate, snakeToTitle } from '@/lib/utils';
+import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/config/constants';
+import { formatDate, snakeToTitle } from '@/lib/utils/utils';
 import { useToast } from '@/components/ui/use-toast';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import type { DocumentMetadata, UserRole, PineconeMatch } from '@/types/documents';
 
 export default function DocumentsPage() {
@@ -589,4 +589,5 @@ export default function DocumentsPage() {
     </div>
   );
 }
+
 

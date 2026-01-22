@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { logout } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import { useSidebar } from '@/contexts/sidebar-context';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils/utils';
 
 export function Navbar() {
   const router = useRouter();
@@ -116,4 +116,5 @@ export function Navbar() {
     </header>
   );
 }
+
 

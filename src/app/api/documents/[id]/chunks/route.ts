@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDocumentById, getUserById } from '@/lib/postgres';
-import { getDocumentChunks } from '@/lib/pinecone';
-import { logger } from '@/lib/logger';
+import { getDocumentById, getUserById } from '@/lib/db/postgres';
+import { getDocumentChunks } from '@/lib/db/pinecone';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse, PineconeMatch } from '@/types/documents';
 
 // =====================================================
@@ -113,4 +113,5 @@ export async function GET(
     }, { status: 500 });
   }
 }
+
 

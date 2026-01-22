@@ -9,12 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Activity, Eye, ChevronLeft, ChevronRight, X, Copy, Check, Upload, Trash2, Settings, MessageSquare, RefreshCw, Database, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import { getQueryLogs, getUser, syncZohoData, getZohoSyncLogs, getZohoFields, getLastZohoSync, type ZohoSyncLog, type ZohoFieldsResponse } from '@/lib/api';
-import { ZONES } from '@/lib/constants';
-import { formatRelativeTime, truncate, formatDate, copyToClipboard } from '@/lib/utils';
+import { ZONES } from '@/lib/config/constants';
+import { formatRelativeTime, truncate, formatDate, copyToClipboard } from '@/lib/utils/utils';
 import type { QueryLog, ActionLog } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { useToast } from '@/components/ui/use-toast';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 type UnifiedLog = {
   id: string;
@@ -1103,4 +1103,5 @@ function ZohoSyncSection() {
     </>
   );
 }
+
 

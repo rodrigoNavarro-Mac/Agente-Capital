@@ -11,7 +11,7 @@
  * - HALF_OPEN: Probando si el servicio se recuperó
  */
 
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -307,4 +307,5 @@ export async function withCircuitBreaker<T>(
     throw error;
   }
 }
+
 

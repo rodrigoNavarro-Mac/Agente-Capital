@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/commission-db';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionSalesFilters } from '@/types/commissions';
 
@@ -239,4 +239,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     );
   }
 }
+
+
+
 

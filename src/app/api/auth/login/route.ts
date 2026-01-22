@@ -6,11 +6,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByEmail, updateLastLogin, incrementFailedLoginAttempts, lockUserAccount } from '@/lib/postgres';
-import { verifyPassword, generateAccessToken, generateRefreshToken } from '@/lib/auth';
-import { validateRequest, loginRequestSchema } from '@/lib/validation';
-import { createUserSession } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getUserByEmail, updateLastLogin, incrementFailedLoginAttempts, lockUserAccount } from '@/lib/db/postgres';
+import { verifyPassword, generateAccessToken, generateRefreshToken } from '@/lib/auth/auth';
+import { validateRequest, loginRequestSchema } from '@/lib/utils/validation';
+import { createUserSession } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -230,4 +230,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

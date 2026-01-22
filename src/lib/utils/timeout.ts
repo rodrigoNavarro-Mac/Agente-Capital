@@ -9,7 +9,7 @@
  * (Vercel: 10s Hobby, 60s Pro)
  */
 
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN DE TIMEOUTS
@@ -217,4 +217,5 @@ export async function executeWithTimeout<T>(
     throw error;
   }
 }
+
 

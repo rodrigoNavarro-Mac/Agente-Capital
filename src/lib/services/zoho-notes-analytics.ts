@@ -11,7 +11,7 @@
  * - We keep it dependency-free so it works in both browser and Node runtimes.
  */
 
-import { buildBucketKeys, getBucketKeyForDate, getRollingPeriodDates, type TimePeriod } from './time-buckets';
+import { buildBucketKeys, getBucketKeyForDate, getRollingPeriodDates, type TimePeriod } from '@/lib/utils/time-buckets';
 
 export type NotesPeriod = TimePeriod;
 
@@ -304,5 +304,6 @@ export function computeNotesMetricsTrend(params: {
 
   return { metricsTrend };
 }
+
 
 

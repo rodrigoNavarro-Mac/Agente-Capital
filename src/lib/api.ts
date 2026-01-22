@@ -19,7 +19,7 @@ import type {
   Role,
   Permission,
 } from '@/types/documents';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // BASE FETCH HELPER
@@ -50,8 +50,12 @@ async function fetcher<T>(
 // =====================================================
 
 export async function uploadDocument(formData: FormData): Promise<UploadResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetch('/api/upload', {
     method: 'POST',
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
     body: formData,
   });
 
@@ -70,7 +74,7 @@ export async function uploadDocument(formData: FormData): Promise<UploadResponse
 export async function queryAgent(data: RAGQueryRequest): Promise<RAGQueryResponse> {
   // Obtener token de autenticación
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   return fetcher<RAGQueryResponse>('/api/rag-query', {
     method: 'POST',
     headers: token ? {
@@ -85,8 +89,14 @@ export async function queryAgent(data: RAGQueryRequest): Promise<RAGQueryRespons
 // =====================================================
 
 export async function getDevelopments(): Promise<DevelopmentsByZone> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: DevelopmentsByZone }>(
-    '/api/developments'
+    '/api/developments',
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
   );
   return response.data;
 }
@@ -96,8 +106,14 @@ export async function getDevelopments(): Promise<DevelopmentsByZone> {
 // =====================================================
 
 export async function getAgentConfig(): Promise<AgentSettings> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: AgentSettings }>(
-    '/api/agent-config'
+    '/api/agent-config',
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
   );
   return response.data;
 }
@@ -137,21 +153,31 @@ export interface GetDocumentsParams {
 
 export async function getDocuments(params?: GetDocumentsParams, invalidateCache?: boolean): Promise<DocumentMetadata[]> {
   const queryParams = new URLSearchParams();
-  
+
   if (params?.zone) queryParams.append('zone', params.zone);
   if (params?.development) queryParams.append('development', params.development);
   if (params?.type) queryParams.append('type', params.type);
   if (params?.limit) queryParams.append('limit', String(params.limit));
   if (params?.offset) queryParams.append('offset', String(params.offset));
-  
+
   // Agregar parámetro para invalidar caché si se solicita
   if (invalidateCache) {
     queryParams.append('invalidate', 'true');
   }
 
+  // Asignar parámetros a la URL
   const url = `/api/documents${queryParams.toString() ? `?${queryParams}` : ''}`;
-  const response = await fetcher<{ success: boolean; data: DocumentMetadata[] }>(url);
-  
+
+  // Obtener token de autenticación
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  // Agregar encabezado de autorización
+  const response = await fetcher<{ success: boolean; data: DocumentMetadata[] }>(url, {
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
+  });
+
   return response.data;
 }
 
@@ -170,11 +196,11 @@ export async function getDocumentChunks(id: number, userId: number): Promise<Doc
   const response = await fetcher<{ success: boolean; data: DocumentChunksResponse }>(
     `/api/documents/${id}/chunks?userId=${userId}`
   );
-  
+
   if (!response.success || !response.data) {
     throw new Error('Error obteniendo chunks del documento');
   }
-  
+
   return response.data;
 }
 
@@ -198,7 +224,7 @@ export interface LogsResponse {
 
 export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse> {
   const queryParams = new URLSearchParams();
-  
+
   if (params?.userId) queryParams.append('userId', String(params.userId));
   if (params?.zone) queryParams.append('zone', params.zone);
   if (params?.actionType) queryParams.append('actionType', params.actionType);
@@ -207,21 +233,21 @@ export async function getQueryLogs(params?: GetLogsParams): Promise<LogsResponse
   if (params?.offset) queryParams.append('offset', String(params.offset));
 
   const url = `/api/logs${queryParams.toString() ? `?${queryParams}` : ''}`;
-  
+
   // Obtener token de autenticación
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: LogsResponse }>(url, {
     headers: token ? {
       'Authorization': `Bearer ${token}`,
     } : undefined,
   });
-  
+
   if (!response.success || !response.data) {
     logger.error('[API] Respuesta inválida', undefined, {}, 'api-client');
     throw new Error('Error obteniendo logs: respuesta inválida del servidor');
   }
-  
+
   return response.data;
 }
 
@@ -239,10 +265,10 @@ export interface GetChatHistoryParams {
 
 export async function getChatHistory(params: GetChatHistoryParams): Promise<QueryLog[]> {
   const queryParams = new URLSearchParams();
-  
+
   // Obtener token de autenticación para verificar si el usuario es admin
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   // Solo enviar userId si el usuario es admin (el backend lo ignorará para usuarios normales)
   // Para usuarios normales, el backend usará el userId del token
   if (params.userId) {
@@ -254,13 +280,13 @@ export async function getChatHistory(params: GetChatHistoryParams): Promise<Quer
   if (params.offset) queryParams.append('offset', String(params.offset));
 
   const url = `/api/chat-history?${queryParams.toString()}`;
-  
+
   const response = await fetcher<{ success: boolean; data: QueryLog[] }>(url, {
     headers: token ? {
       'Authorization': `Bearer ${token}`,
     } : undefined,
   });
-  
+
   return response.data;
 }
 
@@ -272,23 +298,23 @@ export interface DeleteChatHistoryParams {
 
 export async function deleteChatHistory(params: DeleteChatHistoryParams): Promise<{ deletedCount: number }> {
   const queryParams = new URLSearchParams();
-  
+
   queryParams.append('userId', String(params.userId));
   if (params.zone) queryParams.append('zone', params.zone);
   if (params.development) queryParams.append('development', params.development);
 
   const url = `/api/chat-history?${queryParams.toString()}`;
-  
+
   // Obtener token de autenticación
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: { deletedCount: number }; message?: string }>(url, {
     method: 'DELETE',
     headers: token ? {
       'Authorization': `Bearer ${token}`,
     } : undefined,
   });
-  
+
   return response.data;
 }
 
@@ -297,14 +323,25 @@ export async function deleteChatHistory(params: DeleteChatHistoryParams): Promis
 // =====================================================
 
 export async function getUser(userId: number): Promise<User> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: User }>(
-    `/api/user?userId=${userId}`
+    `/api/user?userId=${userId}`,
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
   );
   return response.data;
 }
 
 export async function getAllUsers(): Promise<User[]> {
-  const response = await fetcher<{ success: boolean; data: User[] }>('/api/users');
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: User[] }>('/api/users', {
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
+  });
   return response.data;
 }
 
@@ -316,8 +353,12 @@ export interface CreateUserParams {
 }
 
 export async function createUser(params: CreateUserParams): Promise<User> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: User }>('/api/users', {
     method: 'POST',
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
     body: JSON.stringify(params),
   });
   return response.data;
@@ -331,16 +372,24 @@ export interface UpdateUserParams {
 }
 
 export async function updateUser(userId: number, params: UpdateUserParams): Promise<User> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: User }>(`/api/users/${userId}`, {
     method: 'PUT',
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
     body: JSON.stringify(params),
   });
   return response.data;
 }
 
 export async function deleteUser(userId: number): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   await fetcher(`/api/users/${userId}`, {
     method: 'DELETE',
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
   });
 }
 
@@ -349,8 +398,14 @@ export async function deleteUser(userId: number): Promise<void> {
 // =====================================================
 
 export async function getUserDevelopments(userId: number): Promise<UserDevelopment[]> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: UserDevelopment[] }>(
-    `/api/users/${userId}/developments`
+    `/api/users/${userId}/developments`,
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
   );
   return response.data;
 }
@@ -366,10 +421,14 @@ export async function assignUserDevelopment(
   userId: number,
   params: AssignUserDevelopmentParams
 ): Promise<UserDevelopment> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: UserDevelopment }>(
     `/api/users/${userId}/developments`,
     {
       method: 'POST',
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
       body: JSON.stringify(params),
     }
   );
@@ -387,10 +446,14 @@ export async function updateUserDevelopment(
   userId: number,
   params: UpdateUserDevelopmentParams
 ): Promise<UserDevelopment> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const response = await fetcher<{ success: boolean; data: UserDevelopment }>(
     `/api/users/${userId}/developments`,
     {
       method: 'PUT',
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
       body: JSON.stringify(params),
     }
   );
@@ -402,8 +465,12 @@ export async function removeUserDevelopment(
   zone: Zone,
   development: string
 ): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   await fetcher(`/api/users/${userId}/developments?zone=${zone}&development=${development}`, {
     method: 'DELETE',
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
   });
 }
 
@@ -412,7 +479,12 @@ export async function removeUserDevelopment(
 // =====================================================
 
 export async function getRoles(): Promise<Role[]> {
-  const response = await fetcher<{ success: boolean; data: Role[] }>('/api/roles');
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: Role[] }>('/api/roles', {
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
+  });
   return response.data;
 }
 
@@ -544,7 +616,12 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await fetcher<{ success: boolean; data: DashboardStats }>('/api/stats');
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: DashboardStats }>('/api/stats', {
+    headers: token ? {
+      'Authorization': `Bearer ${token}`,
+    } : undefined,
+  });
   return response.data;
 }
 
@@ -552,18 +629,22 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 // HEALTH CHECK
 // =====================================================
 
-export async function checkHealth(): Promise<{ 
+export async function checkHealth(): Promise<{
   lmStudio: string;
   openai?: string;
   current?: string;
 }> {
-  const response = await fetcher<{ 
-    health: { 
+  const response = await fetcher<{
+    health: {
       lmStudio: string;
       openai?: string;
       current?: string;
-    } 
-  }>('/api/rag-query');
+    }
+  }>('/api/rag-query', {
+    headers: typeof window !== 'undefined' ? {
+      'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`,
+    } : undefined,
+  });
   return response.health;
 }
 
@@ -783,8 +864,8 @@ export async function getZohoNotesInsightsStored(
     {
       headers: token
         ? {
-            Authorization: `Bearer ${token}`,
-          }
+          Authorization: `Bearer ${token}`,
+        }
         : undefined,
     }
   );
@@ -807,8 +888,8 @@ export async function getZohoNotesInsightsAI(
       method: 'POST',
       headers: token
         ? {
-            Authorization: `Bearer ${token}`,
-          }
+          Authorization: `Bearer ${token}`,
+        }
         : undefined,
       body: JSON.stringify(body),
     }
@@ -823,7 +904,7 @@ export async function getZohoNotesInsightsAI(
 
 export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoLeadsResponse }>(
     `/api/zoho/leads?page=${page}&per_page=${perPage}`,
     {
@@ -832,13 +913,13 @@ export async function getZohoLeads(page: number = 1, perPage: number = 200): Pro
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
 export async function getZohoDeals(page: number = 1, perPage: number = 200): Promise<ZohoDealsResponse> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoDealsResponse }>(
     `/api/zoho/deals?page=${page}&per_page=${perPage}`,
     {
@@ -847,7 +928,7 @@ export async function getZohoDeals(page: number = 1, perPage: number = 200): Pro
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -862,7 +943,7 @@ export async function getZohoStats(filters?: {
   debug?: boolean;
 }): Promise<ZohoStats> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   // Construir query string con los filtros
   const params = new URLSearchParams();
   if (filters?.desarrollo) {
@@ -889,10 +970,10 @@ export async function getZohoStats(filters?: {
   if (filters?.debug) {
     params.append('debug', '1');
   }
-  
+
   const queryString = params.toString();
   const url = queryString ? `/api/zoho/stats?${queryString}` : '/api/zoho/stats';
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoStats }>(
     url,
     {
@@ -901,7 +982,7 @@ export async function getZohoStats(filters?: {
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -911,7 +992,7 @@ export async function getZohoStats(filters?: {
  */
 export async function triggerZohoSync(type: 'leads' | 'deals' | 'full' = 'full'): Promise<ZohoSyncResult> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   try {
     const response = await fetcher<{ success: boolean; data: ZohoSyncResult; error?: string }>(
       `/api/zoho/sync?type=${type}`,
@@ -922,11 +1003,11 @@ export async function triggerZohoSync(type: 'leads' | 'deals' | 'full' = 'full')
         } : undefined,
       }
     );
-    
+
     if (!response.success) {
       throw new Error(response.error || 'Error al sincronizar datos de Zoho');
     }
-    
+
     return response.data;
   } catch (error) {
     if (error instanceof Error) {
@@ -1007,7 +1088,7 @@ export interface ZohoFieldsResponse {
  */
 export async function syncZohoData(type: 'leads' | 'deals' | 'full' = 'full'): Promise<ZohoSyncResult> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoSyncResult }>(
     `/api/zoho/sync?type=${type}`,
     {
@@ -1017,7 +1098,7 @@ export async function syncZohoData(type: 'leads' | 'deals' | 'full' = 'full'): P
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -1031,16 +1112,16 @@ export async function getZohoSyncLogs(filters?: {
   status?: 'success' | 'error' | 'partial';
 }): Promise<{ logs: ZohoSyncLog[]; total: number; limit: number; offset: number }> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const params = new URLSearchParams();
   if (filters?.limit) params.append('limit', filters.limit.toString());
   if (filters?.offset) params.append('offset', filters.offset.toString());
   if (filters?.type) params.append('type', filters.type);
   if (filters?.status) params.append('status', filters.status);
-  
+
   const queryString = params.toString();
   const url = queryString ? `/api/zoho/sync/logs?${queryString}` : '/api/zoho/sync/logs';
-  
+
   const response = await fetcher<{ success: boolean; data: { logs: ZohoSyncLog[]; total: number; limit: number; offset: number } }>(
     url,
     {
@@ -1049,7 +1130,7 @@ export async function getZohoSyncLogs(filters?: {
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -1058,7 +1139,7 @@ export async function getZohoSyncLogs(filters?: {
  */
 export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFieldsResponse> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoFieldsResponse }>(
     `/api/zoho/fields?module=${module}`,
     {
@@ -1067,7 +1148,7 @@ export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFiel
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -1076,7 +1157,7 @@ export async function getZohoFields(module: 'Leads' | 'Deals'): Promise<ZohoFiel
  */
 export async function getLastZohoSync(): Promise<ZohoSyncLog | null> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   const response = await fetcher<{ success: boolean; data: ZohoSyncLog | null }>(
     '/api/zoho/sync',
     {
@@ -1085,7 +1166,7 @@ export async function getLastZohoSync(): Promise<ZohoSyncLog | null> {
       } : undefined,
     }
   );
-  
+
   return response.data;
 }
 
@@ -1098,7 +1179,7 @@ export async function getLastZohoSync(): Promise<ZohoSyncLog | null> {
  */
 export async function checkPermission(permission: Permission): Promise<boolean> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   if (!token) {
     return false;
   }
@@ -1113,7 +1194,7 @@ export async function checkPermission(permission: Permission): Promise<boolean> 
         },
       }
     );
-    
+
     return response.hasPermission;
   } catch (error) {
     logger.error('Error verificando permiso', error, {}, 'api-client');
@@ -1134,7 +1215,7 @@ export async function recordPageVisit(data: {
   module_name?: string;
 }): Promise<void> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   if (!token) {
     return;
   }
@@ -1207,7 +1288,7 @@ export async function getAdminSessions(params?: {
   }>;
 }> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  
+
   if (!token) {
     throw new Error('No autorizado');
   }
@@ -1231,4 +1312,5 @@ export async function getAdminSessions(params?: {
 
   return response.data;
 }
+
 

@@ -9,10 +9,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { saveFeedback, updateChunkStats, getQueryLogById, invalidateCacheByQuery } from '@/lib/postgres';
-import { validateRequest, ragFeedbackRequestSchema } from '@/lib/validation';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { saveFeedback, updateChunkStats, getQueryLogById, invalidateCacheByQuery } from '@/lib/db/postgres';
+import { validateRequest, ragFeedbackRequestSchema } from '@/lib/utils/validation';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // ENDPOINT POST - GUARDAR FEEDBACK
@@ -133,4 +133,7 @@ export async function GET(): Promise<NextResponse> {
     },
   });
 }
+
+
+
 

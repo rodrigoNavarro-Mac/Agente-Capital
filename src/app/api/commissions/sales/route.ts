@@ -6,15 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import {
   getCommissionSales,
   getCommissionSale,
   upsertCommissionSale,
   getCommissionSaleByZohoDealId,
-} from '@/lib/commission-db';
-import { logger } from '@/lib/logger';
-import { validateRequest, commissionSaleInputSchema } from '@/lib/validation';
+} from '@/lib/db/commission-db';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, commissionSaleInputSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionSalesFilters, CommissionSaleInput } from '@/types/commissions';
 
@@ -213,4 +213,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     );
   }
 }
+
+
+
 

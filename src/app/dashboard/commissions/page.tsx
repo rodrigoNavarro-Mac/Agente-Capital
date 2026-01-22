@@ -22,8 +22,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { decodeAccessToken } from '@/lib/auth';
-import { DEVELOPMENTS } from '@/lib/constants';
+import { decodeAccessToken } from '@/lib/auth/auth';
+import { DEVELOPMENTS } from '@/lib/config/constants';
 import type { UserRole } from '@/types/documents';
 import type {
   CommissionConfig,
@@ -41,9 +41,9 @@ import type {
   PartnerCommission,
   PartnerInvoice,
 } from '@/types/commissions';
-import { getRoleDisplayName, normalizePersonName } from '@/lib/commission-calculator';
-import { logger } from '@/lib/logger';
-import { normalizeDevelopmentDisplay, normalizeDevelopmentForFilter } from '@/lib/utils';
+import { getRoleDisplayName, normalizePersonName } from '@/lib/domain/commission-calculator';
+import { logger } from '@/lib/utils/logger';
+import { normalizeDevelopmentDisplay, normalizeDevelopmentForFilter } from '@/lib/utils/utils';
 
 export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
@@ -5844,4 +5844,5 @@ function PartnersTab({
     </div>
   );
 }
+
 

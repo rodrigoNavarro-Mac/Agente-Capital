@@ -7,10 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { getZohoStats, getZohoStatsLastMonth } from '@/lib/zoho-crm';
-import { getUserDevelopments } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { getZohoStats, getZohoStatsLastMonth } from '@/lib/services/zoho-crm';
+import { getUserDevelopments } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.headers que es dinámico)
@@ -200,4 +200,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
+
+
 

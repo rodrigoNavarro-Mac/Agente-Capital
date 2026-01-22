@@ -8,10 +8,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllUsers, createUser, getUserByEmail } from '@/lib/postgres';
-import { hashPassword, validatePasswordStrength } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { validateRequest, createUserWithRoleIdRequestSchema } from '@/lib/validation';
+import { getAllUsers, createUser, getUserByEmail } from '@/lib/db/postgres';
+import { hashPassword, validatePasswordStrength } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, createUserWithRoleIdRequestSchema } from '@/lib/utils/validation';
 import type { User, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -118,4 +118,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

@@ -8,9 +8,9 @@
 
 import { runLLM as runLLMLMStudio, checkLMStudioHealth, getAvailableModels as getLMStudioModels } from './lmstudio';
 import { runLLM as runLLMOpenAI, checkOpenAIHealth, getAvailableModels as getOpenAIModels } from './openai';
-import { getConfig } from './postgres';
+import { getConfig } from '@/lib/db/postgres';
 import type { LMStudioMessage } from '@/types/documents';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // TIPOS
@@ -143,4 +143,5 @@ export default {
   getLLMProvider,
   checkAllProvidersHealth,
 };
+
 

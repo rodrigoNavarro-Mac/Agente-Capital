@@ -7,9 +7,9 @@
  */
 
 import OpenAI from 'openai';
-import { withTimeout, TIMEOUTS } from '@/lib/timeout';
+import { withTimeout, TIMEOUTS } from '@/lib/utils/timeout';
 import type { LMStudioMessage } from '@/types/documents';
-import { logger } from './logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -158,4 +158,6 @@ export default {
   checkOpenAIHealth,
   getAvailableModels,
 };
+
+
 

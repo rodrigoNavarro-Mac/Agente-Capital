@@ -7,11 +7,11 @@
  */
 
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
-import type { 
-  User, 
-  Role, 
-  DocumentMetadata, 
-  QueryLog, 
+import type {
+  User,
+  Role,
+  DocumentMetadata,
+  QueryLog,
   AgentConfig,
   UserDevelopment,
   Zone,
@@ -21,10 +21,10 @@ import type {
   ActionType,
   ResourceType
 } from '@/types/documents';
-import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
-import { logger } from '@/lib/logger';
-import { withCircuitBreaker, recordFailure, recordSuccess } from '@/lib/circuit-breaker';
-import { normalizeDevelopmentDisplay } from '@/lib/utils';
+import type { ZohoLead, ZohoDeal } from '@/lib/services/zoho-crm';
+import { logger } from '@/lib/utils/logger';
+import { withCircuitBreaker, recordFailure, recordSuccess } from '@/lib/infrastructure/circuit-breaker';
+import { normalizeDevelopmentDisplay } from '@/lib/utils/utils';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -38,22 +38,22 @@ function isServerlessEnvironment(): boolean {
   if (process.env.VERCEL) {
     return true;
   }
-  
+
   // AWS Lambda
   if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return true;
   }
-  
+
   // Google Cloud Functions
   if (process.env.FUNCTION_NAME || process.env.K_SERVICE) {
     return true;
   }
-  
+
   // Azure Functions
   if (process.env.AZURE_FUNCTIONS_ENVIRONMENT) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -86,7 +86,7 @@ function isServerlessEnvironment(): boolean {
  */
 function getPoolConfig() {
   const isServerless = isServerlessEnvironment();
-  
+
   // Intentar obtener la cadena de conexión en orden de prioridad
   // PRIORIDAD: POSTGRES_URL (Transaction mode) sobre conexión directa
   // Esto evita el error "MaxClientsInSessionMode" de Supabase
@@ -95,16 +95,16 @@ function getPoolConfig() {
     process.env.DATABASE_URL ||              // Configuración manual
     process.env.POSTGRES_URL_NON_POOLING ||  // Session mode (limitado)
     process.env.POSTGRES_PRISMA_URL;         // Variable alternativa
-  
+
   // Detectar si estamos usando Supabase y qué modo
   const isSupabasePooler = !!process.env.POSTGRES_URL;
-  const isSupabaseDirect = !!process.env.POSTGRES_URL_NON_POOLING || 
-                          !!process.env.POSTGRES_PRISMA_URL;
+  const isSupabaseDirect = !!process.env.POSTGRES_URL_NON_POOLING ||
+    !!process.env.POSTGRES_PRISMA_URL;
   const isSupabase = isSupabasePooler || isSupabaseDirect;
-  
+
   // Determinar el tamaño máximo del pool según el entorno y tipo de conexión
   let maxConnections: number;
-  
+
   if (isSupabase) {
     if (isSupabasePooler) {
       // Transaction mode: Permite más conexiones (hasta 200 según plan)
@@ -117,7 +117,7 @@ function getPoolConfig() {
       maxConnections = isServerless
         ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '3', 10) // Muy bajo para serverless
         : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '4', 10); // Muy bajo para desarrollo
-      
+
       // Advertir sobre el uso de Session mode
       if (process.env.NODE_ENV !== 'production') {
         logger.warn(
@@ -133,11 +133,11 @@ function getPoolConfig() {
       ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '5', 10)
       : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20', 10);
   }
-  
+
   const connectionTimeout = isServerless
     ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '20000', 10) // 20s para cold starts
     : parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '15000', 10); // 15s para desarrollo
-  
+
   const idleTimeout = isServerless
     ? parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10) // 30s para serverless
     : parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10); // 30s para desarrollo
@@ -154,7 +154,7 @@ function getPoolConfig() {
       );
       throw new Error('Formato inválido de cadena de conexión. Debe comenzar con postgresql:// o postgres://');
     }
-    
+
     // Validar que la cadena de conexión no esté vacía o mal formada
     try {
       const testUrl = new URL(connectionString);
@@ -165,7 +165,7 @@ function getPoolConfig() {
       logger.error(
         'Error parseando cadena de conexión. Verifica que POSTGRES_URL o DATABASE_URL esté configurada correctamente en Vercel.',
         urlError,
-        { 
+        {
           hasPostgresUrl: !!process.env.POSTGRES_URL,
           hasDatabaseUrl: !!process.env.DATABASE_URL,
           hasPostgresUrlNonPooling: !!process.env.POSTGRES_URL_NON_POOLING,
@@ -176,63 +176,63 @@ function getPoolConfig() {
       );
       throw new Error('Cadena de conexión inválida. Verifica las variables de entorno en Vercel (POSTGRES_URL o DATABASE_URL)');
     }
-    
-      // Extraer hostname para logging (sin exponer credenciales)
-      let hostname = 'unknown';
-      let parsedUrl: URL | null = null;
-      
-      try {
-        parsedUrl = new URL(connectionString);
-        hostname = parsedUrl.hostname;
-        
-        // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
-        // Esto asegura que la configuración SSL se aplique correctamente
-        if (isSupabase && parsedUrl) {
-          const password = parsedUrl.password || '';
-          const username = parsedUrl.username || 'postgres';
-          const database = parsedUrl.pathname.slice(1) || 'postgres';
-          const port = parseInt(parsedUrl.port || '5432');
-          
-          // Log de configuración para debugging
-          if (process.env.NODE_ENV !== 'production') {
-            logger.info('Configuración del pool de conexiones', {
-              maxConnections,
-              isSupabase,
-              isSupabasePooler,
-              isSupabaseDirect,
-              connectionMode: isSupabasePooler ? 'Transaction (Pooler)' : isSupabaseDirect ? 'Session (Direct)' : 'Standard',
-              hostname: hostname.substring(0, 20) + '...'
-            }, 'postgres');
-          }
-          
-          return {
-            host: hostname,
-            port: port,
-            user: username,
-            password: password,
-            database: database,
-            max: maxConnections,
-            idleTimeoutMillis: idleTimeout,
-            connectionTimeoutMillis: connectionTimeout,
-            // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
-            family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
-            ssl: {
-              rejectUnauthorized: false, // Necesario para Supabase en Vercel
-            },
-          };
+
+    // Extraer hostname para logging (sin exponer credenciales)
+    let hostname = 'unknown';
+    let parsedUrl: URL | null = null;
+
+    try {
+      parsedUrl = new URL(connectionString);
+      hostname = parsedUrl.hostname;
+
+      // IMPORTANTE: Para Supabase, usar parámetros individuales en lugar de connectionString
+      // Esto asegura que la configuración SSL se aplique correctamente
+      if (isSupabase && parsedUrl) {
+        const password = parsedUrl.password || '';
+        const username = parsedUrl.username || 'postgres';
+        const database = parsedUrl.pathname.slice(1) || 'postgres';
+        const port = parseInt(parsedUrl.port || '5432');
+
+        // Log de configuración para debugging
+        if (process.env.NODE_ENV !== 'production') {
+          logger.info('Configuración del pool de conexiones', {
+            maxConnections,
+            isSupabase,
+            isSupabasePooler,
+            isSupabaseDirect,
+            connectionMode: isSupabasePooler ? 'Transaction (Pooler)' : isSupabaseDirect ? 'Session (Direct)' : 'Standard',
+            hostname: hostname.substring(0, 20) + '...'
+          }, 'postgres');
         }
-      } catch (e) {
-        logger.error('Error parseando cadena de conexión', e, undefined, 'postgres');
+
+        return {
+          host: hostname,
+          port: port,
+          user: username,
+          password: password,
+          database: database,
+          max: maxConnections,
+          idleTimeoutMillis: idleTimeout,
+          connectionTimeoutMillis: connectionTimeout,
+          // IMPORTANTE: Vercel NO soporta IPv6, forzar IPv4
+          family: 4,  // Forzar IPv4 (evita error ENETUNREACH con IPv6)
+          ssl: {
+            rejectUnauthorized: false, // Necesario para Supabase en Vercel
+          },
+        };
       }
-    
+    } catch (e) {
+      logger.error('Error parseando cadena de conexión', e, undefined, 'postgres');
+    }
+
     // Para conexiones no-Supabase, usar connectionString normalmente
     // Configurar SSL para otras conexiones remotas
     const sslConfig = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== 'unknown'
-      ? { 
-          rejectUnauthorized: false // Para conexiones remotas
-        }
+      ? {
+        rejectUnauthorized: false // Para conexiones remotas
+      }
       : undefined; // Sin SSL para localhost
-    
+
     // Log de configuración para debugging (solo si no es Supabase, ya que Supabase se loguea arriba)
     if (process.env.NODE_ENV !== 'production' && !isSupabase) {
       logger.info('Configuración del pool de conexiones', {
@@ -241,7 +241,7 @@ function getPoolConfig() {
         hostname: hostname !== 'unknown' ? hostname.substring(0, 20) + '...' : 'local'
       }, 'postgres');
     }
-    
+
     return {
       connectionString: connectionString,
       max: maxConnections,
@@ -258,7 +258,7 @@ function getPoolConfig() {
   const user = process.env.POSTGRES_USER || 'postgres';
   const password = process.env.POSTGRES_PASSWORD || '';
   const database = process.env.POSTGRES_DB || 'capital_plus_agent';
-  
+
   // En desarrollo local, dar mensajes más útiles si falta configuración
   if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL) {
     if (!password) {
@@ -271,7 +271,7 @@ function getPoolConfig() {
       logger.warn('   POSTGRES_DB=capital_plus_agent', undefined, 'postgres');
     }
   }
-  
+
   return {
     host,
     port,
@@ -289,7 +289,7 @@ function getPoolConfig() {
 let poolConfig: ReturnType<typeof getPoolConfig>;
 try {
   poolConfig = getPoolConfig();
-  
+
   // Log de diagnóstico en producción para ayudar a identificar problemas
   if (process.env.VERCEL && process.env.NODE_ENV === 'production') {
     logger.info('Configuración del pool de PostgreSQL (Vercel)', {
@@ -317,7 +317,7 @@ try {
   throw configError;
 }
 
-const pool = new Pool(poolConfig);
+export const pool = new Pool(poolConfig);
 
 // Manejar errores del pool
 pool.on('error', (err: Error & { code?: string }) => {
@@ -327,12 +327,12 @@ pool.on('error', (err: Error & { code?: string }) => {
     errorCode: err.code,
     errorMessage: err.message?.substring(0, 200),
   }, 'postgres-pool');
-  
+
   // Detectar error específico de "Tenant or user not found" (problema de configuración de Supabase)
   if (err.message && (
-      err.message.includes('Tenant or user not found') ||
-      err.message.includes('password authentication failed') ||
-      err.message.includes('authentication failed'))) {
+    err.message.includes('Tenant or user not found') ||
+    err.message.includes('password authentication failed') ||
+    err.message.includes('authentication failed'))) {
     logger.error('⚠️ ERROR CRÍTICO: Problema de autenticación con Supabase', err, {}, 'postgres-pool');
     logger.error('   Esto indica que las credenciales en la cadena de conexión son incorrectas', undefined, undefined, 'postgres-pool');
     logger.error('   SOLUCIÓN PARA VERCEL:', undefined, undefined, 'postgres-pool');
@@ -344,15 +344,15 @@ pool.on('error', (err: Error & { code?: string }) => {
     logger.error('   6. Reinicia el deployment en Vercel después de cambiar las variables', undefined, undefined, 'postgres-pool');
     return; // No reintentar inmediatamente, el usuario debe cambiar la configuración
   }
-  
+
   // Registrar fallo en circuit breaker
   recordFailure(err);
-  
+
   // Detectar error específico de límite de conexiones de Supabase
   if (err.message && (
-      err.message.includes('MaxClientsInSessionMode') || 
-      err.message.includes('max clients reached') ||
-      err.message.includes('max clients are limited to pool_size'))) {
+    err.message.includes('MaxClientsInSessionMode') ||
+    err.message.includes('max clients reached') ||
+    err.message.includes('max clients are limited to pool_size'))) {
     logger.error('⚠️ ERROR CRÍTICO: Límite de conexiones de Supabase alcanzado', err, {}, 'postgres-pool');
     logger.error('   Esto ocurre cuando usas Session mode (conexión directa) con muchas conexiones', undefined, undefined, 'postgres-pool');
     logger.error('   SOLUCIÓN: Configura POSTGRES_URL (Transaction mode) en lugar de POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres-pool');
@@ -360,17 +360,17 @@ pool.on('error', (err: Error & { code?: string }) => {
     logger.error('   Usa la cadena de "Connection pooling" (Transaction mode)', undefined, undefined, 'postgres-pool');
     return; // No reintentar inmediatamente, el usuario debe cambiar la configuración
   }
-  
+
   // Detectar errores específicos de terminación de conexión
-  if (err.code === 'XX000' || 
-      (err.message && (err.message.includes('shutdown') || err.message.includes('db_termination')))) {
+  if (err.code === 'XX000' ||
+    (err.message && (err.message.includes('shutdown') || err.message.includes('db_termination')))) {
     logger.warn('La base de datos cerró la conexión inesperadamente', {
       code: err.code,
       message: err.message?.substring(0, 100)
     }, 'postgres-pool');
     return; // No es un error crítico, el pool manejará la reconexión
   }
-  
+
   // Mensajes más descriptivos para errores comunes
   if (err instanceof Error) {
     if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
@@ -405,7 +405,7 @@ pool.on('error', (err: Error & { code?: string }) => {
  * Ejecuta una query con retry automático para errores de conexión
  */
 export async function query<T extends QueryResultRow = QueryResultRow>(
-  text: string, 
+  text: string,
   params?: unknown[],
   retries: number = 1,
   allowRetry: boolean = false
@@ -414,138 +414,138 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
     async () => {
       const _start = Date.now();
       let lastError: unknown;
-      
+
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
           const result = await pool.query<T>(text, params);
           recordSuccess(); // Registrar éxito después de la query
           return result;
-    } catch (error) {
-      lastError = error;
-      
-      // Verificar si es un error de configuración (NO debe reintentarse)
-      // Estos errores indican problemas de configuración, no de disponibilidad de la BD
-      const isConfigurationError = error instanceof Error && (
-        error.message.includes('Tenant or user not found') ||
-        error.message.includes('password authentication failed') ||
-        error.message.includes('authentication failed') ||
-        error.message.includes('invalid oauth token') ||
-        (error.message.includes('role') && error.message.includes('does not exist'))
-      );
-      
-      // Si es un error de configuración, lanzar inmediatamente sin reintentar
-      if (isConfigurationError) {
-        recordFailure(error); // Registrar fallo (pero no afecta circuit breaker)
-        logger.error('⚠️ ERROR CRÍTICO: Problema de configuración de base de datos', error, { text, params }, 'postgres');
-        logger.error('   Esto indica que las credenciales en la cadena de conexión son incorrectas', undefined, undefined, 'postgres');
-        logger.error('   SOLUCIÓN PARA VERCEL:', undefined, undefined, 'postgres');
-        logger.error('   1. Ve a Vercel Dashboard > Tu Proyecto > Settings > Environment Variables', undefined, undefined, 'postgres');
-        logger.error('   2. Verifica que POSTGRES_URL o DATABASE_URL esté configurada', undefined, undefined, 'postgres');
-        logger.error('   3. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
-        logger.error('   4. Copia la cadena de "Connection pooling" (Transaction mode) y pégala en POSTGRES_URL', undefined, undefined, 'postgres');
-        logger.error('   5. Asegúrate de que la contraseña en la URL sea correcta', undefined, undefined, 'postgres');
-        logger.error('   6. Reinicia el deployment en Vercel después de cambiar las variables', undefined, undefined, 'postgres');
-        throw error; // Lanzar inmediatamente, no reintentar
-      }
-      
-      recordFailure(error); // Registrar fallo
-      
-      // Verificar si es un error de conexión que puede recuperarse
-      const isConnectionError = error instanceof Error && (
-        error.message.includes('shutdown') ||
-        error.message.includes('db_termination') ||
-        error.message.includes('terminating connection') ||
-        (error as Error & { code?: string }).code === 'XX000' ||
-        (error as Error & { code?: string }).code === '57P01' ||
-        error.message.includes('Connection terminated') ||
-        error.message.includes('server closed the connection')
-      );
-      
-      // Si es un error de conexión y aún tenemos intentos, reintentar
-      if (isConnectionError && attempt < retries) {
-        const delay = Math.min(100 * Math.pow(2, attempt), 1000); // Backoff exponencial (max 1s)
-        logger.warn(
-          'Database connection error detected; retrying',
-          { delayMs: delay, attempt: attempt + 1, totalAttempts: retries + 1 },
-          'postgres'
-        );
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      
-      // Si no es un error de conexión o se agotaron los intentos, loggear y lanzar
-      logger.error('Error en query', error, { text, params }, 'postgres');
-      
-      // Detectar error específico de Supabase Session mode
-      const isMaxClientsError = error instanceof Error && 
-        (error.message.includes('MaxClientsInSessionMode') || 
-         error.message.includes('max clients reached') ||
-         error.message.includes('max clients are limited to pool_size'));
-      
-      if (isMaxClientsError) {
-        logger.error('⚠️ ERROR: Límite de conexiones de Supabase alcanzado (Session mode)', error, {}, 'postgres');
-        logger.error('   SOLUCIÓN RECOMENDADA:', undefined, undefined, 'postgres');
-        logger.error('   1. Usa el pooler de Supabase (Transaction mode) en lugar de conexión directa', undefined, undefined, 'postgres');
-        logger.error('   2. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
-        logger.error('   3. Copia la cadena de "Connection pooling" (Transaction mode)', undefined, undefined, 'postgres');
-        logger.error('   4. Configúrala como POSTGRES_URL en tus variables de entorno', undefined, undefined, 'postgres');
-        logger.error('   5. Esto permite hasta 200 conexiones simultáneas vs 4-10 en Session mode', undefined, undefined, 'postgres');
-        logger.error('', undefined, undefined, 'postgres');
-        logger.error('   ALTERNATIVA: Si debes usar Session mode, reduce POSTGRES_MAX_CONNECTIONS a 3-4', undefined, undefined, 'postgres');
-        throw error;
-      }
-      
-      // Mensajes más descriptivos para errores de conexión
-      if (error instanceof Error) {
-        const isLocalDev = process.env.NODE_ENV !== 'production' && 
-                          (!process.env.DATABASE_URL && !process.env.POSTGRES_URL);
-        
-        if (isConnectionError) {
-          logger.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.', error, { attempt, retries }, 'postgres');
-          if (isLocalDev) {
-            logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
-            logger.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)', undefined, undefined, 'postgres');
-            logger.error('   2. Las variables de entorno estén configuradas en .env.local:', undefined, undefined, 'postgres');
-            logger.error('      POSTGRES_HOST=localhost', undefined, undefined, 'postgres');
-            logger.error('      POSTGRES_PORT=5432', undefined, undefined, 'postgres');
-            logger.error('      POSTGRES_USER=postgres', undefined, undefined, 'postgres');
-            logger.error('      POSTGRES_PASSWORD=tu_contraseña', undefined, undefined, 'postgres');
-            logger.error('      POSTGRES_DB=capital_plus_agent', undefined, undefined, 'postgres');
-            logger.error('   3. La base de datos exista: createdb capital_plus_agent', undefined, undefined, 'postgres');
-            logger.error('   4. Las credenciales sean correctas', undefined, undefined, 'postgres');
-          } else {
-            logger.error('   La base de datos puede estar en mantenimiento o sobrecargada.', undefined, undefined, 'postgres');
+        } catch (error) {
+          lastError = error;
+
+          // Verificar si es un error de configuración (NO debe reintentarse)
+          // Estos errores indican problemas de configuración, no de disponibilidad de la BD
+          const isConfigurationError = error instanceof Error && (
+            error.message.includes('Tenant or user not found') ||
+            error.message.includes('password authentication failed') ||
+            error.message.includes('authentication failed') ||
+            error.message.includes('invalid oauth token') ||
+            (error.message.includes('role') && error.message.includes('does not exist'))
+          );
+
+          // Si es un error de configuración, lanzar inmediatamente sin reintentar
+          if (isConfigurationError) {
+            recordFailure(error); // Registrar fallo (pero no afecta circuit breaker)
+            logger.error('⚠️ ERROR CRÍTICO: Problema de configuración de base de datos', error, { text, params }, 'postgres');
+            logger.error('   Esto indica que las credenciales en la cadena de conexión son incorrectas', undefined, undefined, 'postgres');
+            logger.error('   SOLUCIÓN PARA VERCEL:', undefined, undefined, 'postgres');
+            logger.error('   1. Ve a Vercel Dashboard > Tu Proyecto > Settings > Environment Variables', undefined, undefined, 'postgres');
+            logger.error('   2. Verifica que POSTGRES_URL o DATABASE_URL esté configurada', undefined, undefined, 'postgres');
+            logger.error('   3. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
+            logger.error('   4. Copia la cadena de "Connection pooling" (Transaction mode) y pégala en POSTGRES_URL', undefined, undefined, 'postgres');
+            logger.error('   5. Asegúrate de que la contraseña en la URL sea correcta', undefined, undefined, 'postgres');
+            logger.error('   6. Reinicia el deployment en Vercel después de cambiar las variables', undefined, undefined, 'postgres');
+            throw error; // Lanzar inmediatamente, no reintentar
           }
-        } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
-          logger.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.', error, undefined, 'postgres');
-          if (isLocalDev) {
-            logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
-            logger.error('   1. PostgreSQL esté corriendo en localhost', undefined, undefined, 'postgres');
-            logger.error('   2. POSTGRES_HOST esté configurado correctamente en .env.local', undefined, undefined, 'postgres');
-            logger.error('   3. No haya problemas de firewall bloqueando la conexión', undefined, undefined, 'postgres');
-          } else {
-            logger.error('   Esto generalmente significa que:', undefined, undefined, 'postgres');
-            logger.error('   1. Ninguna variable de conexión está configurada en Vercel, o', undefined, undefined, 'postgres');
-            logger.error('   2. El hostname en la cadena de conexión es incorrecto, o', undefined, undefined, 'postgres');
-            logger.error('   3. Hay un problema de red/DNS en Vercel', undefined, undefined, 'postgres');
+
+          recordFailure(error); // Registrar fallo
+
+          // Verificar si es un error de conexión que puede recuperarse
+          const isConnectionError = error instanceof Error && (
+            error.message.includes('shutdown') ||
+            error.message.includes('db_termination') ||
+            error.message.includes('terminating connection') ||
+            (error as Error & { code?: string }).code === 'XX000' ||
+            (error as Error & { code?: string }).code === '57P01' ||
+            error.message.includes('Connection terminated') ||
+            error.message.includes('server closed the connection')
+          );
+
+          // Si es un error de conexión y aún tenemos intentos, reintentar
+          if (isConnectionError && attempt < retries) {
+            const delay = Math.min(100 * Math.pow(2, attempt), 1000); // Backoff exponencial (max 1s)
+            logger.warn(
+              'Database connection error detected; retrying',
+              { delayMs: delay, attempt: attempt + 1, totalAttempts: retries + 1 },
+              'postgres'
+            );
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+
+          // Si no es un error de conexión o se agotaron los intentos, loggear y lanzar
+          logger.error('Error en query', error, { text, params }, 'postgres');
+
+          // Detectar error específico de Supabase Session mode
+          const isMaxClientsError = error instanceof Error &&
+            (error.message.includes('MaxClientsInSessionMode') ||
+              error.message.includes('max clients reached') ||
+              error.message.includes('max clients are limited to pool_size'));
+
+          if (isMaxClientsError) {
+            logger.error('⚠️ ERROR: Límite de conexiones de Supabase alcanzado (Session mode)', error, {}, 'postgres');
+            logger.error('   SOLUCIÓN RECOMENDADA:', undefined, undefined, 'postgres');
+            logger.error('   1. Usa el pooler de Supabase (Transaction mode) en lugar de conexión directa', undefined, undefined, 'postgres');
+            logger.error('   2. Ve a Supabase Dashboard > Settings > Database > Connection String', undefined, undefined, 'postgres');
+            logger.error('   3. Copia la cadena de "Connection pooling" (Transaction mode)', undefined, undefined, 'postgres');
+            logger.error('   4. Configúrala como POSTGRES_URL en tus variables de entorno', undefined, undefined, 'postgres');
+            logger.error('   5. Esto permite hasta 200 conexiones simultáneas vs 4-10 en Session mode', undefined, undefined, 'postgres');
             logger.error('', undefined, undefined, 'postgres');
-            logger.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables', undefined, undefined, 'postgres');
-            logger.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.', undefined, undefined, 'postgres');
-            logger.error('   Si no existe, verifica la integración o crea manualmente:', undefined, undefined, 'postgres');
-            logger.error('   - POSTGRES_URL (recomendado)', undefined, undefined, 'postgres');
-            logger.error('   - POSTGRES_PRISMA_URL', undefined, undefined, 'postgres');
-            logger.error('   - POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres');
-            logger.error('   - DATABASE_URL (compatibilidad)', undefined, undefined, 'postgres');
+            logger.error('   ALTERNATIVA: Si debes usar Session mode, reduce POSTGRES_MAX_CONNECTIONS a 3-4', undefined, undefined, 'postgres');
+            throw error;
           }
+
+          // Mensajes más descriptivos para errores de conexión
+          if (error instanceof Error) {
+            const isLocalDev = process.env.NODE_ENV !== 'production' &&
+              (!process.env.DATABASE_URL && !process.env.POSTGRES_URL);
+
+            if (isConnectionError) {
+              logger.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.', error, { attempt, retries }, 'postgres');
+              if (isLocalDev) {
+                logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
+                logger.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)', undefined, undefined, 'postgres');
+                logger.error('   2. Las variables de entorno estén configuradas en .env.local:', undefined, undefined, 'postgres');
+                logger.error('      POSTGRES_HOST=localhost', undefined, undefined, 'postgres');
+                logger.error('      POSTGRES_PORT=5432', undefined, undefined, 'postgres');
+                logger.error('      POSTGRES_USER=postgres', undefined, undefined, 'postgres');
+                logger.error('      POSTGRES_PASSWORD=tu_contraseña', undefined, undefined, 'postgres');
+                logger.error('      POSTGRES_DB=capital_plus_agent', undefined, undefined, 'postgres');
+                logger.error('   3. La base de datos exista: createdb capital_plus_agent', undefined, undefined, 'postgres');
+                logger.error('   4. Las credenciales sean correctas', undefined, undefined, 'postgres');
+              } else {
+                logger.error('   La base de datos puede estar en mantenimiento o sobrecargada.', undefined, undefined, 'postgres');
+              }
+            } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+              logger.error('DIAGNÓSTICO: No se puede resolver el hostname de la base de datos.', error, undefined, 'postgres');
+              if (isLocalDev) {
+                logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
+                logger.error('   1. PostgreSQL esté corriendo en localhost', undefined, undefined, 'postgres');
+                logger.error('   2. POSTGRES_HOST esté configurado correctamente en .env.local', undefined, undefined, 'postgres');
+                logger.error('   3. No haya problemas de firewall bloqueando la conexión', undefined, undefined, 'postgres');
+              } else {
+                logger.error('   Esto generalmente significa que:', undefined, undefined, 'postgres');
+                logger.error('   1. Ninguna variable de conexión está configurada en Vercel, o', undefined, undefined, 'postgres');
+                logger.error('   2. El hostname en la cadena de conexión es incorrecto, o', undefined, undefined, 'postgres');
+                logger.error('   3. Hay un problema de red/DNS en Vercel', undefined, undefined, 'postgres');
+                logger.error('', undefined, undefined, 'postgres');
+                logger.error('   SOLUCIÓN: Ve a Vercel Dashboard → Settings → Environment Variables', undefined, undefined, 'postgres');
+                logger.error('   La integración de Supabase debería crear automáticamente POSTGRES_URL.', undefined, undefined, 'postgres');
+                logger.error('   Si no existe, verifica la integración o crea manualmente:', undefined, undefined, 'postgres');
+                logger.error('   - POSTGRES_URL (recomendado)', undefined, undefined, 'postgres');
+                logger.error('   - POSTGRES_PRISMA_URL', undefined, undefined, 'postgres');
+                logger.error('   - POSTGRES_URL_NON_POOLING', undefined, undefined, 'postgres');
+                logger.error('   - DATABASE_URL (compatibilidad)', undefined, undefined, 'postgres');
+              }
+            }
+          }
+
+          throw error;
         }
       }
-      
-      throw error;
-    }
-  }
-  
-  // Esto no debería ejecutarse, pero TypeScript lo requiere
-  throw lastError;
+
+      // Esto no debería ejecutarse, pero TypeScript lo requiere
+      throw lastError;
     },
     'database query',
     allowRetry
@@ -578,7 +578,7 @@ export async function getClient(): Promise<PoolClient> {
       try {
         const client = await pool.connect();
         recordSuccess();
-        
+
         // Agregar listener para detectar si el cliente se cierra inesperadamente
         client.on('error', (err) => {
           logger.warn(
@@ -587,18 +587,18 @@ export async function getClient(): Promise<PoolClient> {
             'postgres'
           );
         });
-        
+
         return client;
       } catch (error) {
         recordFailure(error);
-        
+
         // Detectar error específico de límite de conexiones
-        if (error instanceof Error && 
-            (error.message.includes('MaxClientsInSessionMode') || 
-             error.message.includes('max clients reached'))) {
+        if (error instanceof Error &&
+          (error.message.includes('MaxClientsInSessionMode') ||
+            error.message.includes('max clients reached'))) {
           logger.error('⚠️ Límite de conexiones alcanzado. Considera usar POSTGRES_URL (Transaction mode)', error, {}, 'postgres');
         }
-        
+
         logger.error('Error obteniendo cliente del pool', error, {}, 'postgres');
         throw error;
       }
@@ -733,10 +733,10 @@ export async function checkUserAccess(
 ): Promise<boolean> {
   // Primero verificar si el usuario tiene un rol con acceso total
   const user = await getUserById(userId);
-  
+
   // Estos roles tienen acceso a TODOS los desarrollos y TODAS las zonas
   const rolesWithFullAccess = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
-  
+
   if (user?.role && rolesWithFullAccess.includes(user.role)) {
     return true;
   }
@@ -747,7 +747,7 @@ export async function checkUserAccess(
      WHERE user_id = $1 AND zone = $2 AND development = $3 AND ${permission} = true`,
     [userId, zone, development]
   );
-  
+
   return parseInt(result.rows[0].count) > 0;
 }
 
@@ -906,7 +906,7 @@ export async function getRoles(): Promise<Role[]> {
      LEFT JOIN permissions p ON rp.permission_id = p.id
      GROUP BY r.id`
   );
-  
+
   return result.rows.map(row => ({
     ...row,
     permissions: row.permissions ? row.permissions as unknown as Permission[] : [],
@@ -917,7 +917,7 @@ export async function getRoles(): Promise<Role[]> {
  * Verifica si un usuario tiene un permiso específico
  */
 export async function hasPermission(
-  userId: number, 
+  userId: number,
   permission: Permission
 ): Promise<boolean> {
   const result = await query<{ count: string }>(
@@ -927,7 +927,7 @@ export async function hasPermission(
      WHERE u.id = $1 AND p.name = $2`,
     [userId, permission]
   );
-  
+
   return parseInt(result.rows[0].count) > 0;
 }
 
@@ -1021,12 +1021,12 @@ export async function saveQueryLog(log: Omit<QueryLog, 'id' | 'created_at'>): Pr
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
-      log.user_id, 
-      log.query, 
-      log.zone, 
-      log.development, 
-      log.response, 
-      log.sources_used, 
+      log.user_id,
+      log.query,
+      log.zone,
+      log.development,
+      log.response,
+      log.sources_used,
       log.response_time_ms,
       log.tokens_used || null
     ]
@@ -1045,7 +1045,7 @@ export async function getQueryLogs(options: {
   offset?: number;
 }): Promise<QueryLog[]> {
   const { userId, zone, development, limit = 50, offset = 0 } = options;
-  
+
   let queryText = 'SELECT * FROM query_logs WHERE 1=1';
   const params: unknown[] = [];
   let paramIndex = 1;
@@ -1056,7 +1056,7 @@ export async function getQueryLogs(options: {
     queryText += ` AND user_id = $${paramIndex++}`;
     params.push(userId);
   }
-  
+
   if (zone) {
     queryText += ` AND zone = $${paramIndex++}`;
     params.push(zone);
@@ -1070,7 +1070,7 @@ export async function getQueryLogs(options: {
   params.push(limit, offset);
 
   const result = await query<QueryLog>(queryText, params);
-  
+
   return result.rows;
 }
 
@@ -1126,12 +1126,12 @@ export async function getAllConfig(): Promise<Record<string, string>> {
   const result = await query<AgentConfig>(
     'SELECT key, value FROM agent_config'
   );
-  
+
   const config: Record<string, string> = {};
   result.rows.forEach(row => {
     config[row.key] = row.value;
   });
-  
+
   return config;
 }
 
@@ -1139,8 +1139,8 @@ export async function getAllConfig(): Promise<Record<string, string>> {
  * Actualiza o crea un valor de configuración
  */
 export async function setConfig(
-  key: string, 
-  value: string, 
+  key: string,
+  value: string,
   updatedBy: number,
   description?: string
 ): Promise<AgentConfig> {
@@ -1183,15 +1183,15 @@ export async function getDevelopmentsByZone(): Promise<Record<string, string[]>>
      FROM documents_meta
      GROUP BY zone`
   );
-  
+
   const developmentsByZone: Record<string, string[]> = {};
   result.rows.forEach(row => {
     // Normalizar cada desarrollo para mostrar con primera letra en mayúscula
-    developmentsByZone[row.zone] = row.developments.map(dev => 
+    developmentsByZone[row.zone] = row.developments.map(dev =>
       normalizeDevelopmentDisplay(dev)
     );
   });
-  
+
   return developmentsByZone;
 }
 
@@ -1355,7 +1355,7 @@ export async function getQueryLogById(queryLogId: number): Promise<{
        WHERE id = $1`,
       [queryLogId]
     );
-    
+
     return result.rows[0] || null;
   } catch (error) {
     logger.error('Error getting query log by id:', error);
@@ -1377,7 +1377,7 @@ export async function invalidateCacheByQuery(
     const queryHash = createHash('md5')
       .update(queryString.toLowerCase().trim().replace(/\s+/g, ' '))
       .digest('hex');
-    
+
     const result = await query<{ count: number }>(
       `DELETE FROM query_cache
        WHERE query_hash = $1
@@ -1385,11 +1385,11 @@ export async function invalidateCacheByQuery(
          AND development = $3
          ${documentType ? 'AND document_type = $4' : 'AND document_type IS NULL'}
        RETURNING id`,
-      documentType 
+      documentType
         ? [queryHash, zone, development, documentType]
         : [queryHash, zone, development]
     );
-    
+
     return result.rows.length;
   } catch (error) {
     logger.error('Error invalidando caché', error, {}, 'postgres');
@@ -1408,7 +1408,7 @@ export async function hasBadFeedbackInCache(
 ): Promise<boolean> {
   try {
     const normalizedQuery = queryString.toLowerCase().trim().replace(/\s+/g, ' ');
-    
+
     // Buscar si hay query_logs con el mismo query (o similar) que tengan feedback negativo
     const result = await query<{ count: number }>(
       `SELECT COUNT(*) as count
@@ -1420,7 +1420,7 @@ export async function hasBadFeedbackInCache(
          AND feedback_rating <= 2`,
       [normalizedQuery, zone, development]
     );
-    
+
     return (result.rows[0]?.count || 0) > 0;
   } catch (error) {
     logger.error('Error verificando feedback negativo', error, {}, 'postgres');
@@ -1480,8 +1480,8 @@ export async function cleanupExpiredCache(): Promise<number> {
     return result.rowCount || 0;
   } catch (error) {
     // Si la tabla no existe aún, retornar 0
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Table query_cache does not exist. Run migration 003_query_cache.sql', undefined, 'postgres');
       return 0;
     }
@@ -1520,8 +1520,8 @@ export async function saveActionLog(log: Omit<ActionLog, 'id' | 'created_at'>): 
   } catch (error) {
     // Si la tabla no existe, solo loguear y retornar null
     // Esto permite que la aplicación funcione aunque la migración no se haya ejecutado
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Table action_logs does not exist. Action was not recorded. Run migration 002_action_logs.sql', undefined, 'postgres');
       return null;
     }
@@ -1542,7 +1542,7 @@ export async function getActionLogs(options: {
   offset?: number;
 }): Promise<ActionLog[]> {
   const { userId, actionType, resourceType, zone, limit = 50, offset = 0 } = options;
-  
+
   try {
     let queryText = 'SELECT * FROM action_logs WHERE 1=1';
     const params: unknown[] = [];
@@ -1569,12 +1569,12 @@ export async function getActionLogs(options: {
     params.push(limit, offset);
 
     const result = await query<ActionLog & { metadata: string | object }>(queryText, params);
-    
+
     // Parsear metadata JSON solo si es una cadena
     // Si es JSONB en PostgreSQL, ya viene como objeto
     const parsedLogs = result.rows.map(row => {
       let parsedMetadata = undefined;
-      
+
       if (row.metadata) {
         // Si metadata es una cadena, parsearla
         if (typeof row.metadata === 'string') {
@@ -1589,7 +1589,7 @@ export async function getActionLogs(options: {
           parsedMetadata = row.metadata;
         }
       }
-      
+
       return {
         ...row,
         metadata: parsedMetadata,
@@ -1599,8 +1599,8 @@ export async function getActionLogs(options: {
   } catch (error) {
     // Si la tabla no existe, retornar array vacío
     // Esto puede pasar si la migración no se ha ejecutado aún
-    if (error instanceof Error && error.message.includes('no existe la relación') || 
-        error instanceof Error && error.message.includes('does not exist')) {
+    if (error instanceof Error && error.message.includes('no existe la relación') ||
+      error instanceof Error && error.message.includes('does not exist')) {
       logger.warn('Table action_logs does not exist yet; returning empty array. Run migration 002_action_logs.sql', undefined, 'postgres');
       return [];
     }
@@ -1646,7 +1646,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
      AND response_time_ms IS NOT NULL`
   );
   // Convertir milisegundos a segundos y redondear a 2 decimales
-  const averageResponseTime = responseTimeResult.rows[0]?.avg 
+  const averageResponseTime = responseTimeResult.rows[0]?.avg
     ? Math.round((parseInt(responseTimeResult.rows[0].avg) / 1000) * 100) / 100
     : 0;
 
@@ -1662,7 +1662,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         AND column_name = 'feedback_rating'
       ) as exists`
     );
-    
+
     if (columnCheck.rows[0]?.exists) {
       const ratingResult = await query<{ avg: string | null }>(
         `SELECT AVG(feedback_rating)::NUMERIC(3,2) as avg 
@@ -1670,8 +1670,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
          WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) 
          AND feedback_rating IS NOT NULL`
       );
-      averageRating = ratingResult.rows[0]?.avg 
-        ? parseFloat(ratingResult.rows[0].avg) 
+      averageRating = ratingResult.rows[0]?.avg
+        ? parseFloat(ratingResult.rows[0].avg)
         : 0;
     } else {
       // La columna no existe, usar valor por defecto
@@ -1899,7 +1899,7 @@ export async function resetFailedLoginAttempts(userId: number): Promise<void> {
 export async function lockUserAccount(userId: number, minutes: number = 5): Promise<void> {
   const lockedUntil = new Date();
   lockedUntil.setMinutes(lockedUntil.getMinutes() + minutes);
-  
+
   // Operación crítica para login - permitir recuperación automática
   await query(
     `UPDATE users 
@@ -1980,7 +1980,7 @@ export async function recordPageVisit(visit: {
   } catch (error) {
     // Si la tabla no existe, solo loguear y retornar null
     if (error instanceof Error && (
-      error.message.includes('no existe la relación') || 
+      error.message.includes('no existe la relación') ||
       error.message.includes('does not exist')
     )) {
       logger.warn('Table page_visits does not exist. Visit was not recorded. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
@@ -2059,7 +2059,7 @@ export async function getPageVisits(options: {
     }
 
     const result = await query<PageVisit>(queryText, params);
-    
+
     // Parsear metadata JSON
     return result.rows.map(row => ({
       ...row,
@@ -2067,7 +2067,7 @@ export async function getPageVisits(options: {
     }));
   } catch (error) {
     if (error instanceof Error && (
-      error.message.includes('no existe la relación') || 
+      error.message.includes('no existe la relación') ||
       error.message.includes('does not exist')
     )) {
       logger.warn('Table page_visits does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
@@ -2147,7 +2147,7 @@ export async function getUserSessionsWithInfo(options: {
     return result.rows;
   } catch (error) {
     if (error instanceof Error && (
-      error.message.includes('no existe la relación') || 
+      error.message.includes('no existe la relación') ||
       error.message.includes('does not exist')
     )) {
       logger.warn('View user_sessions_with_info does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
@@ -2209,7 +2209,7 @@ export async function getUserActivitySummary(options: {
     return result.rows;
   } catch (error) {
     if (error instanceof Error && (
-      error.message.includes('no existe la relación') || 
+      error.message.includes('no existe la relación') ||
       error.message.includes('does not exist')
     )) {
       logger.warn('View user_activity_summary does not exist yet; returning empty array. Run migration 021_page_visits_tracking.sql', undefined, 'postgres');
@@ -2268,11 +2268,11 @@ export async function saveFeedback(data: {
      RETURNING id`,
     [data.rating, data.comment || null, data.query_log_id]
   );
-  
+
   if (result.rows.length === 0) {
     throw new Error(`Query log con ID ${data.query_log_id} no encontrado`);
   }
-  
+
   return result.rows[0];
 }
 
@@ -2286,7 +2286,7 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
       `SELECT chunk_id FROM query_logs_chunks WHERE query_log_id = $1`,
       [queryLogId]
     );
-    
+
     if (chunksResult.rows.length === 0) {
       // Si no hay chunks registrados, intentar obtenerlos de sources_used
       // Esto es un fallback si query_logs_chunks no está poblado
@@ -2294,23 +2294,23 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
         `SELECT sources_used FROM query_logs WHERE id = $1`,
         [queryLogId]
       );
-      
+
       if (logResult.rows.length === 0) {
         logger.warn('Query log not found for chunk stats update', { queryLogId }, 'postgres');
         return;
       }
-      
+
       // Si no hay chunks registrados, no podemos actualizar stats
       // Esto se puede mejorar en el futuro guardando chunk_ids en query_logs_chunks
       return;
     }
-    
+
     const chunkIds = chunksResult.rows.map(row => row.chunk_id);
-    
+
     // Determinar si fue éxito o fallo
     const isSuccess = rating >= 4;
     const isFailure = rating <= 2;
-    
+
     // Actualizar estadísticas para cada chunk
     for (const chunkId of chunkIds) {
       if (isSuccess) {
@@ -2335,8 +2335,8 @@ export async function updateChunkStats(queryLogId: number, rating: number): Prom
     }
   } catch (error) {
     // Si las tablas no existen aún, solo loguear
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Learning tables do not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
@@ -2352,7 +2352,7 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
     if (chunkIds.length === 0) {
       return;
     }
-    
+
     // Insertar relaciones
     for (const chunkId of chunkIds) {
       await query(
@@ -2364,8 +2364,8 @@ export async function registerQueryChunks(queryLogId: number, chunkIds: string[]
     }
   } catch (error) {
     // Si la tabla no existe, solo loguear
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Table query_logs_chunks does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
@@ -2415,9 +2415,9 @@ export async function getLearnedResponse(queryText: string): Promise<{
   try {
     // Intentar primero con embeddings semánticos (método nuevo)
     try {
-      const { findLearnedResponse } = await import('@/lib/learnedResponses');
+      const { findLearnedResponse } = await import('@/lib/domain/learnedResponses');
       const semanticResult = await findLearnedResponse(queryText, 0.7);
-      
+
       if (semanticResult) {
         logger.debug('Learned response found using semantic embeddings', undefined, 'postgres');
         return {
@@ -2431,17 +2431,17 @@ export async function getLearnedResponse(queryText: string): Promise<{
       // Si falla la búsqueda semántica, continuar con el método antiguo
       const errorMessage = semanticError instanceof Error ? semanticError.message : 'Error desconocido';
       logger.debug('Semantic search unavailable; falling back to text search', { errorMessage }, 'postgres');
-      
+
       // Solo loggear el error completo en modo debug o si es un error crítico
-      if (semanticError instanceof Error && !errorMessage.includes('no existe la relación') && 
-          !errorMessage.includes('does not exist')) {
+      if (semanticError instanceof Error && !errorMessage.includes('no existe la relación') &&
+        !errorMessage.includes('does not exist')) {
         logger.error('❌ Error en búsqueda semántica de respuestas aprendidas', semanticError, undefined, 'postgres');
       }
     }
 
     // Fallback: búsqueda por texto (método antiguo)
     const normalizedQuery = normalizeQueryForLearning(queryText);
-    
+
     // Primero intentar búsqueda exacta
     const exactResult = await query<{
       query: string;
@@ -2456,11 +2456,11 @@ export async function getLearnedResponse(queryText: string): Promise<{
        LIMIT 1`,
       [normalizedQuery]
     );
-    
+
     if (exactResult.rows.length > 0) {
       return exactResult.rows[0];
     }
-    
+
     // Si no hay coincidencia exacta, buscar similares usando similitud de texto
     const similarResult = await query<{
       query: string;
@@ -2484,7 +2484,7 @@ export async function getLearnedResponse(queryText: string): Promise<{
        LIMIT 1`,
       [normalizedQuery]
     );
-    
+
     // Solo retornar si la similitud es razonable y el quality_score es bueno (>= 0.7)
     if (similarResult.rows.length > 0) {
       const bestMatch = similarResult.rows[0];
@@ -2497,11 +2497,11 @@ export async function getLearnedResponse(queryText: string): Promise<{
         };
       }
     }
-    
+
     return null;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return null;
     }
     throw error;
@@ -2519,11 +2519,11 @@ export async function getLearnedResponseById(id: number): Promise<LearnedRespons
        WHERE id = $1`,
       [id]
     );
-    
+
     return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return null;
     }
     throw error;
@@ -2546,11 +2546,11 @@ export async function getSimilarLearnedResponses(embeddingIds: string[]): Promis
        ORDER BY quality_score DESC, usage_count DESC`,
       [embeddingIds]
     );
-    
+
     return result.rows;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -2571,8 +2571,8 @@ export async function incrementLearnedResponseUsage(queryText: string): Promise<
     );
   } catch (error) {
     // Silenciar errores si la tabla no existe
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return;
     }
     // No lanzar error, solo loguear
@@ -2603,11 +2603,11 @@ export async function getRecentFeedback(hours: number = 24): Promise<Array<{
        ORDER BY created_at DESC`,
       []
     );
-    
+
     return result.rows;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -2632,17 +2632,17 @@ export async function upsertLearnedResponse(
        WHERE query = $1`,
       [queryText]
     );
-    
+
     let responseId: number;
     let wasCreated = false;
     let wasUpdated = false;
-    
+
     if (existing.rows.length > 0) {
       // Actualizar respuesta existente
       const existingRow = existing.rows[0];
       const newQualityScore = (existingRow.quality_score * existingRow.usage_count + qualityScore) / (existingRow.usage_count + 1);
       responseId = existingRow.id;
-      
+
       await query(
         `UPDATE response_learning
          SET quality_score = $1,
@@ -2651,7 +2651,7 @@ export async function upsertLearnedResponse(
          WHERE id = $2`,
         [newQualityScore, responseId]
       );
-      
+
       wasUpdated = true;
     } else {
       // Crear nueva respuesta aprendida
@@ -2665,7 +2665,7 @@ export async function upsertLearnedResponse(
          RETURNING id`,
         [queryText, answer, qualityScore]
       );
-      
+
       if (insertResult.rows.length > 0) {
         responseId = insertResult.rows[0].id;
         wasCreated = true;
@@ -2684,12 +2684,12 @@ export async function upsertLearnedResponse(
     // Solo si quality_score es bueno (>= 0.7) o si es una nueva respuesta
     if (responseId && (qualityScore >= 0.5 || wasCreated)) {
       try {
-        const { saveLearnedResponseEmbedding } = await import('@/lib/learnedResponses');
+        const { saveLearnedResponseEmbedding } = await import('@/lib/domain/learnedResponses');
         const embeddingId = `learned-${responseId}`;
-        
+
         // Guardar embedding en Pinecone
         const embeddingSaved = await saveLearnedResponseEmbedding(embeddingId, queryText);
-        
+
         if (embeddingSaved) {
           // Actualizar embedding_id en la base de datos
           await query(
@@ -2704,11 +2704,11 @@ export async function upsertLearnedResponse(
         logger.error('Failed to save learned response embedding (optional)', embeddingError, undefined, 'postgres');
       }
     }
-    
+
     return { created: wasCreated, updated: wasUpdated };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Table response_learning does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return { created: false, updated: false };
     }
@@ -2740,22 +2740,22 @@ export async function getChunkStats(chunkId: string): Promise<{
        WHERE chunk_id = $1`,
       [chunkId]
     );
-    
+
     if (result.rows.length === 0) {
       return null;
     }
-    
+
     const row = result.rows[0];
     const total = row.success_count + row.fail_count;
     const successRatio = total > 0 ? row.success_count / total : 0.5; // Default 0.5 si no hay datos
-    
+
     return {
       ...row,
       success_ratio: successRatio,
     };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return null;
     }
     throw error;
@@ -2771,11 +2771,11 @@ export async function getMultipleChunkStats(chunkIds: string[]): Promise<Map<str
   success_ratio: number;
 }>> {
   const statsMap = new Map();
-  
+
   if (chunkIds.length === 0) {
     return statsMap;
   }
-  
+
   try {
     const result = await query<{
       chunk_id: string;
@@ -2787,18 +2787,18 @@ export async function getMultipleChunkStats(chunkIds: string[]): Promise<Map<str
        WHERE chunk_id = ANY($1::text[])`,
       [chunkIds]
     );
-    
+
     for (const row of result.rows) {
       const total = row.success_count + row.fail_count;
       const successRatio = total > 0 ? row.success_count / total : 0.5;
-      
+
       statsMap.set(row.chunk_id, {
         success_count: row.success_count,
         fail_count: row.fail_count,
         success_ratio: successRatio,
       });
     }
-    
+
     // Agregar chunks sin estadísticas con valores por defecto
     for (const chunkId of chunkIds) {
       if (!statsMap.has(chunkId)) {
@@ -2811,8 +2811,8 @@ export async function getMultipleChunkStats(chunkIds: string[]): Promise<Map<str
     }
   } catch (error) {
     // Si la tabla no existe, retornar valores por defecto
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       for (const chunkId of chunkIds) {
         statsMap.set(chunkId, {
           success_count: 0,
@@ -2824,7 +2824,7 @@ export async function getMultipleChunkStats(chunkIds: string[]): Promise<Map<str
     }
     throw error;
   }
-  
+
   return statsMap;
 }
 
@@ -2850,11 +2850,11 @@ export async function getProblematicChunks(daysSinceLastUse: number = 60): Promi
        ORDER BY fail_count DESC, last_used ASC`,
       []
     );
-    
+
     return result.rows;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -2885,11 +2885,11 @@ export async function getAgentMemories(minImportance: number = 0.7): Promise<Arr
        ORDER BY importance DESC, last_updated DESC`,
       [minImportance]
     );
-    
+
     return result.rows;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -2915,8 +2915,8 @@ export async function upsertAgentMemory(
       [topic, summary, importance]
     );
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       logger.warn('Table agent_memory does not exist yet. Run migration 004_learning_system.sql', undefined, 'postgres');
       return;
     }
@@ -2944,14 +2944,14 @@ export async function getFrequentQueries(days: number = 7, minCount: number = 10
        ORDER BY count DESC`,
       [minCount]
     );
-    
+
     return result.rows.map(row => ({
       query: row.query,
       count: parseInt(row.count),
     }));
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -2983,14 +2983,14 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
     const ownerId = lead.Owner?.id || null;
     const ownerName = lead.Owner?.name || null;
     // Usar Creacion_de_Lead si existe, sino Created_Time
-    const createdTime = (lead as any).Creacion_de_Lead 
-      ? new Date((lead as any).Creacion_de_Lead) 
+    const createdTime = (lead as any).Creacion_de_Lead
+      ? new Date((lead as any).Creacion_de_Lead)
       : (lead.Created_Time ? new Date(lead.Created_Time) : null);
     const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
 
     // Verificar si existe y si necesita actualización
     // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
-    const existingResult = await query<{ 
+    const existingResult = await query<{
       modified_time: Date | null;
     }>(
       `SELECT modified_time 
@@ -2998,10 +2998,10 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
       [lead.id]
     );
     const exists = existingResult.rows.length > 0;
-    const existingModifiedTime = existingResult.rows[0]?.modified_time 
-      ? new Date(existingResult.rows[0].modified_time) 
+    const existingModifiedTime = existingResult.rows[0]?.modified_time
+      ? new Date(existingResult.rows[0].modified_time)
       : null;
-    
+
     // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
     if (exists && existingModifiedTime && modifiedTime) {
       if (modifiedTime <= existingModifiedTime) {
@@ -3057,8 +3057,8 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
 
     return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       throw new Error('Tabla zoho_leads no existe. Ejecuta la migración 007_zoho_sync_tables.sql');
     }
     throw error;
@@ -3094,7 +3094,7 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
 
     // Verificar si existe y si necesita actualización
     // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
-    const existingResult = await query<{ 
+    const existingResult = await query<{
       modified_time: Date | null;
     }>(
       `SELECT modified_time 
@@ -3102,10 +3102,10 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
       [deal.id]
     );
     const exists = existingResult.rows.length > 0;
-    const existingModifiedTime = existingResult.rows[0]?.modified_time 
-      ? new Date(existingResult.rows[0].modified_time) 
+    const existingModifiedTime = existingResult.rows[0]?.modified_time
+      ? new Date(existingResult.rows[0].modified_time)
       : null;
-    
+
     // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
     if (exists && existingModifiedTime && modifiedTime) {
       if (modifiedTime <= existingModifiedTime) {
@@ -3165,8 +3165,8 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
 
     return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       throw new Error('Tabla zoho_deals no existe. Ejecuta la migración 007_zoho_sync_tables.sql');
     }
     throw error;
@@ -3234,8 +3234,8 @@ export async function syncZohoNote(
 
     return !exists; // true si fue creada, false si fue actualizada
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       // Si la tabla no existe, simplemente retornar false (no crítico)
       logger.warn('Tabla zoho_notes no existe. Ejecuta la migración 008_zoho_notes_table.sql', undefined, 'postgres');
       return false;
@@ -3264,8 +3264,8 @@ export async function getZohoNotesFromDB(
     // PostgreSQL puede devolver JSONB como objeto o como cadena
     return result.rows.map(row => typeof row.data === 'string' ? JSON.parse(row.data) : row.data);
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return [];
     }
     throw error;
@@ -3374,7 +3374,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
         `SELECT COUNT(*) as count FROM zoho_leads`
       );
       const totalLeads = parseInt(result.rows[0].count);
-      
+
       if (totalLeads > 0) {
         // Primero eliminar las notas relacionadas
         await query(
@@ -3382,7 +3382,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
            WHERE parent_type = 'Leads' 
            AND parent_id IN (SELECT zoho_id FROM zoho_leads)`
         );
-        
+
         // Luego eliminar los leads
         await query(`DELETE FROM zoho_leads`);
         logger.debug('Deleted Zoho leads not present in Zoho', { totalDeleted: totalLeads }, 'postgres');
@@ -3395,10 +3395,10 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
     const allLocalLeads = await query<{ zoho_id: string }>(
       `SELECT zoho_id FROM zoho_leads`
     );
-    
+
     // Crear un Set de IDs de Zoho para búsqueda rápida
     const zohoIdsSet = new Set(zohoIds);
-    
+
     // Encontrar los IDs que están en BD local pero no en Zoho
     const leadsToDelete = allLocalLeads.rows
       .map(row => row.zoho_id)
@@ -3429,7 +3429,7 @@ export async function deleteZohoLeadsNotInZoho(zohoIds: string[]): Promise<numbe
          WHERE zoho_id IN (${deletePlaceholders})`,
         batch
       );
-      
+
       totalDeleted += batch.length;
     }
 
@@ -3454,7 +3454,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
         `SELECT COUNT(*) as count FROM zoho_deals`
       );
       const totalDeals = parseInt(result.rows[0].count);
-      
+
       if (totalDeals > 0) {
         // Primero eliminar las notas relacionadas
         await query(
@@ -3462,7 +3462,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
            WHERE parent_type = 'Deals' 
            AND parent_id IN (SELECT zoho_id FROM zoho_deals)`
         );
-        
+
         // Luego eliminar los deals
         await query(`DELETE FROM zoho_deals`);
         logger.debug('Deleted Zoho deals not present in Zoho', { totalDeleted: totalDeals }, 'postgres');
@@ -3475,10 +3475,10 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
     const allLocalDeals = await query<{ zoho_id: string }>(
       `SELECT zoho_id FROM zoho_deals`
     );
-    
+
     // Crear un Set de IDs de Zoho para búsqueda rápida
     const zohoIdsSet = new Set(zohoIds);
-    
+
     // Encontrar los IDs que están en BD local pero no en Zoho
     const dealsToDelete = allLocalDeals.rows
       .map(row => row.zoho_id)
@@ -3509,7 +3509,7 @@ export async function deleteZohoDealsNotInZoho(zohoIds: string[]): Promise<numbe
          WHERE zoho_id IN (${deletePlaceholders})`,
         batch
       );
-      
+
       totalDeleted += batch.length;
     }
 
@@ -3561,7 +3561,7 @@ export async function logZohoSync(
     const errorMsg = error instanceof Error ? error.message : String(error);
     const isCircuitBreakerError = errorMsg.includes('Circuit breaker is OPEN');
     const isTableMissing = errorMsg.includes('no existe la relación') || errorMsg.includes('does not exist');
-    
+
     if (isCircuitBreakerError) {
       logger.warn('No se pudo registrar log de sincronización: circuit breaker abierto', {
         syncType,
@@ -3630,10 +3630,10 @@ export async function getZohoLeadsFromDB(
     if (filters?.startDate || filters?.endDate) {
       const startDate = filters.startDate;
       const endDate = filters.endDate;
-      
+
       // Construir condición que busque en created_time O en JSONB (Creacion_de_Lead)
       const dateConditions: string[] = [];
-      
+
       if (startDate) {
         // Usar COALESCE para buscar en created_time primero, luego en JSONB
         dateConditions.push(`(
@@ -3651,7 +3651,7 @@ export async function getZohoLeadsFromDB(
         params.push(startDate);
         paramIndex++;
       }
-      
+
       if (endDate) {
         // Usar COALESCE para buscar en created_time primero, luego en JSONB
         dateConditions.push(`(
@@ -3669,13 +3669,13 @@ export async function getZohoLeadsFromDB(
         params.push(endDate);
         paramIndex++;
       }
-      
+
       if (dateConditions.length > 0) {
         whereConditions.push(`(${dateConditions.join(' AND ')})`);
       }
     }
 
-    const whereClause = whereConditions.length > 0 
+    const whereClause = whereConditions.length > 0
       ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
 
@@ -3692,7 +3692,7 @@ export async function getZohoLeadsFromDB(
     const limitParamIndex = paramIndex;
     const offsetParamIndex = paramIndex + 1;
     params.push(perPage, offset);
-    
+
     const result = await query<{
       data: string;
       id: string;
@@ -3704,7 +3704,7 @@ export async function getZohoLeadsFromDB(
     // Obtener todas las notas en una sola consulta batch (más eficiente)
     const leadIds = result.rows.map(row => row.id);
     const notesMap = new Map<string, any[]>();
-    
+
     if (leadIds.length > 0) {
       try {
         // Obtener todas las notas de los leads en una sola consulta
@@ -3718,7 +3718,7 @@ export async function getZohoLeadsFromDB(
            ORDER BY created_time DESC`,
           leadIds
         );
-        
+
         // Agrupar notas por parent_id
         notesResult.rows.forEach(row => {
           if (!notesMap.has(row.parent_id)) {
@@ -3743,8 +3743,8 @@ export async function getZohoLeadsFromDB(
 
     return { leads, total };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return { leads: [], total: 0 };
     }
     throw error;
@@ -3802,52 +3802,95 @@ export async function getZohoDealsFromDB(
       paramIndex++;
     }
 
-    // Filtrar por fecha: usar created_time si existe, sino buscar en JSONB
+    // Filtrar por fecha:
+    // 1. Deals CREADOS en el rango.
+    // 2. O Deals GANADOS en el rango (usando closing_date).
     if (filters?.startDate || filters?.endDate) {
       const startDate = filters.startDate;
       const endDate = filters.endDate;
-      
-      // Construir condición que busque en created_time O en JSONB
-      const dateConditions: string[] = [];
-      
+
+      // Expresión para la fecha de creación
+      const createdDateExpr = `COALESCE(
+        created_time,
+        CASE 
+          WHEN data->>'Created_Time' IS NOT NULL 
+          THEN (data->>'Created_Time')::timestamptz
+          ELSE NULL
+        END
+      )`;
+
+      // Expresión para la fecha de cierre (misma lógica que countZohoClosedWonDealsFromDB)
+      const closingDateExpr = `COALESCE(
+        closing_date,
+        CASE
+          WHEN (data->>'Closing_Date') ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN (data->>'Closing_Date')::date
+          WHEN (data->>'Closed_Time') IS NOT NULL AND (data->>'Closed_Time') != '' THEN (data->>'Closed_Time')::date
+          WHEN (data->>'Closed_Date') IS NOT NULL AND (data->>'Closed_Date') != '' THEN (data->>'Closed_Date')::date
+          ELSE modified_time::date
+        END
+      )`;
+
+      // Expresión para determinar si es un deal ganado
+      const isWonExpr = `(
+        LOWER(COALESCE(stage, data->>'Stage', '')) LIKE '%ganado%'
+        OR LOWER(COALESCE(stage, data->>'Stage', '')) LIKE '%won%'
+      )`;
+
+      const conditions: string[] = [];
+
+      // Condición de fecha de inicio
       if (startDate) {
-        // Usar COALESCE para buscar en created_time primero, luego en JSONB
-        dateConditions.push(`(
-          COALESCE(
-            created_time,
-            CASE 
-              WHEN data->>'Created_Time' IS NOT NULL 
-              THEN (data->>'Created_Time')::timestamptz
-              ELSE NULL
-            END
-          ) >= $${paramIndex}
+        conditions.push(`(
+          (${createdDateExpr} >= $${paramIndex})
+          OR
+          (${isWonExpr} AND ${closingDateExpr} >= $${paramIndex})
         )`);
         params.push(startDate);
         paramIndex++;
       }
-      
+
+      // Condición de fecha de fin
       if (endDate) {
-        // Usar COALESCE para buscar en created_time primero, luego en JSONB
-        dateConditions.push(`(
-          COALESCE(
-            created_time,
-            CASE 
-              WHEN data->>'Created_Time' IS NOT NULL 
-              THEN (data->>'Created_Time')::timestamptz
-              ELSE NULL
-            END
-          ) <= $${paramIndex}
-        )`);
+        // Nota: Si hay start y end, deben cumplirse AMBOS para el mismo criterio (creado o ganado)
+        // Pero aquí simplificamos un poco: 
+        // Si Created >= Start AND Created <= End
+        // OR Won >= Start AND Won <= End
+        // Como postgres evalúa por separado, necesitamos estructurarlo bien.
+      }
+
+      // REESTRUCTURACIÓN PARA MANEJAR START Y END JUNTOS CORRECTAMENTE
+
+      // Lógica combinada
+      // (CreatedInRange) OR (IsWon AND ClosedInRange)
+
+      let createdFilter = 'TRUE';
+      let closedFilter = 'TRUE';
+
+      if (startDate && endDate) {
+        createdFilter = `${createdDateExpr} BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
+        closedFilter = `${closingDateExpr} BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
+        params.push(startDate, endDate);
+        paramIndex += 2;
+      } else if (startDate) {
+        createdFilter = `${createdDateExpr} >= $${paramIndex}`;
+        closedFilter = `${closingDateExpr} >= $${paramIndex}`;
+        params.push(startDate);
+        paramIndex += 1;
+      } else if (endDate) {
+        createdFilter = `${createdDateExpr} <= $${paramIndex}`;
+        closedFilter = `${closingDateExpr} <= $${paramIndex}`;
         params.push(endDate);
-        paramIndex++;
+        paramIndex += 1;
       }
-      
-      if (dateConditions.length > 0) {
-        whereConditions.push(`(${dateConditions.join(' AND ')})`);
-      }
+
+      whereConditions.push(`(
+        (${createdFilter})
+        OR
+        (${isWonExpr} AND ${closedFilter})
+      )`);
     }
 
-    const whereClause = whereConditions.length > 0 
+    const whereClause = whereConditions.length > 0
       ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
 
@@ -3864,7 +3907,7 @@ export async function getZohoDealsFromDB(
     const limitParamIndex = paramIndex;
     const offsetParamIndex = paramIndex + 1;
     params.push(perPage, offset);
-    
+
     const result = await query<{
       data: string;
       id: string;
@@ -3876,7 +3919,7 @@ export async function getZohoDealsFromDB(
     // Obtener todas las notas en una sola consulta batch (más eficiente)
     const dealIds = result.rows.map(row => row.id);
     const notesMap = new Map<string, any[]>();
-    
+
     if (dealIds.length > 0) {
       try {
         // Obtener todas las notas de los deals en una sola consulta
@@ -3890,7 +3933,7 @@ export async function getZohoDealsFromDB(
            ORDER BY created_time DESC`,
           dealIds
         );
-        
+
         // Agrupar notas por parent_id
         notesResult.rows.forEach(row => {
           if (!notesMap.has(row.parent_id)) {
@@ -3915,8 +3958,8 @@ export async function getZohoDealsFromDB(
 
     return { deals, total };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('no existe la relación') || 
-        error.message.includes('does not exist'))) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist'))) {
       return { deals: [], total: 0 };
     }
     throw error;
@@ -4021,7 +4064,9 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
       closing_date,
       CASE
         WHEN (data->>'Closing_Date') ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN (data->>'Closing_Date')::date
-        ELSE NULL
+        WHEN (data->>'Closed_Time') IS NOT NULL AND (data->>'Closed_Time') != '' THEN (data->>'Closed_Time')::date
+        WHEN (data->>'Closed_Date') IS NOT NULL AND (data->>'Closed_Date') != '' THEN (data->>'Closed_Date')::date
+        ELSE modified_time::date
       END
     )`;
 
@@ -4060,4 +4105,7 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
     throw error;
   }
 }
+
+
+
 

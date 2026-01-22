@@ -6,9 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDocuments } from '@/lib/postgres';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
+import { getDocuments } from '@/lib/db/postgres';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
 import type { DocumentMetadata, APIResponse, Zone, DocumentContentType } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
@@ -90,4 +90,7 @@ export async function GET(
     );
   }
 }
+
+
+
 

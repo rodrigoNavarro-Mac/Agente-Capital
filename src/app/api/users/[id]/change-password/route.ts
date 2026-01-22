@@ -6,11 +6,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserById, updateUserPassword } from '@/lib/postgres';
-import { hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { hasPermission } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
-import { validateRequest, adminChangePasswordRequestSchema } from '@/lib/validation';
+import { getUserById, updateUserPassword } from '@/lib/db/postgres';
+import { hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { hasPermission } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, adminChangePasswordRequestSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -58,7 +58,7 @@ export async function POST(
     // Parsear y validar el body
     const rawBody = await request.json();
     const validation = validateRequest(adminChangePasswordRequestSchema, rawBody, 'users-change-password');
-    
+
     if (!validation.success) {
       return NextResponse.json(
         {
@@ -68,13 +68,13 @@ export async function POST(
         { status: validation.status }
       );
     }
-    
+
     const { password } = validation.data;
 
     // Verificar permisos (solo admin puede cambiar contraseñas de otros)
     // Primero verificar si es admin por rol
     const currentUser = await getUserById(payload.userId);
-    
+
     // Verificar que el usuario actual existe
     if (!currentUser) {
       return NextResponse.json(
@@ -85,13 +85,13 @@ export async function POST(
         { status: 404 }
       );
     }
-    
+
     // Verificar si es admin o CEO por rol
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo';
-    
+
     // Si no es admin, verificar permiso específico
     const canManageUsers = isAdmin || await hasPermission(payload.userId, 'manage_users');
-    
+
     // Si no tiene permisos y no está cambiando su propia contraseña, denegar
     if (!canManageUsers && payload.userId !== targetUserId) {
       return NextResponse.json(
@@ -162,4 +162,6 @@ export async function POST(
     );
   }
 }
+
+
 

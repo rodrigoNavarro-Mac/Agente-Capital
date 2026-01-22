@@ -11,9 +11,9 @@ import type {
   LMStudioRequest, 
   LMStudioResponse 
 } from '@/types/documents';
-import { getSystemPrompt, NO_CONTEXT_RESPONSE } from './systemPrompt';
-import { fetchWithTimeout, TIMEOUTS } from '@/lib/timeout';
-import { logger } from '@/lib/logger';
+import { getSystemPrompt, NO_CONTEXT_RESPONSE } from '@/lib/config/systemPrompt';
+import { fetchWithTimeout, TIMEOUTS } from '@/lib/utils/timeout';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -389,4 +389,6 @@ export default {
   summarizeText,
   runLLMStream,
 };
+
+
 

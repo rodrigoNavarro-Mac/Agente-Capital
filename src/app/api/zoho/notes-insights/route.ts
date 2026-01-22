@@ -7,12 +7,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { runLLM } from '@/lib/llm';
-import { computeNotesCharts, computeNotesMetricsTrend } from '@/lib/zoho-notes-analytics';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { runLLM } from '@/lib/services/llm';
+import { computeNotesCharts, computeNotesMetricsTrend } from '@/lib/services/zoho-notes-analytics';
 import { createHash } from 'crypto';
-import { getUserDevelopments, getZohoNotesAIInsightsByContextHash, upsertZohoNotesAIInsights } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getUserDevelopments, getZohoNotesAIInsightsByContextHash, upsertZohoNotesAIInsights } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse, LMStudioMessage } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -436,5 +436,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     );
   }
 }
+
+
+
+
 
 

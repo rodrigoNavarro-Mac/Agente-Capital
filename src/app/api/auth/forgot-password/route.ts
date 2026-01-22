@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByEmail, createPasswordResetToken } from '@/lib/postgres';
-import { generateResetToken, getResetTokenExpiry } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { validateRequest, forgotPasswordRequestSchema } from '@/lib/validation';
+import { getUserByEmail, createPasswordResetToken } from '@/lib/db/postgres';
+import { generateResetToken, getResetTokenExpiry } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, forgotPasswordRequestSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 // TODO: Configurar nodemailer para enviar emails
@@ -78,4 +78,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

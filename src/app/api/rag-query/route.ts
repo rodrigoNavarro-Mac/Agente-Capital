@@ -11,15 +11,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Importar utilidades
-import { queryChunks, buildContextFromMatches } from '@/lib/pinecone';
-import { runRAGQuery, runSimpleQuery, checkLMStudioHealth } from '@/lib/llm';
-import { checkUserAccess, hasPermission, saveQueryLog, getConfig, getUserById, registerQueryChunks, getAgentMemories, getLearnedResponse, incrementLearnedResponseUsage } from '@/lib/postgres';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { generatePreview } from '@/lib/cleanText';
-import { findCachedResponse, saveToCache } from '@/lib/cache';
-import { processQuery } from '@/lib/queryProcessing';
-import { logger } from '@/lib/logger';
-import { validateRequest, ragQueryRequestSchema } from '@/lib/validation';
+import { queryChunks, buildContextFromMatches } from '@/lib/db/pinecone';
+import { runRAGQuery, runSimpleQuery, checkLMStudioHealth } from '@/lib/services/llm';
+import { checkUserAccess, hasPermission, saveQueryLog, getConfig, getUserById, registerQueryChunks, getAgentMemories, getLearnedResponse, incrementLearnedResponseUsage } from '@/lib/db/postgres';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { generatePreview } from '@/lib/utils/cleanText';
+import { findCachedResponse, saveToCache } from '@/lib/infrastructure/cache';
+import { processQuery } from '@/lib/domain/queryProcessing';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, ragQueryRequestSchema } from '@/lib/utils/validation';
 
 import type { 
   Zone, 
@@ -419,7 +419,7 @@ function buildSourceReferences(matches: PineconeMatch[]): SourceReference[] {
 export async function GET(): Promise<NextResponse> {
   try {
     // Verificar salud de todos los proveedores
-    const { getAllProvidersHealth } = await import('@/lib/llm');
+    const { getAllProvidersHealth } = await import('@/lib/services/llm');
     const healthStatus = await getAllProvidersHealth();
 
     return NextResponse.json({
@@ -462,4 +462,9 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 }
+
+
+
+
+
 

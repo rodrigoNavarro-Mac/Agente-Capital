@@ -6,9 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { deleteUserSession } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { deleteUserSession } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -43,4 +43,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

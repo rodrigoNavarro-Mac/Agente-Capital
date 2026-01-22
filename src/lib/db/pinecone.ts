@@ -24,9 +24,9 @@ import type {
   PineconeMatch 
 } from '@/types/documents';
 import { getMultipleChunkStats } from './postgres';
-import { processQuery, generateQueryVariants } from './queryProcessing';
-import { logger } from '@/lib/logger';
-import { withTimeout, TIMEOUTS } from '@/lib/timeout';
+import { processQuery, generateQueryVariants } from '@/lib/domain/queryProcessing';
+import { logger } from '@/lib/utils/logger';
+import { withTimeout, TIMEOUTS } from '@/lib/utils/timeout';
 // Pinecone Inference lo hace automáticamente
 
 // =====================================================
@@ -706,4 +706,6 @@ export default {
   getDocumentChunks,
   buildContextFromMatches,
 };
+
+
 

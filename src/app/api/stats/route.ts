@@ -6,9 +6,9 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getDashboardStats } from '@/lib/postgres';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
+import { getDashboardStats } from '@/lib/db/postgres';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -48,4 +48,7 @@ export async function GET(): Promise<NextResponse<APIResponse<{
     );
   }
 }
+
+
+
 

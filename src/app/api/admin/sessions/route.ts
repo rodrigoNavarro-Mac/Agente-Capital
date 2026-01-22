@@ -6,13 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import { 
   getUserSessionsWithInfo, 
   getPageVisits, 
   getUserActivitySummary 
-} from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+} from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -149,6 +149,9 @@ export async function GET(
     );
   }
 }
+
+
+
 
 
 

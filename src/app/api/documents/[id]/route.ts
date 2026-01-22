@@ -7,10 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDocumentById, deleteDocument, hasPermission, checkUserAccess, saveActionLog } from '@/lib/postgres';
-import { deleteDocumentChunks } from '@/lib/pinecone';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
+import { getDocumentById, deleteDocument, hasPermission, checkUserAccess, saveActionLog } from '@/lib/db/postgres';
+import { deleteDocumentChunks } from '@/lib/db/pinecone';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -220,4 +220,5 @@ export async function GET(
     }, { status: 500 });
   }
 }
+
 

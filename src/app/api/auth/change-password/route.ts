@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserById, updateUserPassword } from '@/lib/postgres';
-import { verifyPassword, hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { validateRequest, changePasswordRequestSchema } from '@/lib/validation';
+import { getUserById, updateUserPassword } from '@/lib/db/postgres';
+import { verifyPassword, hashPassword, validatePasswordStrength, extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, changePasswordRequestSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -139,4 +139,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserById } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getUserById } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { User, APIResponse } from '@/types/documents';
 
 // Forzar renderizado dinámico (esta ruta usa request.url que es dinámico)
@@ -64,4 +64,6 @@ export async function GET(
     );
   }
 }
+
+
 

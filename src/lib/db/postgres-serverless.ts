@@ -30,8 +30,8 @@ import type {
   DocumentContentType,
   Permission
 } from '@/types/documents';
-import type { ZohoLead, ZohoDeal } from '@/lib/zoho-crm';
-import { logger } from '@/lib/logger';
+import type { ZohoLead, ZohoDeal } from '@/lib/services/zoho-crm';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // TIPOS PARA KEYSET PAGINATION
@@ -1223,3 +1223,5 @@ export async function getZohoDealsFromDB(
     throw error;
   }
 }
+
+

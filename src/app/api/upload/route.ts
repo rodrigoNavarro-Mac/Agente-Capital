@@ -22,13 +22,13 @@ import { existsSync } from 'fs';
 import mammoth from 'mammoth';
 
 // Importar utilidades propias
-import { upsertChunks } from '@/lib/pinecone';
-import { saveDocumentMeta, checkUserAccess, hasPermission, saveActionLog } from '@/lib/postgres';
-import { createPageAwareChunks, summarizeChunks } from '@/lib/chunker';
-import { cleanPDFText, cleanCSVText, cleanDOCXText } from '@/lib/cleanText';
-import { extractTextFromPDF, extractTextFromPDFWithOCR, needsOCR } from '@/lib/ocr';
-import { memoryCache } from '@/lib/memory-cache';
-import { logger } from '@/lib/logger';
+import { upsertChunks } from '@/lib/db/pinecone';
+import { saveDocumentMeta, checkUserAccess, hasPermission, saveActionLog } from '@/lib/db/postgres';
+import { createPageAwareChunks, summarizeChunks } from '@/lib/utils/chunker';
+import { cleanPDFText, cleanCSVText, cleanDOCXText } from '@/lib/utils/cleanText';
+import { extractTextFromPDF, extractTextFromPDFWithOCR, needsOCR } from '@/lib/services/ocr';
+import { memoryCache } from '@/lib/infrastructure/memory-cache';
+import { logger } from '@/lib/utils/logger';
 
 import type { 
   Zone, 
@@ -547,4 +547,9 @@ export async function GET(): Promise<NextResponse> {
     supportedFormats: ['pdf', 'csv', 'docx'],
   });
 }
+
+
+
+
+
 

@@ -7,12 +7,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import { readFile, unlink, mkdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { query } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { query } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -411,4 +411,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse<APIResp
     );
   }
 }
+
+
+
 

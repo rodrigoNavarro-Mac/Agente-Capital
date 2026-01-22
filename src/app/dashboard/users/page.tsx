@@ -34,8 +34,8 @@ import {
   updateUserDevelopment,
   removeUserDevelopment
 } from '@/lib/api';
-import { ZONES, DEVELOPMENTS, ROLES } from '@/lib/constants';
-import { formatDate, snakeToTitle } from '@/lib/utils';
+import { ZONES, DEVELOPMENTS, ROLES } from '@/lib/config/constants';
+import { formatDate, snakeToTitle } from '@/lib/utils/utils';
 import { useToast } from '@/components/ui/use-toast';
 import type { User, UserDevelopment, Role, Zone } from '@/types/documents';
 
@@ -1068,3 +1068,4 @@ export default function UsersPage() {
     </div>
   );
 }
+

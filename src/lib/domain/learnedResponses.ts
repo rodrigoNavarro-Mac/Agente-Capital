@@ -6,13 +6,13 @@
  * Usa embeddings para encontrar preguntas similares
  */
 
-import { initPinecone, getPineconeIndex } from '@/lib/pinecone';
+import { initPinecone, getPineconeIndex } from '@/lib/db/pinecone';
 import { 
   getLearnedResponseById,
   getSimilarLearnedResponses,
   type LearnedResponseEntry 
-} from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+} from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -282,4 +282,7 @@ export async function deleteLearnedResponseEmbedding(embeddingId: string): Promi
     // No lanzar error, es opcional
   }
 }
+
+
+
 

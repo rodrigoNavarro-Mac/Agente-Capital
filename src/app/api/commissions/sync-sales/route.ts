@@ -8,9 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { processClosedWonDealsFromLocalDB } from '@/lib/commission-db';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { processClosedWonDealsFromLocalDB } from '@/lib/db/commission-db';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -76,4 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     );
   }
 }
+
+
+
 

@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { createPartnerInvoice } from '@/lib/commission-db';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { createPartnerInvoice } from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type { PartnerInvoiceInput } from '@/types/commissions';
 
@@ -153,3 +153,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     );
   }
 }
+
+
+

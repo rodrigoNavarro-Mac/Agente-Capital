@@ -9,8 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getRecentFeedback, upsertLearnedResponse } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getRecentFeedback, upsertLearnedResponse } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -165,4 +165,6 @@ export async function GET(): Promise<NextResponse> {
     },
   });
 }
+
+
 

@@ -12,12 +12,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { MessageSquare, Copy, Loader2, Send, User, Bot, Trash2, X, ChevronLeft, ChevronRight, Star, RefreshCw } from 'lucide-react';
 import { queryAgent, getChatHistory, deleteChatHistory, getUser, getUserDevelopments, sendFeedback, getAgentConfig } from '@/lib/api';
-import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/constants';
-import { copyToClipboard } from '@/lib/utils';
-import { decodeAccessToken } from '@/lib/auth';
+import { ZONES, DEVELOPMENTS, DOCUMENT_TYPES } from '@/lib/config/constants';
+import { copyToClipboard } from '@/lib/utils/utils';
+import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // Tipo para representar un mensaje en el chat
 interface ChatMessage {
@@ -54,7 +54,7 @@ export default function AgentPage() {
   const [zone, setZone] = useState('');
   const [development, setDevelopment] = useState('');
   const [type, setType] = useState('');
-  
+
   // Estados para múltiples chats
   const [chats, setChats] = useState<Record<ChatId, ChatData>>({});
   const [activeChatId, setActiveChatId] = useState<ChatId | null>(null);
@@ -70,10 +70,10 @@ export default function AgentPage() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [topK, setTopK] = useState<number>(5); // Número de fuentes configurado
   const [expandedSources, setExpandedSources] = useState<Record<number, string | undefined>>({}); // message.id -> accordion value
-  
+
   // Referencia para hacer scroll automático
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   const { toast } = useToast();
 
   // Obtener ID del usuario desde el token
@@ -90,7 +90,7 @@ export default function AgentPage() {
   };
 
   const userId = getUserId();
-  
+
   // Validar que userId sea válido
   useEffect(() => {
     if (userId === 0) {
@@ -113,7 +113,7 @@ export default function AgentPage() {
     if (!zoneValue || !devValue) return;
 
     const chatId = getChatId(zoneValue, devValue);
-    
+
     // Si el chat no existe, crearlo
     setChats((prev) => {
       if (!prev[chatId]) {
@@ -146,7 +146,7 @@ export default function AgentPage() {
 
     setLoadingHistory((prev) => ({ ...prev, [chatId]: true }));
     setHistoryLoadAttempted((prev) => ({ ...prev, [chatId]: true })); // Marcar que se intentó cargar
-    
+
     try {
       // Crear una promesa con timeout de 10 segundos
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -162,7 +162,7 @@ export default function AgentPage() {
 
       // Ejecutar la petición con timeout
       const history = await Promise.race([historyPromise, timeoutPromise]);
-      
+
       // Validar que todos los mensajes pertenezcan al usuario actual
       if (history.length > 0) {
         const foreignMessages = history.filter(h => h.user_id !== userId);
@@ -180,7 +180,7 @@ export default function AgentPage() {
         }
         return true;
       });
-      
+
       if (userHistory.length !== history.length) {
         const filteredCount = history.length - userHistory.length;
         logger.error(`[SECURITY] Filtered ${filteredCount} message(s) from other users in history`);
@@ -190,7 +190,7 @@ export default function AgentPage() {
           variant: 'destructive',
         });
       }
-      
+
       // Ordenar por fecha (más antiguo primero para mostrar cronológicamente)
       userHistory.sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
@@ -227,7 +227,7 @@ export default function AgentPage() {
           rating: log.feedback_rating, // Incluir calificación si existe
         });
       });
-      
+
 
       setChats((prev) => ({
         ...prev,
@@ -238,7 +238,7 @@ export default function AgentPage() {
       }));
     } catch (error) {
       logger.error('[loadChatHistory] Error loading history:', error);
-      
+
       // Solo mostrar toast si el error no es por timeout (para no alarmar al usuario)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       if (!errorMessage.includes('Timeout')) {
@@ -248,7 +248,7 @@ export default function AgentPage() {
           variant: 'destructive',
         });
       }
-      
+
       // Incluso si falla, permitir que el usuario use el chat normalmente
       // No hacer nada aquí, el chat ya está inicializado vacío
     } finally {
@@ -271,7 +271,7 @@ export default function AgentPage() {
     try {
       // Roles con acceso a TODOS los desarrollos y TODAS las zonas
       const rolesWithFullAccess = ['ceo', 'admin', 'legal_manager', 'post_sales', 'marketing_manager'];
-      
+
       // Si el usuario tiene uno de estos roles, no necesita cargar asignaciones
       // porque tiene acceso a todas las zonas y desarrollos
       if (userRole && rolesWithFullAccess.includes(userRole)) {
@@ -281,10 +281,10 @@ export default function AgentPage() {
 
       const userDevs = await getUserDevelopments(userId);
       setUserAssignments(userDevs);
-      
+
       // Filtrar solo los que tienen permiso de query
       const queryableDevs = userDevs.filter(dev => dev.can_query);
-      
+
       if (queryableDevs.length > 0) {
         // Si solo tiene una asignación, seleccionarla automáticamente
         if (queryableDevs.length === 1) {
@@ -336,9 +336,9 @@ export default function AgentPage() {
       // 1. No hay mensajes en el chat
       // 2. No se está cargando actualmente
       // 3. NO se ha intentado cargar antes (esto previene el loop infinito)
-      if (chat.messages.length === 0 && 
-          !loadingHistory[activeChatId] && 
-          !historyLoadAttempted[activeChatId]) {
+      if (chat.messages.length === 0 &&
+        !loadingHistory[activeChatId] &&
+        !historyLoadAttempted[activeChatId]) {
         loadChatHistory(activeChatId, chat.zone, chat.development);
       }
     }
@@ -475,12 +475,12 @@ export default function AgentPage() {
     }
 
     const chat = chats[activeChatId];
-    
+
     // IMPORTANTE: Guardar la calificación anterior antes de regenerar
     // Esto permite detectar respuestas incorrectas incluso después de regenerar
     const oldMessage = chat.messages.find((msg) => msg.id === messageId);
     const previousRating = oldMessage?.rating;
-    
+
     setRegeneratingMessages((prev) => ({ ...prev, [messageId]: true }));
 
     try {
@@ -497,13 +497,13 @@ export default function AgentPage() {
       if (result.success && result.answer) {
         const newAnswer = result.answer;
         const newQueryLogId = result.query_log_id;
-        
+
         // Reemplazar el mensaje del asistente con la nueva respuesta
         // MANTENER la calificación anterior para detectar respuestas incorrectas
         setChats((prev) => {
           const currentChat = prev[activeChatId];
           if (!currentChat) return prev;
-          
+
           return {
             ...prev,
             [activeChatId]: {
@@ -511,12 +511,12 @@ export default function AgentPage() {
               messages: currentChat.messages.map((msg) =>
                 msg.id === messageId
                   ? {
-                      ...msg,
-                      content: newAnswer,
-                      sources: result.sources,
-                      query_log_id: newQueryLogId,
-                      rating: previousRating, // MANTENER calificación anterior
-                    }
+                    ...msg,
+                    content: newAnswer,
+                    sources: result.sources,
+                    query_log_id: newQueryLogId,
+                    rating: previousRating, // MANTENER calificación anterior
+                  }
                   : msg
               ),
             },
@@ -553,7 +553,7 @@ export default function AgentPage() {
 
         toast({
           title: 'Respuesta regenerada',
-          description: previousRating 
+          description: previousRating
             ? `Nueva respuesta generada. Calificación anterior mantenida para detectar respuestas incorrectas.`
             : 'El agente ha generado una nueva respuesta',
         });
@@ -632,7 +632,7 @@ export default function AgentPage() {
         delete updated[queryLogId];
         return updated;
       });
-      
+
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'No se pudo guardar la calificación',
@@ -683,7 +683,7 @@ export default function AgentPage() {
         delete newState[chatId];
         return newState;
       });
-      
+
       setHistoryLoadAttempted((prev) => {
         const newState = { ...prev };
         delete newState[chatId];
@@ -728,7 +728,7 @@ export default function AgentPage() {
       delete newState[chatId];
       return newState;
     });
-    
+
     setHistoryLoadAttempted((prev) => {
       const newState = { ...prev };
       delete newState[chatId];
@@ -759,18 +759,18 @@ export default function AgentPage() {
   const availableZones = hasFullAccess
     ? ZONES // Acceso completo = todas las zonas
     : (userAssignments.length > 0
-        ? ZONES.filter(z => userAssignments.some(dev => dev.zone === z.value && dev.can_query))
-        : ZONES);
-  
-  const developments = zone 
-    ? (DEVELOPMENTS[zone] || []).filter(dev => 
-        hasFullAccess || // Acceso completo = todos los desarrollos
-        userAssignments.some(assignment => 
-          assignment.zone === zone && 
-          assignment.development === dev.value && 
-          assignment.can_query
-        )
+      ? ZONES.filter(z => userAssignments.some(dev => dev.zone === z.value && dev.can_query))
+      : ZONES);
+
+  const developments = zone
+    ? (DEVELOPMENTS[zone] || []).filter(dev =>
+      hasFullAccess || // Acceso completo = todos los desarrollos
+      userAssignments.some(assignment =>
+        assignment.zone === zone &&
+        assignment.development === dev.value &&
+        assignment.can_query
       )
+    )
     : [];
   const chatList = Object.values(chats);
 
@@ -795,28 +795,28 @@ export default function AgentPage() {
         {/* Panel de configuración - Sidebar */}
         {/* En móviles (<md), el sidebar es un overlay absoluto */}
         {/* En desktop (>=md), está al lado del chat */}
-        <div 
+        <div
           className={`
             transition-all duration-300 ease-in-out flex-shrink-0 overflow-hidden relative z-20
-            ${sidebarOpen 
-              ? 'md:w-72 lg:w-80 opacity-100' 
+            ${sidebarOpen
+              ? 'md:w-72 lg:w-80 opacity-100'
               : 'md:w-0 opacity-0'
             }
-            ${sidebarOpen 
-              ? 'fixed md:relative inset-0 md:inset-auto w-full md:w-72 lg:w-80' 
+            ${sidebarOpen
+              ? 'fixed md:relative inset-0 md:inset-auto w-full md:w-72 lg:w-80'
               : 'hidden md:block'
             }
           `}
         >
           {/* Backdrop para móviles */}
           {sidebarOpen && (
-            <div 
+            <div
               className="absolute inset-0 bg-background/80 backdrop-blur-sm md:hidden z-0"
               onClick={() => setSidebarOpen(false)}
               aria-label="Cerrar sidebar"
             />
           )}
-          
+
           <Card className="relative z-10 mx-2 my-2 md:mx-0 md:my-0 max-w-md md:max-w-none flex flex-col" style={{ height: '100%' }}>
             <CardHeader className="relative pr-10 pb-2 pt-3 md:pt-4">
               <CardTitle>Nuevo Chat</CardTitle>
@@ -837,73 +837,73 @@ export default function AgentPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-2 md:space-y-3 px-4 md:px-6 pb-3 md:pb-4 flex-1 overflow-y-auto">
-            {/* Zone Selection */}
-            <div className="space-y-1.5">
-              <Label htmlFor="zone" className="text-xs">Zona *</Label>
-              <Select value={zone} onValueChange={handleZoneChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona zona" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableZones.map((z) => (
-                    <SelectItem key={z.value} value={z.value}>
-                      {z.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Development Selection */}
-            <div className="space-y-1.5">
-              <Label htmlFor="development" className="text-xs">Desarrollo *</Label>
-              <Select value={development} onValueChange={handleDevelopmentChange} disabled={!zone}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona desarrollo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {developments.map((dev) => (
-                    <SelectItem key={dev.value} value={dev.value}>
-                      {dev.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Document Type (optional) */}
-            <div className="space-y-1.5">
-              <Label htmlFor="type" className="text-xs">Tipo de Documento (opcional)</Label>
-              <Select value={type || undefined} onValueChange={setType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos los tipos" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DOCUMENT_TYPES.map((docType) => (
-                    <SelectItem key={docType.value} value={docType.value}>
-                      {docType.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Info - Oculto en móviles y reducido */}
-            <div className="pt-2 border-t space-y-1.5 text-xs hidden lg:block">
-              <div>
-                <h4 className="font-semibold mb-0.5 text-xs">RAG Activo</h4>
-                <Badge variant="default" className="text-[10px]">✓ Búsqueda semántica</Badge>
+              {/* Zone Selection */}
+              <div className="space-y-1.5">
+                <Label htmlFor="zone" className="text-xs">Zona *</Label>
+                <Select value={zone} onValueChange={handleZoneChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona zona" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableZones.map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              {userRole === 'admin' && (
-                <div className="pt-1">
-                  <Badge variant="outline" className="text-[10px]">
-                    ⚠️ Admin: No puedes eliminar historial
-                  </Badge>
+
+              {/* Development Selection */}
+              <div className="space-y-1.5">
+                <Label htmlFor="development" className="text-xs">Desarrollo *</Label>
+                <Select value={development} onValueChange={handleDevelopmentChange} disabled={!zone}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona desarrollo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {developments.map((dev) => (
+                      <SelectItem key={dev.value} value={dev.value}>
+                        {dev.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Document Type (optional) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="type" className="text-xs">Tipo de Documento (opcional)</Label>
+                <Select value={type || undefined} onValueChange={setType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos los tipos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DOCUMENT_TYPES.map((docType) => (
+                      <SelectItem key={docType.value} value={docType.value}>
+                        {docType.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Info - Oculto en móviles y reducido */}
+              <div className="pt-2 border-t space-y-1.5 text-xs hidden lg:block">
+                <div>
+                  <h4 className="font-semibold mb-0.5 text-xs">RAG Activo</h4>
+                  <Badge variant="default" className="text-[10px]">✓ Búsqueda semántica</Badge>
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                {userRole === 'admin' && (
+                  <div className="pt-1">
+                    <Badge variant="outline" className="text-[10px]">
+                      ⚠️ Admin: No puedes eliminar historial
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Botón flotante mejorado para mostrar sidebar cuando está oculto */}
@@ -1003,22 +1003,20 @@ export default function AgentPage() {
                       {chat.messages.map((message) => (
                         <div
                           key={message.id}
-                          className={`flex gap-2 md:gap-3 w-full ${
-                            message.role === 'user' ? 'justify-end' : 'justify-start'
-                          }`}
+                          className={`flex gap-2 md:gap-3 w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                            }`}
                         >
                           {message.role === 'assistant' && (
                             <div className="flex-shrink-0 w-6 h-6 md:w-8 md:h-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <Bot className="h-3 w-3 md:h-4 md:w-4 text-primary" />
                             </div>
                           )}
-                          
+
                           <div
-                            className={`max-w-[85%] sm:max-w-[80%] md:max-w-[75%] lg:max-w-[70%] rounded-lg p-3 md:p-4 ${
-                              message.role === 'user'
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted'
-                            }`}
+                            className={`max-w-[85%] sm:max-w-[80%] md:max-w-[75%] lg:max-w-[70%] rounded-lg p-3 md:p-4 ${message.role === 'user'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted'
+                              }`}
                           >
                             <div className="flex items-start justify-between gap-1 md:gap-2 mb-1.5 md:mb-2">
                               <div className="flex items-center gap-1 md:gap-2">
@@ -1075,9 +1073,9 @@ export default function AgentPage() {
                                 </div>
                               )}
                             </div>
-                            
-                            <MarkdownRenderer 
-                              content={message.content} 
+
+                            <MarkdownRenderer
+                              content={message.content}
                               sources={message.sources}
                               onCitationClick={(sourceIndex) => {
                                 // Expandir el accordion de fuentes cuando se hace click en una cita
@@ -1104,13 +1102,13 @@ export default function AgentPage() {
                             />
 
                             {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
-                              <div 
+                              <div
                                 className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-border/50"
                                 data-sources-id={message.id}
                               >
-                                <Accordion 
-                                  type="single" 
-                                  collapsible 
+                                <Accordion
+                                  type="single"
+                                  collapsible
                                   className="w-full"
                                   value={expandedSources[message.id]}
                                   onValueChange={(value) => {
@@ -1127,15 +1125,15 @@ export default function AgentPage() {
                                     <AccordionContent>
                                       <div className="space-y-1.5 md:space-y-2">
                                         {message.sources.map((source, index) => (
-                                          <div 
-                                            key={index} 
+                                          <div
+                                            key={index}
                                             className="text-[10px] md:text-xs bg-background/50 p-1.5 md:p-2 rounded transition-all"
                                             data-source-index={index}
                                           >
                                             <div className="flex items-center gap-1 md:gap-2 mb-0.5 md:mb-1 flex-wrap">
                                               {/* Número de referencia de la fuente */}
-                                              <Badge 
-                                                variant="default" 
+                                              <Badge
+                                                variant="default"
                                                 className="text-[9px] md:text-xs font-bold min-w-[20px] md:min-w-[24px] justify-center py-0 px-1"
                                                 title={`Fuente ${index + 1}`}
                                               >
@@ -1178,26 +1176,24 @@ export default function AgentPage() {
                                       const currentRating = message.rating || ratingMessages[message.query_log_id!] || 0;
                                       const isSubmitting = submittingRating[message.query_log_id!] || false;
                                       const isFilled = star <= currentRating;
-                                      
+
                                       return (
                                         <button
                                           key={star}
                                           type="button"
                                           onClick={() => !isSubmitting && handleRateResponse(message.query_log_id!, star)}
                                           disabled={isSubmitting}
-                                          className={`transition-all ${
-                                            isSubmitting
-                                              ? 'opacity-50 cursor-not-allowed'
-                                              : 'hover:scale-110 cursor-pointer'
-                                          }`}
+                                          className={`transition-all ${isSubmitting
+                                            ? 'opacity-50 cursor-not-allowed'
+                                            : 'hover:scale-110 cursor-pointer'
+                                            }`}
                                           title={`Calificar con ${star} estrella${star > 1 ? 's' : ''}`}
                                         >
                                           <Star
-                                            className={`h-3 w-3 md:h-4 md:w-4 ${
-                                              isFilled
-                                                ? 'fill-yellow-400 text-yellow-400'
-                                                : 'text-muted-foreground hover:text-yellow-400'
-                                            }`}
+                                            className={`h-3 w-3 md:h-4 md:w-4 ${isFilled
+                                              ? 'fill-yellow-400 text-yellow-400'
+                                              : 'text-muted-foreground hover:text-yellow-400'
+                                              }`}
                                           />
                                         </button>
                                       );
@@ -1290,3 +1286,4 @@ export default function AgentPage() {
     </div>
   );
 }
+

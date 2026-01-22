@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import {
   getCommissionSale,
   getCommissionDistributions,
@@ -20,10 +20,10 @@ import {
   getCommissionRules,
   deleteCommissionDistributions,
   getRuleUnitsCountMap,
-} from '@/lib/commission-db';
-import { calculateCommission } from '@/lib/commission-calculator';
-import { logger } from '@/lib/logger';
-import { validateRequest, updateCommissionDistributionSchema } from '@/lib/validation';
+} from '@/lib/db/commission-db';
+import { calculateCommission } from '@/lib/domain/commission-calculator';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, updateCommissionDistributionSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -441,4 +441,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     );
   }
 }
+
+
+
 

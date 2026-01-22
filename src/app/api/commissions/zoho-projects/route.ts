@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { processZohoProjectsEvent } from '@/lib/commission-db';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { processZohoProjectsEvent } from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type { ZohoProjectsEventInput } from '@/types/commissions';
 
@@ -151,3 +151,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
+

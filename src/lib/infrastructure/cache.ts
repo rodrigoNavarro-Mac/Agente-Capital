@@ -7,8 +7,8 @@
  */
 
 import { createHash } from 'crypto';
-import { initPinecone, getPineconeIndex } from '@/lib/pinecone';
-import { logger } from '@/lib/logger';
+import { initPinecone, getPineconeIndex } from '@/lib/db/pinecone';
+import { logger } from '@/lib/utils/logger';
 import { 
   getCachedResponse, 
   saveCachedResponse, 
@@ -17,7 +17,7 @@ import {
   cleanupExpiredCache,
   hasBadFeedbackInCache,
   type QueryCacheEntry 
-} from '@/lib/postgres';
+} from '@/lib/db/postgres';
 import type { Zone, DocumentContentType, SourceReference } from '@/types/documents';
 
 // =====================================================
@@ -319,4 +319,7 @@ export async function cleanupCache(): Promise<number> {
     return 0;
   }
 }
+
+
+
 

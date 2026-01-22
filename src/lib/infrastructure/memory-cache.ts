@@ -6,7 +6,7 @@
  * Mejora significativamente el rendimiento de endpoints GET
  */
 
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // TIPOS
@@ -372,4 +372,5 @@ if (typeof setInterval !== 'undefined') {
     }
   }, 15 * 60 * 1000); // Cada 15 minutos (reducido de 5 a 15 para menos overhead)
 }
+
 

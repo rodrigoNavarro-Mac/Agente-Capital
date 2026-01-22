@@ -6,15 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import {
   getCommissionRules,
   createCommissionRule,
   updateCommissionRule,
   deleteCommissionRule,
-} from '@/lib/commission-db';
-import { logger } from '@/lib/logger';
-import { validateRequest, commissionRuleInputSchema, updateCommissionRuleSchema } from '@/lib/validation';
+} from '@/lib/db/commission-db';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, commissionRuleInputSchema, updateCommissionRuleSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -273,4 +273,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse<APIResp
     );
   }
 }
+
+
+
 

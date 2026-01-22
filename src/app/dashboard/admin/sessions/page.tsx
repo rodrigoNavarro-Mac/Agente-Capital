@@ -22,9 +22,9 @@ import {
   Check
 } from 'lucide-react';
 import { getAdminSessions } from '@/lib/api';
-import { formatRelativeTime, formatDate, copyToClipboard } from '@/lib/utils';
+import { formatRelativeTime, formatDate, copyToClipboard } from '@/lib/utils/utils';
 import { useToast } from '@/components/ui/use-toast';
-import { decodeAccessToken } from '@/lib/auth';
+import { decodeAccessToken } from '@/lib/auth/auth';
 
 type Session = {
   id: number;
@@ -694,6 +694,7 @@ export default function AdminSessionsPage() {
     </div>
   );
 }
+
 
 
 

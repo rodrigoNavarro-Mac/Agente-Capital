@@ -6,8 +6,8 @@
  */
 
 import {  NextResponse } from 'next/server';
-import { getRoles } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { getRoles } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { Role, APIResponse } from '@/types/documents';
 
 // =====================================================
@@ -35,4 +35,6 @@ export async function GET(): Promise<NextResponse<APIResponse<Role[]>>> {
     );
   }
 }
+
+
 

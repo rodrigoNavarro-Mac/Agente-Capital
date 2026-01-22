@@ -11,10 +11,10 @@ import {
   markPasswordResetTokenAsUsed, 
   updateUserPassword,
   getUserById 
-} from '@/lib/postgres';
-import { hashPassword, validatePasswordStrength } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { validateRequest, resetPasswordRequestSchema } from '@/lib/validation';
+} from '@/lib/db/postgres';
+import { hashPassword, validatePasswordStrength } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, resetPasswordRequestSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 
 export async function POST(
@@ -121,4 +121,7 @@ export async function POST(
     );
   }
 }
+
+
+
 

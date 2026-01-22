@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 
 // =====================================================
 // CONSTANTES DE LÍMITES
@@ -673,4 +673,5 @@ export type AgentConfigUpdate = z.infer<typeof agentConfigUpdateSchema>;
 export type AgentConfigUpdateWithMeta = z.infer<typeof agentConfigUpdateWithMetaSchema>;
 export type AgentConfigBulkUpdate = z.infer<typeof agentConfigBulkUpdateSchema>;
 export type ChatHistoryDeleteRequest = z.infer<typeof chatHistoryDeleteSchema>;
+
 

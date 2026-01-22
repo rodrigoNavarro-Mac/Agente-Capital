@@ -7,8 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { query } from '@/lib/postgres';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { query } from '@/lib/db/postgres';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -153,6 +153,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
 
 
 

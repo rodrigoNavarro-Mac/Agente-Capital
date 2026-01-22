@@ -7,10 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getQueryLogs, deleteQueryLogs, getUserById } from '@/lib/postgres';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { logger } from '@/lib/logger';
-import { validateRequest, chatHistoryDeleteSchema } from '@/lib/validation';
+import { getQueryLogs, deleteQueryLogs, getUserById } from '@/lib/db/postgres';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { logger } from '@/lib/utils/logger';
+import { validateRequest, chatHistoryDeleteSchema } from '@/lib/utils/validation';
 import type { QueryLog, APIResponse, Zone } from '@/types/documents';
 
 // =====================================================
@@ -240,4 +240,7 @@ export async function DELETE(
     );
   }
 }
+
+
+
 

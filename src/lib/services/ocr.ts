@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@/lib/logger';
+import { logger } from '@/lib/utils/logger';
 // @ts-expect-error - pdf-parse no tiene tipos
 import pdfParse from 'pdf-parse';
 
@@ -531,4 +531,5 @@ export default {
   needsOCR,
   extractTextWithOCRFallback,
 };
+
 

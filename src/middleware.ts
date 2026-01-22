@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { applyRateLimit } from '@/lib/rate-limit-edge';
-import { type RateLimitKey } from '@/lib/rate-limit-config';
-import { extractTokenFromHeader, verifyAccessTokenEdge } from '@/lib/auth-edge';
+import { applyRateLimit } from '@/lib/infrastructure/rate-limit-edge';
+import { type RateLimitKey } from '@/lib/config/rate-limit-config';
+import { extractTokenFromHeader, verifyAccessTokenEdge } from '@/lib/auth/auth-edge';
 
 /**
  * Mapeo de rutas a sus respectivos rate limits.
@@ -108,3 +108,5 @@ export const config = {
     '/api/:path*',
   ],
 };
+
+

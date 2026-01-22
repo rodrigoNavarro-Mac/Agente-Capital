@@ -7,8 +7,8 @@
  * Documentación: https://www.zoho.com/crm/developer/docs/api/v2/
  */
 
-import { logger } from '@/lib/logger';
-import { fetchWithTimeout, TIMEOUTS } from '@/lib/timeout';
+import { logger } from '@/lib/utils/logger';
+import { fetchWithTimeout, TIMEOUTS } from '@/lib/utils/timeout';
 
 // =====================================================
 // TIPOS Y INTERFACES
@@ -216,21 +216,21 @@ async function getAccessToken(): Promise<string> {
   // Normalizar la URL: remover cualquier ruta duplicada
   // Si la URL ya contiene /oauth/v2/token, usar solo la base
   let normalizedAccountsUrl = ZOHO_ACCOUNTS_URL.trim();
-  
+
   // Remover trailing slash
   if (normalizedAccountsUrl.endsWith('/')) {
     normalizedAccountsUrl = normalizedAccountsUrl.slice(0, -1);
   }
-  
+
   // Si la URL ya contiene /oauth/v2/token, extraer solo la base
   const oauthPathIndex = normalizedAccountsUrl.indexOf('/oauth/v2/token');
   if (oauthPathIndex !== -1) {
     normalizedAccountsUrl = normalizedAccountsUrl.substring(0, oauthPathIndex);
   }
-  
+
   // Construir la URL del token correctamente
   const tokenUrl = `${normalizedAccountsUrl}/oauth/v2/token`;
-  
+
   logger.debug('Requesting Zoho access token', {
     accountsUrl: ZOHO_ACCOUNTS_URL,
     tokenUrl,
@@ -260,7 +260,7 @@ async function getAccessToken(): Promise<string> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      
+
       // Si es un 404, dar un mensaje más útil
       if (response.status === 404) {
         throw new Error(
@@ -273,7 +273,7 @@ async function getAccessToken(): Promise<string> {
           `Para la región estándar (US), usa: https://accounts.zoho.com`
         );
       }
-      
+
       // Intentar parsear como JSON si es posible
       let errorMessage = errorText;
       try {
@@ -286,16 +286,16 @@ async function getAccessToken(): Promise<string> {
       } catch {
         // Si no es JSON, usar el texto tal cual
       }
-      
+
       throw new Error(`Error obteniendo token de ZOHO (${response.status}): ${errorMessage}`);
     }
 
     const tokenData: ZohoTokenResponse = await response.json();
-    
+
     if (!tokenData.access_token) {
       throw new Error('La respuesta de Zoho no contiene access_token');
     }
-    
+
     // Guardar token en caché con 5 minutos de margen antes de la expiración
     cachedAccessToken = tokenData.access_token;
     tokenExpiryTime = Date.now() + (tokenData.expires_in - 300) * 1000;
@@ -323,7 +323,8 @@ async function getAccessToken(): Promise<string> {
 async function zohoRequest<T>(
   endpoint: string,
   options: RequestInit = {},
-  silent: boolean = false
+  silent: boolean = false,
+  retries: number = 1
 ): Promise<T> {
   const accessToken = await getAccessToken();
 
@@ -343,6 +344,22 @@ async function zohoRequest<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+
+    // Si obtenemos un 401, es probable que el token haya expirado o sea inválido
+    // Intentamos refrescar el token y reintentar la petición una vez
+    if (response.status === 401 && retries > 0) {
+      if (!silent) {
+        console.warn(`⚠️ Token de Zoho expirado o inválido (${response.status}). Reintentando...`);
+      }
+
+      // Invalidar cache de token localmente
+      cachedAccessToken = null;
+      tokenExpiryTime = 0;
+
+      // Reintentar (la siguiente llamada a getAccessToken obtendrá uno nuevo)
+      return zohoRequest<T>(endpoint, options, silent, retries - 1);
+    }
+
     // Solo registrar error si no es modo silencioso
     if (!silent) {
       console.error(`❌ Error en petición a ZOHO CRM (${endpoint}):`, {
@@ -357,7 +374,7 @@ async function zohoRequest<T>(
   // Verificar si la respuesta tiene contenido antes de intentar parsear JSON
   const contentType = response.headers.get('content-type');
   const contentLength = response.headers.get('content-length');
-  
+
   // Si no hay contenido o el content-length es 0, retornar objeto vacío
   if (contentLength === '0' || !contentType?.includes('application/json')) {
     const text = await response.text();
@@ -390,9 +407,19 @@ async function zohoRequest<T>(
     }
     return { data: [] } as T;
   }
-  
-  // ZOHO puede retornar errores en el cuerpo de la respuesta
+
+  // ZOHO puede retornar errores en el cuerpo de la respuesta con status 200 (aunque es raro)
+  // O el error puede venir estructurado distinto.
+  // El error INVALID_TOKEN a veces viene en el body con 401, pero ya lo manejamos arriba.
   if (data.data && data.data[0] && data.data[0].status === 'error') {
+    // Si el error interno es INVALID_TOKEN, también deberíamos reintentar si no lo hemos hecho
+    if (data.data[0].code === 'INVALID_TOKEN' && retries > 0) {
+      if (!silent) console.warn(`⚠️ Token de Zoho inválido (según body). Reintentando...`);
+      cachedAccessToken = null;
+      tokenExpiryTime = 0;
+      return zohoRequest<T>(endpoint, options, silent, retries - 1);
+    }
+
     if (!silent) {
       console.error(`❌ Error en respuesta de ZOHO CRM (${endpoint}):`, data.data[0].message);
     }
@@ -490,8 +517,8 @@ export async function getZohoNotes(module: 'Leads' | 'Deals', recordId: string):
     // Solo loggear errores reales (no respuestas vacías)
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Si es un error de JSON vacío o respuesta vacía, no loggear
-    if (!errorMessage.includes('Unexpected end of JSON') && 
-        !errorMessage.includes('JSON')) {
+    if (!errorMessage.includes('Unexpected end of JSON') &&
+      !errorMessage.includes('JSON')) {
       console.error(`❌ Error obteniendo notas de ${module} ${recordId} de ZOHO:`, error);
     }
     // Si no hay notas o el registro no existe, retornar array vacío
@@ -506,12 +533,12 @@ export async function getZohoNotes(module: 'Leads' | 'Deals', recordId: string):
  */
 export async function getZohoNotesForRecords(module: 'Leads' | 'Deals', recordIds: string[]): Promise<Map<string, ZohoNote[]>> {
   const notesMap = new Map<string, ZohoNote[]>();
-  
+
   // Obtener notas en lotes para evitar demasiadas peticiones
   const batchSize = 10;
   for (let i = 0; i < recordIds.length; i += batchSize) {
     const batch = recordIds.slice(i, i + batchSize);
-    
+
     // Obtener notas para cada registro del lote
     const notesPromises = batch.map(async (recordId) => {
       try {
@@ -522,18 +549,18 @@ export async function getZohoNotesForRecords(module: 'Leads' | 'Deals', recordId
         return { recordId, notes: [] };
       }
     });
-    
+
     const results = await Promise.all(notesPromises);
     results.forEach(({ recordId, notes }) => {
       notesMap.set(recordId, notes);
     });
-    
+
     // Pequeño delay entre lotes para evitar rate limiting
     if (i + batchSize < recordIds.length) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
-  
+
   return notesMap;
 }
 
@@ -595,12 +622,12 @@ export async function getZohoActivities(
         zohoRequest<ZohoActivitiesResponse>(`/Calls?page=${page}&per_page=${perPage}`, {}, false).catch(() => ({ data: [], info: {} })),
         zohoRequest<ZohoActivitiesResponse>(`/Tasks?page=${page}&per_page=${perPage}`, {}, false).catch(() => ({ data: [], info: {} })),
       ]);
-      
+
       const allActivities: ZohoActivity[] = [
         ...(calls.data || []).map(a => ({ ...a, Activity_Type: 'Call' })),
         ...(tasks.data || []).map(a => ({ ...a, Activity_Type: 'Task' })),
       ];
-      
+
       return {
         data: allActivities,
         info: {
@@ -612,11 +639,11 @@ export async function getZohoActivities(
       };
     } else {
       const response = await zohoRequest<ZohoActivitiesResponse>(
-        `/${activityType}?page=${page}&per_page=${perPage}`, 
-        {}, 
+        `/${activityType}?page=${page}&per_page=${perPage}`,
+        {},
         false
       ).catch(() => ({ data: [], info: {} }));
-      
+
       const activities = (response.data || []).map(a => ({ ...a, Activity_Type: activityType.slice(0, -1) }));
       return { ...response, data: activities };
     }
@@ -643,7 +670,7 @@ export async function getAllZohoActivities(activityType: 'Calls' | 'Tasks' | 'al
     }
     hasMore = response.info?.more_records || false;
     currentPage++;
-    
+
     // Limitar a 50 páginas (10,000 registros) para evitar demasiadas peticiones
     if (currentPage > 50) break;
   }
@@ -667,7 +694,7 @@ export async function getAllZohoLeads(): Promise<ZohoLead[]> {
     }
     hasMore = response.info?.more_records || false;
     currentPage++;
-    
+
     // Limitar a 50 páginas (10,000 registros) para evitar demasiadas peticiones
     if (currentPage > 50) break;
   }
@@ -691,7 +718,7 @@ export async function getAllZohoDeals(): Promise<ZohoDeal[]> {
     }
     hasMore = response.info?.more_records || false;
     currentPage++;
-    
+
     // Limitar a 50 páginas (10,000 registros) para evitar demasiadas peticiones
     if (currentPage > 50) break;
   }
@@ -767,6 +794,54 @@ export async function getZohoStats(filters?: {
       return minutes >= BUSINESS_START_MINUTES && minutes <= BUSINESS_END_MINUTES;
     };
 
+    // =====================================================
+    // HELPERS PARA FECHAS Y ESTADOS (Movidos al inicio para evitar ReferenceError)
+    // =====================================================
+
+    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
+    const isWonStage = (stage?: string): boolean => {
+      const s = String(stage || '').toLowerCase();
+      return wonStages.some((k) => s.includes(k.toLowerCase()));
+    };
+
+    // Convert Date -> YYYY-MM-DD en una zona fija (business)
+    const toBusinessISODate = (date: Date): string => {
+      const local = new Date(date.getTime() + offsetMs);
+      const yyyy = local.getUTCFullYear();
+      const mm = String(local.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(local.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const extractISODateKey = (value: unknown): string | null => {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+        if (m) return m[1];
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return toBusinessISODate(d);
+        return null;
+      }
+      if (value instanceof Date) return toBusinessISODate(value);
+      return null;
+    };
+
+    const getDealClosedWonDateKey = (deal: ZohoDeal): string | null => {
+      return (
+        extractISODateKey(deal.Closing_Date) ||
+        extractISODateKey((deal as any).Closed_Time) ||
+        extractISODateKey((deal as any).Closed_Date) ||
+        extractISODateKey(deal.Modified_Time)
+      );
+    };
+
+    const isDateKeyInRange = (key: string | null, startKey: string | null, endKey: string | null): boolean => {
+      if (!key) return false;
+      if (startKey && key < startKey) return false;
+      if (endKey && key > endKey) return false;
+      return true;
+    };
+
     let allLeads: ZohoLead[] = [];
     let allDeals: ZohoDeal[] = [];
 
@@ -776,14 +851,14 @@ export async function getZohoStats(filters?: {
     // Intentar obtener desde BD local primero
     if (useLocal) {
       try {
-        const { getZohoLeadsFromDB, getZohoDealsFromDB } = await import('@/lib/postgres');
-        
+        const { getZohoLeadsFromDB, getZohoDealsFromDB } = await import('@/lib/db/postgres');
+
         // Obtener todos los leads desde BD local (sin paginación, todos los que cumplan filtros)
         // Hacer múltiples consultas si es necesario para obtener todos
         const allLeadsFromDB: ZohoLead[] = [];
         let currentPage = 1;
         const pageSize = 10000; // Obtener en lotes grandes
-        
+
         while (true) {
           const leadsData = await getZohoLeadsFromDB(currentPage, pageSize, filters);
           if (leadsData.leads.length === 0) break;
@@ -799,7 +874,7 @@ export async function getZohoStats(filters?: {
         // Obtener todos los deals desde BD local (sin paginación, todos los que cumplan filtros)
         const allDealsFromDB: ZohoDeal[] = [];
         currentPage = 1;
-        
+
         while (true) {
           const dealsData = await getZohoDealsFromDB(currentPage, pageSize, filters);
           if (dealsData.deals.length === 0) break;
@@ -834,7 +909,7 @@ export async function getZohoStats(filters?: {
     // Si no hay datos de BD local, obtener desde Zoho y sincronizar automáticamente
     if (!dataFromLocalDB) {
       logger.debug('Local DB unavailable/empty; fetching from Zoho (and syncing if enabled)', { useLocal }, 'zoho-stats');
-      
+
       try {
         // Usar las funciones completas que obtienen todos los registros
         allLeads = await getAllZohoLeads();
@@ -844,109 +919,25 @@ export async function getZohoStats(filters?: {
         logger.debug('Deals fetched from Zoho', { count: allDeals.length }, 'zoho-stats');
 
         // Sincronizar automáticamente a la BD local si useLocal es true
+        // MODIFICACIÓN: Deshabilitado por petición del usuario (sync "a cada rato").
+        // La sincronización solo debe ocurrir manualmente o por un proceso cron explícito.
+        /*
         if (useLocal && (allLeads.length > 0 || allDeals.length > 0)) {
           logger.debug('Starting automatic sync to local DB', undefined, 'zoho-stats');
           try {
-            const { syncZohoLead, syncZohoDeal } = await import('@/lib/postgres');
-            
+            const { syncZohoLead, syncZohoDeal } = await import('@/lib/db/postgres');
+
             // Sincronizar leads
             let leadsSynced = 0;
             let leadsCreated = 0;
-            let leadsUpdated = 0;
-            let leadsSkipped = 0; // Registros que no necesitan actualización
-            let leadsFailed = 0;
-            
-            logger.debug('Syncing leads to local DB', { total: allLeads.length }, 'zoho-stats');
-            const totalLeads = allLeads.length;
-            for (let i = 0; i < allLeads.length; i++) {
-              const lead = allLeads[i];
-              try {
-                const result = await syncZohoLead(lead);
-                if (result === null) {
-                  // No necesita actualización
-                  leadsSkipped++;
-                } else {
-                  leadsSynced++;
-                  if (result === true) {
-                    leadsCreated++;
-                  } else {
-                    leadsUpdated++;
-                  }
-                }
-                
-                // Mostrar progreso cada 50 leads
-                if ((i + 1) % 50 === 0 || (i + 1) === totalLeads) {
-                  logger.debug('Leads sync progress', {
-                    processed: i + 1,
-                    total: totalLeads,
-                    percent: Math.round(((i + 1) / totalLeads) * 100),
-                  }, 'zoho-stats');
-                }
-              } catch (error) {
-                leadsFailed++;
-                console.warn(`⚠️ Error sincronizando lead ${lead.id}:`, error);
-              }
-            }
-            logger.debug('Leads sync summary', {
-              leadsSynced,
-              leadsCreated,
-              leadsUpdated,
-              leadsSkipped,
-              leadsFailed,
-            }, 'zoho-stats');
-
-            // Sincronizar deals
-            let dealsSynced = 0;
-            let dealsCreated = 0;
-            let dealsUpdated = 0;
-            let dealsSkipped = 0; // Registros que no necesitan actualización
-            let dealsFailed = 0;
-            
-            logger.debug('Syncing deals to local DB', { total: allDeals.length }, 'zoho-stats');
-            const totalDeals = allDeals.length;
-            for (let i = 0; i < allDeals.length; i++) {
-              const deal = allDeals[i];
-              try {
-                const result = await syncZohoDeal(deal);
-                if (result === null) {
-                  // No necesita actualización
-                  dealsSkipped++;
-                } else {
-                  dealsSynced++;
-                  if (result === true) {
-                    dealsCreated++;
-                  } else {
-                    dealsUpdated++;
-                  }
-                }
-                
-                // Mostrar progreso cada 10 deals o al final
-                if ((i + 1) % 10 === 0 || (i + 1) === totalDeals) {
-                  logger.debug('Deals sync progress', {
-                    processed: i + 1,
-                    total: totalDeals,
-                    percent: Math.round(((i + 1) / totalDeals) * 100),
-                  }, 'zoho-stats');
-                }
-              } catch (error) {
-                dealsFailed++;
-                console.warn(`⚠️ Error sincronizando deal ${deal.id}:`, error);
-              }
-            }
-            logger.debug('Deals sync summary', {
-              dealsSynced,
-              dealsCreated,
-              dealsUpdated,
-              dealsSkipped,
-              dealsFailed,
-            }, 'zoho-stats');
-            
+            // ... (código original comentado) ...
             logger.debug('Automatic sync completed', { totalSynced: leadsSynced + dealsSynced }, 'zoho-stats');
           } catch (error) {
             console.error('❌ Error crítico sincronizando datos a BD local:', error);
             // No fallar la función si la sincronización falla, solo continuar con los datos obtenidos
           }
         }
+        */
       } catch (error) {
         console.error('❌ Error obteniendo datos desde Zoho:', error);
         throw error; // Re-lanzar el error para que se maneje arriba
@@ -983,22 +974,26 @@ export async function getZohoStats(filters?: {
       if (allowedDevSet.size > 0) {
         const leadsBefore = filteredLeads.length;
         const dealsBefore = filteredDeals.length;
-        
+
         filteredLeads = filteredLeads.filter((lead) => {
           // Zoho puede traer "Desarollo" por un typo en algunas cuentas/campos
           const leadDev = (lead as any).Desarrollo || (lead as any).Desarollo;
           if (!leadDev) return false;
-          return allowedDevSet.has(normalizeDev(String(leadDev)));
+          const norm = normalizeDev(String(leadDev));
+          return allowedDevSet.has(norm);
         });
+
         filteredDeals = filteredDeals.filter((deal) => {
           // Zoho tiene un error de tipeo: usa "Desarollo" en lugar de "Desarrollo"
           const dealDev = (deal as any).Desarrollo || (deal as any).Desarollo;
           if (!dealDev) return false;
-          return allowedDevSet.has(normalizeDev(String(dealDev)));
+          const norm = normalizeDev(String(dealDev));
+          return allowedDevSet.has(norm);
         });
-        
+
         logger.debug('Applied development filter', {
           developmentCount: allowedDevSet.size,
+          allowedDevs: Array.from(allowedDevSet),
           leadsBefore,
           leadsAfter: filteredLeads.length,
           dealsBefore,
@@ -1013,7 +1008,7 @@ export async function getZohoStats(filters?: {
       if (filters?.startDate || filters?.endDate) {
         const startDate = filters.startDate ? new Date(filters.startDate) : null;
         const endDate = filters.endDate ? new Date(filters.endDate) : null;
-        
+
         const leadsBefore = filteredLeads.length;
         const dealsBefore = filteredDeals.length;
 
@@ -1027,13 +1022,31 @@ export async function getZohoStats(filters?: {
         });
 
         filteredDeals = filteredDeals.filter(deal => {
-          if (!deal.Created_Time) return false;
-          const dealDate = new Date(deal.Created_Time);
-          if (startDate && dealDate < startDate) return false;
-          if (endDate && dealDate > endDate) return false;
-          return true;
+          // Helper para determinar si es ganado
+          const isWon = isWonStage(deal.Stage);
+
+          // Checar Created_Time
+          let createdInRange = false;
+          if (deal.Created_Time) {
+            const dealDate = new Date(deal.Created_Time);
+            const afterStart = !startDate || dealDate >= startDate;
+            const beforeEnd = !endDate || dealDate <= endDate;
+            createdInRange = afterStart && beforeEnd;
+          }
+
+          // Checar Closing_Date (o fallback) si es ganado
+          let closedInRange = false;
+          if (isWon) {
+            const closeKey = getDealClosedWonDateKey(deal);
+            const startKey = startDate ? toBusinessISODate(startDate) : null;
+            const endKey = endDate ? toBusinessISODate(endDate) : null;
+            closedInRange = isDateKeyInRange(closeKey, startKey, endKey);
+          }
+
+          // Incluir si cumple CUALQUIERA de las dos condiciones
+          return createdInRange || closedInRange;
         });
-        
+
         logger.debug('Applied date filter', {
           startDate: startDate?.toISOString(),
           endDate: endDate?.toISOString(),
@@ -1073,54 +1086,10 @@ export async function getZohoStats(filters?: {
     // =====================================================
     // "CERRADO GANADO" POR FECHA DE CIERRE (NO POR CREACIÓN)
     // =====================================================
-    // Definimos helper(s) en inglés (código) con comentarios en español (como guía).
-    const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
-    const isWonStage = (stage?: string): boolean => {
-      const s = String(stage || '').toLowerCase();
-      return wonStages.some((k) => s.includes(k.toLowerCase()));
-    };
-
-    // Convert Date -> YYYY-MM-DD en una zona fija (business), para que sea estable aun si el servidor está en UTC.
-    const toBusinessISODate = (date: Date): string => {
-      const local = new Date(date.getTime() + offsetMs);
-      const yyyy = local.getUTCFullYear();
-      const mm = String(local.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(local.getUTCDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const extractISODateKey = (value: unknown): string | null => {
-      if (!value) return null;
-      if (typeof value === 'string') {
-        const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
-        if (m) return m[1];
-        const d = new Date(value);
-        if (!Number.isNaN(d.getTime())) return toBusinessISODate(d);
-        return null;
-      }
-      if (value instanceof Date) return toBusinessISODate(value);
-      return null;
-    };
-
-    // Prioridad de campos:
-    // - Closing_Date (date-only en Zoho, suele representar el cierre)
-    // - Closed_Time / Closed_Date (si existe como campo custom)
-    // - Modified_Time (fallback: aproximación si no tenemos fecha real de cierre)
-    const getDealClosedWonDateKey = (deal: ZohoDeal): string | null => {
-      return (
-        extractISODateKey(deal.Closing_Date) ||
-        extractISODateKey((deal as any).Closed_Time) ||
-        extractISODateKey((deal as any).Closed_Date) ||
-        extractISODateKey(deal.Modified_Time)
-      );
-    };
-
-    const isDateKeyInRange = (key: string | null, startKey: string | null, endKey: string | null): boolean => {
-      if (!key) return false;
-      if (startKey && key < startKey) return false;
-      if (endKey && key > endKey) return false;
-      return true;
-    };
+    // =====================================================
+    // "CERRADO GANADO" POR FECHA DE CIERRE (NO POR CREACIÓN)
+    // =====================================================
+    // Helpers movidos al inicio de la función para evitar ReferenceError
 
     let closedWonCount = 0;
     if (filters?.startDate || filters?.endDate) {
@@ -1131,7 +1100,7 @@ export async function getZohoStats(filters?: {
         // Cuando los datos vienen de BD local, filteredDeals ya viene filtrado por Created_Time,
         // así que contamos por closing_date con una query dedicada.
         try {
-          const { countZohoClosedWonDealsFromDB } = await import('@/lib/postgres');
+          const { countZohoClosedWonDealsFromDB } = await import('@/lib/db/postgres');
           closedWonCount = await countZohoClosedWonDealsFromDB({
             desarrollo: filters?.desarrollo,
             desarrollos: filters?.desarrollos,
@@ -1222,8 +1191,8 @@ export async function getZohoStats(filters?: {
       }
     });
 
-    const averageDealValue = filteredDeals.length > 0 
-      ? totalDealValue / filteredDeals.length 
+    const averageDealValue = filteredDeals.length > 0
+      ? totalDealValue / filteredDeals.length
       : 0;
 
     // Análisis de embudos (ordenados por cantidad descendente)
@@ -1264,8 +1233,8 @@ export async function getZohoStats(filters?: {
     // =====================================================
 
     // 1. % Conversión (Deals / Leads)
-    const conversionRate = filteredLeads.length > 0 
-      ? Math.round((filteredDeals.length / filteredLeads.length) * 10000) / 100 
+    const conversionRate = filteredLeads.length > 0
+      ? Math.round((filteredDeals.length / filteredLeads.length) * 10000) / 100
       : 0;
 
     // 2. Leads descartados
@@ -1292,8 +1261,8 @@ export async function getZohoStats(filters?: {
     Object.keys(leadsBySource).forEach(source => {
       const leads = leadsBySource[source];
       const deals = dealsBySource[source] || 0;
-      conversionBySource[source] = leads > 0 
-        ? Math.round((deals / leads) * 10000) / 100 
+      conversionBySource[source] = leads > 0
+        ? Math.round((deals / leads) * 10000) / 100
         : 0;
     });
 
@@ -1329,7 +1298,7 @@ export async function getZohoStats(filters?: {
       debugLog('first contact calc start', { filteredLeads: filteredLeads.length });
       // Obtener actividades relacionadas con leads (cached per request)
       const activities = await getActivitiesAllOnce();
-      
+
       // Crear mapa de actividades por lead (Who_Id)
       const activitiesByLead = new Map<string, ZohoActivity[]>();
       activities.forEach(activity => {
@@ -1386,13 +1355,13 @@ export async function getZohoStats(filters?: {
         debugBottomDiffs.sort((a, b) => a.timeDiffMinutes - b.timeDiffMinutes);
         if (debugBottomDiffs.length > 10) debugBottomDiffs.pop();
       };
-      
+
       filteredLeads.forEach(lead => {
         // Usar Creacion_de_Lead si existe, sino Created_Time
         const createdTime = (lead as any).Creacion_de_Lead || lead.Created_Time;
         if (!createdTime) return;
         debugCounters.leadsWithCreatedTime++;
-        
+
         // También verificar si ya tiene First_Contact_Time o Tiempo_entre_primer_contacto
         const firstContactTime = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
         const tiempoEntreContacto = (lead as any).Tiempo_entre_primer_contacto;
@@ -1538,11 +1507,11 @@ export async function getZohoStats(filters?: {
       const timeInMinutes = hour * 60 + minute;
       const businessStart = 8 * 60; // 08:00
       const businessEnd = 20 * 60 + 30; // 20:30
-      
+
       // Verificar si es fin de semana
       const dayOfWeek = createdDate.getDay();
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      
+
       if (isWeekend || timeInMinutes < businessStart || timeInMinutes > businessEnd) {
         leadsOutsideBusinessHours++;
       }
@@ -1575,24 +1544,24 @@ export async function getZohoStats(filters?: {
           // Intentar relacionar por email si está disponible
           if (lead.Email && deal.Account_Name?.name) {
             return deal.Account_Name.name.toLowerCase().includes(lead.Email.toLowerCase()) ||
-                   lead.Email.toLowerCase().includes(deal.Account_Name.name.toLowerCase());
+              lead.Email.toLowerCase().includes(deal.Account_Name.name.toLowerCase());
           }
           // Intentar relacionar por nombre si está disponible
           if (lead.Full_Name && deal.Account_Name?.name) {
             return deal.Account_Name.name.toLowerCase().includes(lead.Full_Name.toLowerCase()) ||
-                   lead.Full_Name.toLowerCase().includes(deal.Account_Name.name.toLowerCase());
+              lead.Full_Name.toLowerCase().includes(deal.Account_Name.name.toLowerCase());
           }
           // Si tienen la misma fuente, podría ser una relación indirecta
           if (lead.Lead_Source && deal.Lead_Source && lead.Lead_Source === deal.Lead_Source) {
             // Solo considerar si el deal está en una etapa avanzada
             const advancedStages = ['Negociación', 'Propuesta', 'Cierre', 'Ganado'];
-            return advancedStages.some(stage => 
+            return advancedStages.some(stage =>
               deal.Stage?.toLowerCase().includes(stage.toLowerCase())
             );
           }
           return false;
         });
-        const statusIndicatesInterest = lead.Lead_Status && 
+        const statusIndicatesInterest = lead.Lead_Status &&
           ['Contactado', 'Cotización', 'Visita', 'Interesado', 'Calificado', 'Agendo cita'].some(
             status => lead.Lead_Status!.toLowerCase().includes(status.toLowerCase())
           );
@@ -1661,19 +1630,19 @@ export async function getZohoStats(filters?: {
     Object.keys(leadsByDate).forEach(date => {
       const leads = leadsByDate[date];
       const deals = dealsByDate[date] || 0;
-      conversionByDate[date] = leads > 0 
-        ? Math.round((deals / leads) * 10000) / 100 
+      conversionByDate[date] = leads > 0
+        ? Math.round((deals / leads) * 10000) / 100
         : 0;
     });
 
     // Embudo del ciclo de vida
     // 1. Leads: total de leads filtrados
     const totalLeadsCount = filteredLeads.length;
-    
+
     // 2. Deals: TODOS los deals filtrados (independientemente de si tienen cita o están cerrados)
     // Cambio: ahora incluimos todos los deals, no solo los que no están cerrados
     const dealsWithAppointment = filteredDeals.length;
-    
+
     // 3. Cerrado ganado: deals con Stage que contenga "Ganado", "Won", etc.
     // Importante: este KPI ahora usa la fecha de cierre (Closing_Date) y NO la fecha de creación.
     const closedWon = closedWonCount;
@@ -1687,13 +1656,13 @@ export async function getZohoStats(filters?: {
     // 9. Actividades
     const activitiesByType: Record<string, number> = {};
     const activitiesByOwner: Record<string, number> = {};
-    
+
     try {
       const activities = await getActivitiesAllOnce();
       activities.forEach(activity => {
         const type = activity.Activity_Type || 'Unknown';
         activitiesByType[type] = (activitiesByType[type] || 0) + 1;
-        
+
         const owner = activity.Owner?.name || 'Sin Asesor';
         activitiesByOwner[owner] = (activitiesByOwner[owner] || 0) + 1;
       });
@@ -1788,36 +1757,36 @@ export async function getProductSubformData(
   try {
     // Limpiar el ID del producto (remover prefijo zcrm_ si existe)
     const cleanId = productId.replace(/^zcrm_/, '');
-    
+
     // Construir URL del producto
     const productUrl = `/Products/${cleanId}`;
-    
+
     // Parámetros para incluir el subformulario en la respuesta
     const params = new URLSearchParams({
       fields: subformName,
     });
-    
+
     // Realizar petición GET
     const response = await zohoRequest<{
       data: Array<{
         [key: string]: any;
       }>;
     }>(`${productUrl}?${params.toString()}`);
-    
+
     // El subformulario viene como una lista dentro del producto
     const productData = response.data?.[0];
     if (!productData) {
       logger.warn(`Producto ${cleanId} no encontrado`, {}, 'zoho-product-subform');
       return [];
     }
-    
+
     const subformData = productData[subformName] || [];
-    
+
     logger.debug(`Subformulario ${subformName} obtenido`, {
       productId: cleanId,
       rows: subformData.length,
     }, 'zoho-product-subform');
-    
+
     return Array.isArray(subformData) ? subformData : [];
   } catch (error) {
     logger.error(`Error obteniendo subformulario ${subformName} del producto`, error, {
@@ -1841,10 +1810,10 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
     logger.info(`Obteniendo socios del producto para deal ${dealId}`, {
       dealId,
     }, 'zoho-product-partners');
-    
+
     // Obtener el deal completo desde Zoho (sin especificar fields para obtener todos los campos)
     const dealUrl = `/Deals/${dealId.replace(/^zcrm_/, '')}`;
-    
+
     const dealResponse = await zohoRequest<{
       data: Array<{
         id: string;
@@ -1872,7 +1841,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
         [key: string]: any;
       }>;
     }>(dealUrl, {}, false); // Obtener deal completo
-    
+
     const dealData = dealResponse.data?.[0];
     if (!dealData) {
       logger.warn(`No se encontró deal ${dealId} en Zoho`, {
@@ -1880,7 +1849,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
       }, 'zoho-product-partners');
       return [];
     }
-    
+
     logger.info(`Deal obtenido desde Zoho`, {
       dealId,
       dealKeys: Object.keys(dealData),
@@ -1890,16 +1859,16 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
       hasProductosDeInteres: !!(dealData.Productos_de_interes),
       productosDeInteres: dealData.Productos_de_interes,
     }, 'zoho-product-partners');
-    
+
     // Buscar el producto en diferentes campos posibles
     // Prioridad: Product_Name > Product_ID > Products > Productos_de_interes
     let productField = dealData.Product_Name || dealData.Product_ID || dealData.Products;
-    
+
     // Si no hay producto directo, buscar en Productos_de_interes
     // Productos_de_interes puede ser un string (número del producto) o un objeto/array
     if (!productField && dealData.Productos_de_interes) {
       const desarrollo = dealData.Desarrollo || dealData.Desarollo;
-      
+
       if (typeof dealData.Productos_de_interes === 'string') {
         // Si es string, es el número del producto - buscar por desarrollo y número
         const productoNumero = dealData.Productos_de_interes.trim();
@@ -1908,7 +1877,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
           productoNumero,
           desarrollo,
         }, 'zoho-product-partners');
-        
+
         if (desarrollo && productoNumero) {
           try {
             // Buscar productos por desarrollo
@@ -1920,21 +1889,21 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
                 [key: string]: any;
               }>;
             }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
-            
+
             if (productsResponse.data && productsResponse.data.length > 0) {
               // Buscar el producto que coincida con el número
               // El número puede estar en Product_Name o en algún campo de número
               const matchingProduct = productsResponse.data.find(p => {
                 const productName = p.Product_Name || '';
                 // Buscar si el número está en el nombre del producto
-                return productName.includes(productoNumero) || 
-                       productName === productoNumero ||
-                       productName.startsWith(productoNumero + ' ') ||
-                       productName.endsWith(' ' + productoNumero);
+                return productName.includes(productoNumero) ||
+                  productName === productoNumero ||
+                  productName.startsWith(productoNumero + ' ') ||
+                  productName.endsWith(' ' + productoNumero);
               });
-              
+
               if (matchingProduct) {
-                productField = { 
+                productField = {
                   id: matchingProduct.id,
                   name: matchingProduct.Product_Name || 'Producto sin nombre'
                 };
@@ -1984,18 +1953,18 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
                   [key: string]: any;
                 }>;
               }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
-              
+
               if (productsResponse.data && productsResponse.data.length > 0) {
                 const matchingProduct = productsResponse.data.find(p => {
                   const productName = p.Product_Name || '';
-                  return productName.includes(productoNumero) || 
-                         productName === productoNumero ||
-                         productName.startsWith(productoNumero + ' ') ||
-                         productName.endsWith(' ' + productoNumero);
+                  return productName.includes(productoNumero) ||
+                    productName === productoNumero ||
+                    productName.startsWith(productoNumero + ' ') ||
+                    productName.endsWith(' ' + productoNumero);
                 });
-                
+
                 if (matchingProduct) {
-                  productField = { 
+                  productField = {
                     id: matchingProduct.id,
                     name: matchingProduct.Product_Name || 'Producto sin nombre'
                   };
@@ -2035,25 +2004,25 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
         }, 'zoho-product-partners');
       }
     }
-    
+
     if (!productField) {
       logger.info(`Deal ${dealId} no tiene Product_Name, Product_ID, Products ni Productos_de_interes asociado`, {
         dealId,
         dealDataKeys: Object.keys(dealData),
       }, 'zoho-product-partners');
-      
+
       // Intentar buscar por desarrollo y número del producto desde el Deal_Name
       // El Deal_Name tiene formato: "Cliente - Producto/Lote"
       const dealName = dealData.Deal_Name;
       const desarrollo = dealData.Desarrollo || dealData.Desarollo;
-      
+
       if (dealName && desarrollo) {
         logger.info(`Intentando buscar producto por desarrollo y nombre desde Deal_Name`, {
           dealId,
           dealName,
           desarrollo,
         }, 'zoho-product-partners');
-        
+
         // Extraer el nombre del producto del Deal_Name
         const parts = dealName.split(' - ');
         if (parts.length >= 2) {
@@ -2063,7 +2032,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
             productoName,
             desarrollo,
           }, 'zoho-product-partners');
-          
+
           // Buscar productos por desarrollo y nombre
           try {
             const productsResponse = await zohoRequest<{
@@ -2074,15 +2043,15 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
                 [key: string]: any;
               }>;
             }>(`/Products/search?criteria=(Desarrollo:equals:${encodeURIComponent(desarrollo)})`, {}, false);
-            
+
             if (productsResponse.data && productsResponse.data.length > 0) {
               // Buscar el producto que coincida con el nombre
-              const matchingProduct = productsResponse.data.find(p => 
+              const matchingProduct = productsResponse.data.find(p =>
                 p.Product_Name && p.Product_Name.toLowerCase().includes(productoName.toLowerCase())
               );
-              
+
               if (matchingProduct) {
-                productField = { 
+                productField = {
                   id: matchingProduct.id,
                   name: matchingProduct.Product_Name || 'Producto sin nombre'
                 };
@@ -2093,7 +2062,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
                 }, 'zoho-product-partners');
               } else {
                 // Si no hay coincidencia exacta, usar el primer producto del desarrollo
-                productField = { 
+                productField = {
                   id: productsResponse.data[0].id,
                   name: productsResponse.data[0].Product_Name || 'Producto sin nombre'
                 };
@@ -2113,18 +2082,18 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
           }
         }
       }
-      
+
       if (!productField) {
         return [];
       }
     }
-    
+
     logger.info(`Deal ${dealId} tiene campo de producto`, {
       dealId,
       productField,
       productFieldType: Array.isArray(productField) ? 'array' : typeof productField,
     }, 'zoho-product-partners');
-    
+
     // Product_Name/Product_ID/Products/Productos_de_interes puede ser un objeto o un array
     let productId: string | null = null;
     if (Array.isArray(productField) && productField.length > 0) {
@@ -2161,7 +2130,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
         productId,
       }, 'zoho-product-partners');
     }
-    
+
     if (!productId) {
       logger.warn(`No se pudo extraer productId del campo de producto`, {
         dealId,
@@ -2169,30 +2138,30 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
       }, 'zoho-product-partners');
       return [];
     }
-    
+
     logger.info(`Obteniendo subformulario Socios_del_Producto para producto ${productId}`, {
       dealId,
       productId,
     }, 'zoho-product-partners');
-    
+
     // Obtener el subformulario de socios
     const subformData = await getProductSubformData(productId, 'Socios_del_Producto');
-    
+
     logger.info(`Subformulario obtenido para producto ${productId}`, {
       dealId,
       productId,
       subformRows: subformData.length,
       subformData: subformData,
     }, 'zoho-product-partners');
-    
+
     // Extraer socios y participación
     const partners: Array<{ socio: string; participacion: number }> = [];
-    
+
     for (const row of subformData) {
       // Buscar el campo de socio (puede tener diferentes nombres)
       let socioName = '';
       let participacion = 0;
-      
+
       // Buscar campos comunes para el nombre del socio
       // El campo real en Zoho es 'Nombre_del_Socio'
       const socioFields = ['Nombre_del_Socio', 'Socio', 'Nombre', 'Name', 'Socio_del_Producto', 'Contact_Name', 'Socio_del_Producto.name'];
@@ -2206,7 +2175,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
           if (socioName) break;
         }
       }
-      
+
       // Buscar el campo de participación (puede tener diferentes nombres)
       const participacionFields = ['Participaci_n', 'Participación', 'Participacion', 'Participaci_n_del_Producto', '% Participación', 'Porcentaje', 'Participaci_n_del_Producto'];
       for (const field of participacionFields) {
@@ -2215,7 +2184,7 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
           if (participacion > 0) break;
         }
       }
-      
+
       if (socioName) {
         partners.push({
           socio: socioName,
@@ -2230,14 +2199,14 @@ export async function getProductPartnersFromDeal(dealId: string): Promise<Array<
         }, 'zoho-product-partners');
       }
     }
-    
+
     logger.info(`Socios extraídos para deal ${dealId}`, {
       dealId,
       productId,
       partnersCount: partners.length,
       partners,
     }, 'zoho-product-partners');
-    
+
     return partners;
   } catch (error) {
     logger.error('Error obteniendo socios del producto desde deal', error, {
@@ -2263,4 +2232,6 @@ export async function testZohoConnection(): Promise<boolean> {
     return false;
   }
 }
+
+
 

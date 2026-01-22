@@ -7,10 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth';
-import { getAllZohoLeads, getAllZohoDeals, getZohoNotesForRecords } from '@/lib/zoho-crm';
-import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/postgres';
-import { logger } from '@/lib/logger';
+import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { getAllZohoLeads, getAllZohoDeals, getZohoNotesForRecords } from '@/lib/services/zoho-crm';
+import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
 export const dynamic = 'force-dynamic';
@@ -417,7 +417,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     }
 
     // 3. Obtener última sincronización desde la BD
-    const { query } = await import('@/lib/postgres');
+    const { query } = await import('@/lib/db/postgres');
     const result = await query<{
       sync_type: string;
       status: string;
@@ -459,4 +459,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     );
   }
 }
+
+
+
+
 
