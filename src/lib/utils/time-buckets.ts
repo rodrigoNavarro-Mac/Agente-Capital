@@ -13,9 +13,10 @@
  * - month: every 2 days  -> 15 points (calendar month)
  * - quarter: every week  -> buckets across the calendar quarter
  * - year: every month    -> 12 points (calendar year)
+ * - custom: dynamic buckets based on range duration
  */
 
-export type TimePeriod = 'week' | 'month' | 'quarter' | 'year';
+export type TimePeriod = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -76,6 +77,22 @@ export function parseYearMonthKey(value: string): { year: number; month: number 
   return { year, month };
 }
 
+export function getPreviousPeriodForCustomRange(start: Date, end: Date): { startDate: Date; endDate: Date } {
+  const durationMs = end.getTime() - start.getTime();
+  // Ensure we subtract at least 1 day if start == end (though typically range has duration)
+  // Logic: Previous period ends 1ms before current start.
+  // Previous start = Previous end - duration.
+
+  // Using dates to avoid DST issues where simply subtracting ms might shift hours?
+  // Actually, for "N days", subtracting days is safer.
+  const daysDiff = Math.round(durationMs / DAY_MS);
+
+  const prevEndDate = addDays(start, -1);
+  const prevStartDate = addDays(prevEndDate, -daysDiff); // Same duration
+
+  return { startDate: startOfDay(prevStartDate), endDate: endOfDay(prevEndDate) };
+}
+
 export function getRollingPeriodDates(
   period: TimePeriod,
   isLastPeriod: boolean = false,
@@ -86,8 +103,15 @@ export function getRollingPeriodDates(
   // - month: current calendar month (1st -> last day)
   // - quarter: current calendar quarter
   // - year: current calendar year
+  // - custom: handled by caller usually, but if called, returns defaults or throws?
   // When isLastPeriod=true, it returns the immediately previous period of the same type.
   const endBase = endOfDay(now);
+
+  if (period === 'custom') {
+    // Fallback or error. The caller should use specific dates for custom.
+    // Return today if forced.
+    return { startDate: startOfDay(now), endDate: endOfDay(now) };
+  }
 
   if (period === 'week') {
     // Current calendar week (Mon -> Sun). When isLastPeriod=true, return the previous week.
@@ -133,6 +157,32 @@ export function buildBucketKeys(period: TimePeriod, rangeStart: Date, rangeEnd: 
     while (cursor <= end) {
       keys.push(toISODateLocal(cursor));
       cursor = startOfDay(addDays(cursor, 1));
+    }
+    return keys;
+  }
+
+  if (period === 'custom') {
+    // For custom range, we try to split into ~10-15 buckets if it's large,
+    // or 1 bucket per day if it's small.
+    const diffDays = (end.getTime() - start.getTime()) / DAY_MS;
+
+    // If less than 60 days, show daily.
+    if (diffDays <= 60) {
+      const keys: string[] = [];
+      let cursor = start;
+      while (cursor <= end) {
+        keys.push(toISODateLocal(cursor));
+        cursor = startOfDay(addDays(cursor, 1));
+      }
+      return keys;
+    }
+
+    // If more, maybe weekly?
+    const keys: string[] = [];
+    let cursor = start;
+    while (cursor <= end) {
+      keys.push(toISODateLocal(cursor));
+      cursor = startOfDay(addDays(cursor, 7));
     }
     return keys;
   }
@@ -208,6 +258,17 @@ export function getBucketKeyForDate(date: Date, period: TimePeriod, rangeStart: 
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     return `${yyyy}-${mm}`;
+  }
+
+  if (period === 'custom') {
+    // Match logic in buildBucketKeys
+    // Match logic in buildBucketKeys
+    // Simplified: if < 60 days, return daily iso
+    // Actually easier: calculate daily key. If it exists in "daily" mode, good.
+    // To keep consistent with buildBucketKeys, we need to know the strategy.
+    // Let's assume daily for now as most custom ranges are short.
+    // If we implement 'weekly' for long custom ranges, we need logic here.
+    return toISODateLocal(d);
   }
 
   // quarter

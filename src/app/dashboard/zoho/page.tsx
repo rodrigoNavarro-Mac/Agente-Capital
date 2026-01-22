@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import {
   getZohoLeads,
   getZohoDeals,
@@ -26,8 +26,11 @@ import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/utils/development-colors';
-import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, type TimePeriod } from '@/lib/utils/time-buckets';
+import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, getPreviousPeriodForCustomRange, type TimePeriod } from '@/lib/utils/time-buckets';
 import { logger } from '@/lib/utils/logger';
+import { DatePickerWithRange } from '@/components/date-range-picker';
+import { DateRange } from 'react-day-picker';
+
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -60,6 +63,10 @@ export default function ZohoCRMPage() {
   const [selectedOwner, setSelectedOwner] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
+  const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>({
+    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    to: new Date()
+  });
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -100,6 +107,13 @@ export default function ZohoCRMPage() {
     const trimmed = name.trim();
     // Capitalizar primera letra y dejar el resto en minúsculas
     return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  };
+
+  // Helper para normalizar fuente de lead (Online Store -> Landing Page)
+  const normalizeLeadSource = (source: string | undefined): string => {
+    if (!source) return '';
+    if (source === 'Online Store') return 'Landing Page';
+    return source;
   };
 
   // Función para comparar desarrollos de forma case-insensitive
@@ -166,12 +180,12 @@ export default function ZohoCRMPage() {
     const sources = new Set<string>();
     leads.forEach(lead => {
       if (lead.Lead_Source) {
-        sources.add(lead.Lead_Source);
+        sources.add(normalizeLeadSource(lead.Lead_Source));
       }
     });
     deals.forEach(deal => {
       if (deal.Lead_Source) {
-        sources.add(deal.Lead_Source);
+        sources.add(normalizeLeadSource(deal.Lead_Source));
       }
     });
     return Array.from(sources).sort();
@@ -215,14 +229,30 @@ export default function ZohoCRMPage() {
   }, [selectedDesarrollo]);
 
   // Calcular fechas según el periodo seleccionado (rangos de calendario)
+  // Calcular fechas según el periodo seleccionado (rangos de calendario)
   const getPeriodDates = useCallback((period: TimePeriod, isLastPeriod: boolean = false) => {
+    if (period === 'custom') {
+      if (!customDateRange || !customDateRange.from) {
+        // Fallback default
+        return getRollingPeriodDates('month', isLastPeriod);
+      }
+      const start = customDateRange.from;
+      const end = customDateRange.to || customDateRange.from;
+
+      if (!isLastPeriod) {
+        return { startDate: start, endDate: end };
+      } else {
+        // Calculate previous period for custom range
+        return getPreviousPeriodForCustomRange(start, end);
+      }
+    }
     // Calendar ranges:
     // - week: Mon -> Sun of current week
     // - month: 1st -> last day of current month
     // - quarter: start -> end of current quarter
     // - year: Jan 1 -> Dec 31 of current year
     return getRollingPeriodDates(period, isLastPeriod);
-  }, []);
+  }, [customDateRange]);
 
   // Si cambian filtros, invalidamos el resultado de IA (evita mostrar insights de otro periodo)
   useEffect(() => {
@@ -627,9 +657,35 @@ export default function ZohoCRMPage() {
     desarrollo?: string,
     source?: string,
     owner?: string,
-    status?: string
+    status?: string,
+    overrideEndDate?: Date,
+    customRange?: DateRange
   ): ZohoStats => {
-    const { startDate, endDate } = getPeriodDates(period, isLastPeriod);
+    let startDate: Date;
+    let initialEndDate: Date;
+
+    if (period === 'custom' && customRange?.from) {
+      const start = customRange.from;
+      const end = customRange.to || customRange.from;
+
+      if (!isLastPeriod) {
+        startDate = start;
+        initialEndDate = end;
+      } else {
+        const prev = getPreviousPeriodForCustomRange(start, end);
+        startDate = prev.startDate;
+        initialEndDate = prev.endDate;
+      }
+    } else {
+      const dates = getPeriodDates(period, isLastPeriod);
+      startDate = dates.startDate;
+      initialEndDate = dates.endDate;
+    }
+
+    let endDate = initialEndDate;
+    if (overrideEndDate) {
+      endDate = overrideEndDate;
+    }
 
     // Helper: identificar "Cerrado Ganado" por etapa (compatible con variantes)
     const wonStages = ['Ganado', 'Won', 'Cerrado Ganado'];
@@ -638,19 +694,42 @@ export default function ZohoCRMPage() {
       return wonStages.some((k) => s.includes(k.toLowerCase()));
     };
 
-    // Helper: extraer YYYY-MM-DD (preferimos Closing_Date; fallback a Modified_Time si no existe)
+
+    // Helpers de fechas localizados
+    const BUSINESS_UTC_OFFSET_MINUTES = -360;
+    const offsetMs = BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000;
+
+    // Convert Date -> YYYY-MM-DD en una zona fija (business)
+    const toBusinessISODate = (date: Date): string => {
+      const local = new Date(date.getTime() + offsetMs);
+      const yyyy = local.getUTCFullYear();
+      const mm = String(local.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(local.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
     const extractISODateKey = (value: unknown): string | null => {
       if (!value) return null;
       if (typeof value === 'string') {
         const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
         if (m) return m[1];
         const d = new Date(value);
-        if (!Number.isNaN(d.getTime())) return toISODateLocal(d);
+        if (!Number.isNaN(d.getTime())) return toBusinessISODate(d);
         return null;
       }
-      if (value instanceof Date) return toISODateLocal(value);
+      if (value instanceof Date) return toBusinessISODate(value);
       return null;
     };
+
+    const isDateKeyInRange = (key: string | null, startKey: string | null, endKey: string | null): boolean => {
+      if (!key) return false;
+      if (startKey && key < startKey) return false;
+      if (endKey && key > endKey) return false;
+      return true;
+    };
+
+
+
 
     const getDealClosedWonDateKey = (deal: ZohoDeal): string | null => {
       return (
@@ -661,10 +740,7 @@ export default function ZohoCRMPage() {
       );
     };
 
-    const isDateKeyInRange = (key: string | null, startKey: string, endKey: string): boolean => {
-      if (!key) return false;
-      return key >= startKey && key <= endKey;
-    };
+
 
     // Aplicar filtros en memoria
     const filteredLeads = allLeads.filter(lead => {
@@ -682,7 +758,7 @@ export default function ZohoCRMPage() {
       }
 
       // Filtro de fuente
-      if (source && source !== 'all' && lead.Lead_Source !== source) return false;
+      if (source && source !== 'all' && normalizeLeadSource(lead.Lead_Source) !== source) return false;
 
       // Filtro de asesor
       if (owner && owner !== 'all' && lead.Owner?.name !== owner) return false;
@@ -732,7 +808,7 @@ export default function ZohoCRMPage() {
       }
 
       // Filtro de fuente
-      if (source && source !== 'all' && deal.Lead_Source !== source) {
+      if (source && source !== 'all' && normalizeLeadSource(deal.Lead_Source) !== source) {
         dealExclusionReasons.sourceMismatch++;
         return false;
       }
@@ -765,7 +841,7 @@ export default function ZohoCRMPage() {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
         if (dealDesarrollo !== desarrollo) return false;
       }
-      if (source && source !== 'all' && deal.Lead_Source !== source) return false;
+      if (source && source !== 'all' && normalizeLeadSource(deal.Lead_Source) !== source) return false;
       if (owner && owner !== 'all' && deal.Owner?.name !== owner) return false;
       if (status && status !== 'all' && deal.Stage !== status) return false;
 
@@ -923,13 +999,13 @@ export default function ZohoCRMPage() {
     // Estadísticas por fuente
     const leadsBySource: Record<string, number> = {};
     filteredLeads.forEach(lead => {
-      const source = lead.Lead_Source || 'Sin Fuente';
+      const source = normalizeLeadSource(lead.Lead_Source) || 'Sin Fuente';
       leadsBySource[source] = (leadsBySource[source] || 0) + 1;
     });
 
     const dealsBySource: Record<string, number> = {};
     filteredDeals.forEach(deal => {
-      const source = deal.Lead_Source || 'Sin Fuente';
+      const source = normalizeLeadSource(deal.Lead_Source) || 'Sin Fuente';
       dealsBySource[source] = (dealsBySource[source] || 0) + 1;
     });
 
@@ -963,9 +1039,7 @@ export default function ZohoCRMPage() {
     const businessStart = 8 * 60 + 30; // 08:30 in minutes
     const businessEnd = 20 * 60 + 30; // 20:30 in minutes
 
-    // Mexico City standard time (UTC-06:00). We use a fixed offset so results don't depend on viewer timezone.
-    const BUSINESS_UTC_OFFSET_MINUTES = -360;
-    const offsetMs = BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000;
+
 
     const getLocalParts = (date: Date) => {
       const local = new Date(date.getTime() + offsetMs);
@@ -1045,17 +1119,55 @@ export default function ZohoCRMPage() {
       ? Math.round((leadsOutsideBusinessHours / filteredLeads.length) * 10000) / 100
       : 0;
 
-    // Leads de calidad (simplificado: contactados con solicitud de visita/cita)
+    // Leads de calidad (Solicitud de visita/cita + Estado Contactado) + Deals originados en el periodo
     let qualityLeads = 0;
+    const qualityLeadsBySource: Record<string, number> = {};
+
+    // 1. Leads
     filteredLeads.forEach(lead => {
       const solicitoVisitaCita = (lead as any).Solicito_visita_cita;
-      const hasFirstContact = (lead as any).First_Contact_Time || (lead as any).Ultimo_conctacto;
-      if (solicitoVisitaCita && hasFirstContact) {
+      const status = lead.Lead_Status || '';
+      // Status must contain "Contactado" (case insensitive)
+      const isContacted = status.toLowerCase().includes('contactado');
+
+      if (solicitoVisitaCita && isContacted) {
         qualityLeads++;
+        const source = normalizeLeadSource(lead.Lead_Source) || 'Sin Fuente';
+        qualityLeadsBySource[source] = (qualityLeadsBySource[source] || 0) + 1;
       }
     });
+
+    // 2. Deals (originados de leads creados en este periodo)
+    filteredDeals.forEach(deal => {
+      // Check if original lead was created in this period
+      // Try to find Lead Creation Time on the deal
+      const leadCreatedStr = (deal as any).Creacion_de_Lead || deal.Created_Time; // Fallback to deal creation if missing
+
+      let isOriginLeadInPeriod = false;
+      if (leadCreatedStr) {
+        // Re-use the existing date range check
+        const d = new Date(leadCreatedStr);
+        if (!Number.isNaN(d.getTime())) {
+          const key = extractISODateKey(d);
+          // We need to check if this key is within startDate/endDate
+          // Convert startDate/endDate to keys for comparison
+          const startKey = toBusinessISODate(startDate);
+          const endKey = toBusinessISODate(endDate);
+          if (isDateKeyInRange(key, startKey, endKey)) {
+            isOriginLeadInPeriod = true;
+          }
+        }
+      }
+
+      if (isOriginLeadInPeriod) {
+        qualityLeads++;
+        const source = normalizeLeadSource(deal.Lead_Source) || 'Sin Fuente';
+        qualityLeadsBySource[source] = (qualityLeadsBySource[source] || 0) + 1;
+      }
+    });
+
     const qualityLeadsPercentage = filteredLeads.length > 0
-      ? Math.round((qualityLeads / filteredLeads.length) * 10000) / 100
+      ? Math.round((qualityLeads / (filteredLeads.length + filteredDeals.length)) * 10000) / 100
       : 0;
 
     // Dependencia de canal (concentración)
@@ -1175,6 +1287,7 @@ export default function ZohoCRMPage() {
       dealsByOwner,
       qualityLeads,
       qualityLeadsPercentage,
+      qualityLeadsBySource, // Nuevo campo
       leadsByWeek,
       dealsByWeek,
       leadsByMonth,
@@ -1208,9 +1321,11 @@ export default function ZohoCRMPage() {
       selectedDesarrollo,
       selectedSource,
       selectedOwner,
-      selectedStatus
+      selectedStatus,
+      undefined,
+      customDateRange
     );
-  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData]);
+  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData, customDateRange]);
 
   const previousStats = useMemo(() => {
     if (leads.length === 0 && deals.length === 0) return null;
@@ -1222,9 +1337,39 @@ export default function ZohoCRMPage() {
       selectedDesarrollo,
       selectedSource,
       selectedOwner,
-      selectedStatus
+      selectedStatus,
+      undefined,
+      customDateRange
     );
-  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData]);
+  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData, customDateRange]);
+
+  // Estadísticas comparables (proporcionales a la fecha actual)
+  const previousComparableStats = useMemo(() => {
+    if (leads.length === 0 && deals.length === 0) return null;
+
+    const now = new Date();
+    const { startDate: currentStart } = getPeriodDates(selectedPeriod, false);
+    const { startDate: prevStart, endDate: prevEnd } = getPeriodDates(selectedPeriod, true);
+
+    let elapsed = now.getTime() - currentStart.getTime();
+    if (elapsed < 0) elapsed = 0;
+
+    const proportionalPrevEnd = new Date(prevStart.getTime() + elapsed);
+    const clampedPrevEnd = proportionalPrevEnd > prevEnd ? prevEnd : proportionalPrevEnd;
+
+    return calculateStatsFromData(
+      leads,
+      deals,
+      selectedPeriod,
+      true,
+      selectedDesarrollo,
+      selectedSource,
+      selectedOwner,
+      selectedStatus,
+      clampedPrevEnd,
+      customDateRange
+    );
+  }, [leads, deals, selectedPeriod, selectedDesarrollo, selectedSource, selectedOwner, selectedStatus, calculateStatsFromData, getPeriodDates, customDateRange]);
 
   // Actualizar estados cuando cambian las estadísticas calculadas
   useEffect(() => {
@@ -1463,6 +1608,9 @@ export default function ZohoCRMPage() {
   const displayedLifecycleFunnel =
     activityStats?.lifecycleFunnel ?? displayedStats?.lifecycleFunnel ?? emptyLifecycleFunnel;
 
+  // Estadísticas para comparación (badges de porcentaje)
+  const comparisonStats = previousComparableStats ?? lastMonthStats;
+
   // Lists for Leads/Deals tabs (must follow the selected period + toggle)
   const displayedFilteredLeads = useMemo(() => {
     const { startDate, endDate } = getPeriodDates(selectedPeriod, showLastMonth);
@@ -1640,17 +1788,27 @@ export default function ZohoCRMPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="text-sm font-medium mb-2 block">Periodo</label>
-                <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar periodo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="week">Semanal</SelectItem>
-                    <SelectItem value="month">Mensual</SelectItem>
-                    <SelectItem value="quarter">Trimestral</SelectItem>
-                    <SelectItem value="year">Anual</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-col gap-2">
+                  <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar periodo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="week">Semanal</SelectItem>
+                      <SelectItem value="month">Mensual</SelectItem>
+                      <SelectItem value="quarter">Trimestral</SelectItem>
+                      <SelectItem value="year">Anual</SelectItem>
+                      <SelectItem value="custom">Personalizado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {selectedPeriod === 'custom' && (
+                    <DatePickerWithRange
+                      className="w-full"
+                      date={customDateRange}
+                      onDateChange={setCustomDateRange}
+                    />
+                  )}
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">Desarrollo</label>
@@ -1941,7 +2099,7 @@ export default function ZohoCRMPage() {
               </div>
 
               {/* Comparativo vs Periodo Anterior (solo cuando estamos viendo periodo actual) */}
-              {!showLastMonth && stats && lastMonthStats && (
+              {!showLastMonth && stats && comparisonStats && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Comparativo vs Periodo Anterior</CardTitle>
@@ -1952,46 +2110,46 @@ export default function ZohoCRMPage() {
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Leads</p>
                         <p className="text-xl font-bold">{stats.totalLeads}</p>
-                        {lastMonthStats.totalLeads > 0 && stats.totalLeads !== lastMonthStats.totalLeads && (
-                          <p className={`text-xs mt-1 ${stats.totalLeads > lastMonthStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
-                            {stats.totalLeads > lastMonthStats.totalLeads ? '+' : ''}
-                            {Math.round(((stats.totalLeads - lastMonthStats.totalLeads) / lastMonthStats.totalLeads) * 100)}%
+                        {comparisonStats.totalLeads > 0 && stats.totalLeads !== comparisonStats.totalLeads && (
+                          <p className={`text-xs mt-1 ${stats.totalLeads > comparisonStats.totalLeads ? 'text-green-600' : 'text-red-600'}`}>
+                            {stats.totalLeads > comparisonStats.totalLeads ? '+' : ''}
+                            {Math.round(((stats.totalLeads - comparisonStats.totalLeads) / comparisonStats.totalLeads) * 100)}%
                           </p>
                         )}
-                        {lastMonthStats.totalLeads === 0 && stats.totalLeads > 0 && (
+                        {comparisonStats.totalLeads === 0 && stats.totalLeads > 0 && (
                           <p className="text-xs text-green-600 mt-1">Nuevo</p>
                         )}
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Deals</p>
                         <p className="text-xl font-bold">{stats.totalDeals}</p>
-                        {lastMonthStats.totalDeals > 0 && stats.totalDeals !== lastMonthStats.totalDeals && (
-                          <p className={`text-xs mt-1 ${stats.totalDeals > lastMonthStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
-                            {stats.totalDeals > lastMonthStats.totalDeals ? '+' : ''}
-                            {Math.round(((stats.totalDeals - lastMonthStats.totalDeals) / lastMonthStats.totalDeals) * 100)}%
+                        {comparisonStats.totalDeals > 0 && stats.totalDeals !== comparisonStats.totalDeals && (
+                          <p className={`text-xs mt-1 ${stats.totalDeals > comparisonStats.totalDeals ? 'text-green-600' : 'text-red-600'}`}>
+                            {stats.totalDeals > comparisonStats.totalDeals ? '+' : ''}
+                            {Math.round(((stats.totalDeals - comparisonStats.totalDeals) / comparisonStats.totalDeals) * 100)}%
                           </p>
                         )}
-                        {lastMonthStats.totalDeals === 0 && stats.totalDeals > 0 && (
+                        {comparisonStats.totalDeals === 0 && stats.totalDeals > 0 && (
                           <p className="text-xs text-green-600 mt-1">Nuevo</p>
                         )}
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Conversión</p>
                         <p className="text-xl font-bold">{(stats.conversionRate || 0).toFixed(1)}%</p>
-                        {stats.conversionRate !== lastMonthStats.conversionRate && (
-                          <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                            {(stats.conversionRate || 0) > (lastMonthStats.conversionRate || 0) ? '+' : ''}
-                            {Math.abs(Math.round(((stats.conversionRate || 0) - (lastMonthStats.conversionRate || 0)) * 10) / 10).toFixed(1)}%
+                        {stats.conversionRate !== comparisonStats.conversionRate && (
+                          <p className={`text-xs mt-1 ${(stats.conversionRate || 0) > (comparisonStats.conversionRate || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                            {(stats.conversionRate || 0) > (comparisonStats.conversionRate || 0) ? '+' : ''}
+                            {Math.abs(Math.round(((stats.conversionRate || 0) - (comparisonStats.conversionRate || 0)) * 10) / 10).toFixed(1)}%
                           </p>
                         )}
                       </div>
                       <div className="p-4 border rounded-lg">
                         <p className="text-sm text-muted-foreground mb-1">Tiempo de contacto dentro de horario laboral</p>
                         <p className="text-xl font-bold">{displayedAvgTimeToFirstContact.toFixed(1)} min</p>
-                        {stats.averageTimeToFirstContact !== lastMonthStats.averageTimeToFirstContact && (
-                          <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                            {(stats.averageTimeToFirstContact || 0) < (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
-                            {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min
+                        {stats.averageTimeToFirstContact !== comparisonStats.averageTimeToFirstContact && (
+                          <p className={`text-xs mt-1 ${(stats.averageTimeToFirstContact || 0) < (comparisonStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                            {(stats.averageTimeToFirstContact || 0) < (comparisonStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                            {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (comparisonStats.averageTimeToFirstContact || 0)))} min
                           </p>
                         )}
                       </div>
@@ -2149,16 +2307,15 @@ export default function ZohoCRMPage() {
                     <div className="text-xl font-bold">
                       {displayedAvgTimeToFirstContact.toFixed(1)} min
                     </div>
-                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.averageTimeToFirstContact !== undefined && (
-                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                        {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? (
+                    {stats && comparisonStats && !showLastMonth && comparisonStats.averageTimeToFirstContact !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.averageTimeToFirstContact || 0) <= (comparisonStats.averageTimeToFirstContact || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                        {(stats.averageTimeToFirstContact || 0) <= (comparisonStats.averageTimeToFirstContact || 0) ? (
                           <TrendingUp className="h-3 w-3" />
                         ) : (
                           <TrendingDown className="h-3 w-3" />
                         )}
-                        {(stats.averageTimeToFirstContact || 0) <= (lastMonthStats.averageTimeToFirstContact || 0) ? '-' : '+'}
-                        {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (lastMonthStats.averageTimeToFirstContact || 0)))} min vs periodo anterior
+                        {(stats.averageTimeToFirstContact || 0) <= (comparisonStats.averageTimeToFirstContact || 0) ? '-' : '+'}
+                        {Math.abs(Math.round((stats.averageTimeToFirstContact || 0) - (comparisonStats.averageTimeToFirstContact || 0)))} min vs periodo anterior
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
@@ -2177,16 +2334,15 @@ export default function ZohoCRMPage() {
                     <div className="text-xl font-bold">
                       {((displayedStats?.leadsOutsideBusinessHoursPercentage || 0)).toFixed(1)}%
                     </div>
-                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.leadsOutsideBusinessHoursPercentage !== undefined && (
-                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? (
+                    {stats && comparisonStats && !showLastMonth && comparisonStats.leadsOutsideBusinessHoursPercentage !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.leadsOutsideBusinessHoursPercentage || 0) <= (comparisonStats.leadsOutsideBusinessHoursPercentage || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (comparisonStats.leadsOutsideBusinessHoursPercentage || 0) ? (
                           <TrendingUp className="h-3 w-3" />
                         ) : (
                           <TrendingDown className="h-3 w-3" />
                         )}
-                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
-                        {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (lastMonthStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                        {(stats.leadsOutsideBusinessHoursPercentage || 0) <= (comparisonStats.leadsOutsideBusinessHoursPercentage || 0) ? '-' : '+'}
+                        {Math.abs(Math.round(((stats.leadsOutsideBusinessHoursPercentage || 0) - (comparisonStats.leadsOutsideBusinessHoursPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
@@ -2205,21 +2361,58 @@ export default function ZohoCRMPage() {
                     <div className="text-xl font-bold">
                       {((displayedStats?.discardedLeadsPercentage || 0)).toFixed(1)}%
                     </div>
-                    {stats && lastMonthStats && !showLastMonth && lastMonthStats.discardedLeadsPercentage !== undefined && (
-                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                        {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? (
+                    {stats && comparisonStats && !showLastMonth && comparisonStats.discardedLeadsPercentage !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.discardedLeadsPercentage || 0) <= (comparisonStats.discardedLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                        {(stats.discardedLeadsPercentage || 0) <= (comparisonStats.discardedLeadsPercentage || 0) ? (
                           <TrendingUp className="h-3 w-3" />
                         ) : (
                           <TrendingDown className="h-3 w-3" />
                         )}
-                        {(stats.discardedLeadsPercentage || 0) <= (lastMonthStats.discardedLeadsPercentage || 0) ? '-' : '+'}
-                        {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (lastMonthStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                        {(stats.discardedLeadsPercentage || 0) <= (comparisonStats.discardedLeadsPercentage || 0) ? '-' : '+'}
+                        {Math.abs(Math.round(((stats.discardedLeadsPercentage || 0) - (comparisonStats.discardedLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
                       {displayedStats?.discardedLeads || 0} leads descartados
                     </p>
+                  </CardContent>
+                </Card>
+
+                {/* % Leads de Calidad */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">% Leales/Calidad</CardTitle>
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xl font-bold">
+                      {((displayedStats?.qualityLeadsPercentage || 0)).toFixed(1)}%
+                    </div>
+                    {stats && comparisonStats && !showLastMonth && comparisonStats.qualityLeadsPercentage !== undefined && (
+                      <p className={`text-xs flex items-center gap-1 mt-1 ${(stats.qualityLeadsPercentage || 0) >= (comparisonStats.qualityLeadsPercentage || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                        {(stats.qualityLeadsPercentage || 0) >= (comparisonStats.qualityLeadsPercentage || 0) ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        {(stats.qualityLeadsPercentage || 0) >= (comparisonStats.qualityLeadsPercentage || 0) ? '+' : ''}
+                        {Math.abs(Math.round(((stats.qualityLeadsPercentage || 0) - (comparisonStats.qualityLeadsPercentage || 0)) * 10) / 10).toFixed(1)}% vs periodo anterior
+                      </p>
+                    )}
+                    <div className="mt-3 space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Por fuente:</p>
+                      {Object.entries((displayedStats?.qualityLeadsBySource || {}) as Record<string, number>)
+                        .sort(([, a], [, b]) => b - a) // Sort by count desc
+                        .map(([source, count]) => (
+                          <div key={source} className="flex justify-between text-xs">
+                            <span className="truncate max-w-[80px]" title={source}>{source}</span>
+                            <span className="font-medium">{count}</span>
+                          </div>
+                        ))}
+                      {Object.keys(displayedStats?.qualityLeadsBySource || {}).length === 0 && (
+                        <p className="text-xs text-muted-foreground italic">Sin datos</p>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -2291,8 +2484,8 @@ export default function ZohoCRMPage() {
                                     {leadsToDealsRate.toFixed(1)}%
                                   </span>
                                   <div className={`w-1.5 h-1.5 rounded-full ${leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
-                                      leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                        'bg-red-500'
+                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                      'bg-red-500'
                                     }`}></div>
                                 </div>
                               </div>
@@ -2329,8 +2522,8 @@ export default function ZohoCRMPage() {
                                     {dealsToWonRate.toFixed(1)}%
                                   </span>
                                   <div className={`w-1.5 h-1.5 rounded-full ${dealsToWonHealth.color === 'green' ? 'bg-green-500' :
-                                      dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                        'bg-red-500'
+                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                      'bg-red-500'
                                     }`}></div>
                                 </div>
                               </div>
@@ -2370,8 +2563,8 @@ export default function ZohoCRMPage() {
                                 <div className="flex items-center justify-between mb-2">
                                   <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Leads → Deals</p>
                                   <div className={`w-2 h-2 rounded-full ${leadsToDealsHealth.color === 'green' ? 'bg-green-500' :
-                                      leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                        'bg-red-500'
+                                    leadsToDealsHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                      'bg-red-500'
                                     }`}></div>
                                 </div>
                                 <p className="text-xl font-bold text-gray-900 mb-1">
@@ -2390,8 +2583,8 @@ export default function ZohoCRMPage() {
                                 <div className="flex items-center justify-between mb-2">
                                   <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Deals → Cerrado Ganado</p>
                                   <div className={`w-2 h-2 rounded-full ${dealsToWonHealth.color === 'green' ? 'bg-green-500' :
-                                      dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
-                                        'bg-red-500'
+                                    dealsToWonHealth.color === 'yellow' ? 'bg-yellow-500' :
+                                      'bg-red-500'
                                     }`}></div>
                                 </div>
                                 <p className="text-xl font-bold text-gray-900 mb-1">
@@ -2855,9 +3048,36 @@ export default function ZohoCRMPage() {
                           {(displayedStats.qualityLeadsPercentage || 0).toFixed(1)}% del total de leads
                         </p>
                         <div className="pt-4 border-t">
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground mb-4">
                             Un lead de calidad es aquel que ha sido contactado exitosamente y tiene solicitud de cotización o visita.
                           </p>
+
+                          <h4 className="text-sm font-medium mb-3">Calidad por Fuente</h4>
+                          <div className="space-y-3">
+                            {Object.entries((displayedStats.qualityLeadsBySource || {}) as Record<string, number>)
+                              .sort(([, a], [, b]) => b - a)
+                              .map(([source, count]) => {
+                                const total = displayedStats.qualityLeads || 1;
+                                const percentage = Math.round((count / total) * 100);
+                                return (
+                                  <div key={source} className="space-y-1">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="truncate max-w-[150px]">{source}</span>
+                                      <span className="font-medium">{count} ({percentage}%)</span>
+                                    </div>
+                                    <div className="w-full bg-muted rounded-full h-2">
+                                      <div
+                                        className="bg-green-600 h-2 rounded-full"
+                                        style={{ width: `${percentage}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            {Object.keys(displayedStats.qualityLeadsBySource || {}).length === 0 && (
+                              <p className="text-xs text-muted-foreground italic">Sin datos de fuentes</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </CardContent>
@@ -3251,7 +3471,7 @@ export default function ZohoCRMPage() {
                                 </p>
                               )}
                               {lead.Lead_Source && (
-                                <p>Fuente: {lead.Lead_Source}</p>
+                                <p>Fuente: {normalizeLeadSource(lead.Lead_Source)}</p>
                               )}
                               {(lead.Desarrollo || (lead as any).Desarollo) && (
                                 <p>Desarrollo: <Badge variant="secondary">{normalizeDevelopmentDisplay(lead.Desarrollo || (lead as any).Desarollo)}</Badge></p>

@@ -765,6 +765,7 @@ export interface ZohoStats {
   // Calidad de leads
   qualityLeads?: number; // Leads de calidad (contactados exitosamente con solicitud de cotización o visita)
   qualityLeadsPercentage?: number; // % Leads de calidad
+  qualityLeadsBySource?: Record<string, number>; // Leads de calidad por fuente
   // Dependencia de canal
   channelConcentration?: Record<string, number>; // % concentración por canal
   // Evolución temporal (agrupada por semana/mes)
@@ -798,7 +799,7 @@ export interface ZohoNoteForAI {
 export interface ZohoNotesInsightsRequest {
   notes: ZohoNoteForAI[];
   context?: {
-    period?: 'week' | 'month' | 'quarter' | 'year';
+    period?: 'week' | 'month' | 'quarter' | 'year' | 'custom';
     startDate?: string;
     endDate?: string;
     desarrollo?: string;

@@ -3696,8 +3696,9 @@ export async function getZohoLeadsFromDB(
     const result = await query<{
       data: string;
       id: string;
+      lead_source: string | null;
     }>(
-      `SELECT id, data FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
+      `SELECT id, data, lead_source FROM zoho_leads ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
       params
     );
 
@@ -3738,6 +3739,12 @@ export async function getZohoLeadsFromDB(
       const lead = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
       // Asignar notas desde el mapa
       lead.Notes = notesMap.get(row.id) || [];
+
+      // Fallback: Si no tiene Lead_Source en JSON, usar la columna estructurada
+      if (!lead.Lead_Source && row.lead_source) {
+        lead.Lead_Source = row.lead_source;
+      }
+
       return lead;
     });
 
@@ -3911,8 +3918,9 @@ export async function getZohoDealsFromDB(
     const result = await query<{
       data: string;
       id: string;
+      lead_source: string | null;
     }>(
-      `SELECT id, data FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
+      `SELECT id, data, lead_source FROM zoho_deals ${whereClause} ORDER BY modified_time DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
       params
     );
 
@@ -3953,6 +3961,12 @@ export async function getZohoDealsFromDB(
       const deal = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
       // Asignar notas desde el mapa
       deal.Notes = notesMap.get(row.id) || [];
+
+      // Fallback: Si no tiene Lead_Source en JSON, usar la columna estructurada
+      if (!deal.Lead_Source && row.lead_source) {
+        deal.Lead_Source = row.lead_source;
+      }
+
       return deal;
     });
 
@@ -4027,7 +4041,7 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
         LOWER(TRIM(COALESCE(
           lead_source,
           data->>'Lead_Source'
-        ))) = LOWER(TRIM($${paramIndex}))
+        ))) = LOWER(TRIM($${paramIndex}::text))
       )`);
       params.push(filters.source);
       paramIndex++;
@@ -4036,7 +4050,7 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
     // Filtro de asesor (Owner.name) - usamos la columna owner_name
     if (filters?.owner) {
       whereConditions.push(`(
-        LOWER(TRIM(COALESCE(owner_name, ''))) = LOWER(TRIM($${paramIndex}))
+        LOWER(TRIM(COALESCE(owner_name, ''))) = LOWER(TRIM($${paramIndex}::text))
       )`);
       params.push(filters.owner);
       paramIndex++;
@@ -4045,7 +4059,7 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
     // Filtro de status/etapa exacta (Stage)
     if (filters?.status) {
       whereConditions.push(`(
-        LOWER(TRIM(COALESCE(stage, data->>'Stage', ''))) = LOWER(TRIM($${paramIndex}))
+        LOWER(TRIM(COALESCE(stage, data->>'Stage', ''))) = LOWER(TRIM($${paramIndex}::text))
       )`);
       params.push(filters.status);
       paramIndex++;
