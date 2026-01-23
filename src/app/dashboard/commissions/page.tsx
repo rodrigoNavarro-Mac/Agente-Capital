@@ -4591,9 +4591,7 @@ function DashboardTab({
                               <Table>
                                 <TableHeader>
                                   <TableRow className="h-8">
-                                    <TableHead className="text-xs py-1.5 px-2">Producto</TableHead>
-                                    <TableHead className="text-xs py-1.5 px-2">Cliente</TableHead>
-                                    <TableHead className="text-xs py-1.5 px-2">Desarrollo</TableHead>
+                                    <TableHead className="text-xs py-1.5 px-2">Concepto</TableHead>
                                     <TableHead className="text-xs py-1.5 px-2">Fecha</TableHead>
                                     <TableHead className="text-xs py-1.5 px-2">Persona</TableHead>
                                     <TableHead className="text-xs py-1.5 px-2">Rol</TableHead>
@@ -4614,10 +4612,8 @@ function DashboardTab({
                                     return (
                                       <TableRow key={dist.id} className="h-8">
                                         <TableCell className="text-xs py-1.5 px-2 font-medium">
-                                          {dist.producto || '-'}
+                                          Venta de {dist.producto || '-'} de {dist.desarrollo}
                                         </TableCell>
-                                        <TableCell className="text-xs py-1.5 px-2">{dist.cliente_nombre}</TableCell>
-                                        <TableCell className="text-xs py-1.5 px-2">{dist.desarrollo}</TableCell>
                                         <TableCell className="text-xs py-1.5 px-2">
                                           {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
                                         </TableCell>
