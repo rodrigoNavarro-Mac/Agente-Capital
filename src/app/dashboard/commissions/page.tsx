@@ -3709,6 +3709,7 @@ function DashboardTab({
     fecha_firma: string;
     cliente_nombre: string;
     desarrollo: string;
+    plazo_deal: string | null;
   }>>([]);
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
@@ -4016,7 +4017,7 @@ function DashboardTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((year) => (
+                  {Array.from({ length: 6 }, (_, i) => 2025 + i).map((year) => (
                     <SelectItem key={year} value={year.toString()}>
                       {year}
                     </SelectItem>
@@ -4612,10 +4613,24 @@ function DashboardTab({
                                     return (
                                       <TableRow key={dist.id} className="h-8">
                                         <TableCell className="text-xs py-1.5 px-2 font-medium">
-                                          Venta de {dist.producto || '-'} de {dist.desarrollo}
+                                          Comision de venta de {dist.producto || '-'} del desarrollo <span className="capitalize">{dist.desarrollo}</span>
                                         </TableCell>
                                         <TableCell className="text-xs py-1.5 px-2">
-                                          {new Date(dist.fecha_firma).toLocaleDateString('es-MX')}
+                                          {(() => {
+                                            if (dist.phase === 'post_sale' && dist.plazo_deal) {
+                                              // Intentar extraer el número de meses del plazo
+                                              // Puede venir como "12", "12 meses", "12 months", etc.
+                                              const match = String(dist.plazo_deal).match(/(\d+)/);
+                                              const months = match ? parseInt(match[0], 10) : 0;
+
+                                              if (months > 0) {
+                                                const date = new Date(dist.fecha_firma);
+                                                date.setMonth(date.getMonth() + months);
+                                                return date.toLocaleDateString('es-MX');
+                                              }
+                                            }
+                                            return new Date(dist.fecha_firma).toLocaleDateString('es-MX');
+                                          })()}
                                         </TableCell>
                                         <TableCell className="text-xs py-1.5 px-2">{dist.person_name}</TableCell>
                                         <TableCell className="text-xs py-1.5 px-2">{getRoleDisplayName(dist.role_type)}</TableCell>
