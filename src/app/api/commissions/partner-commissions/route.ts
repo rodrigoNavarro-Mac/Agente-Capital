@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import { logger } from '@/lib/utils/logger';
-import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/db/commission-db';
+import { getCommissionSales, getProductPartners, updatePartnerCommissionStatus, updatePartnerCommissionCashStatus, getPartnerCommissions, calculatePartnerCommissions } from '@/lib/db/commission-db';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionSalesFilters } from '@/types/commissions';
 
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     const year = searchParams.get('year') ? parseInt(searchParams.get('year')!, 10) : undefined;
     const collectionStatus = searchParams.get('collection_status');
     const phase = searchParams.get('phase') as 'sale-phase' | 'post-sale-phase' | null;
+    const includeHidden = searchParams.get('includeHidden') === 'true';
 
     // Obtener ventas comisionables con filtros para asegurar que las comisiones estén calculadas
     const salesFilters: CommissionSalesFilters = {};
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
     // Calcular y guardar comisiones para cada venta que tenga socios pero no tenga comisiones calculadas
     for (const sale of sales) {
       const partners = await getProductPartners(sale.id);
-      
+
       if (partners.length > 0) {
         // Verificar si ya existen comisiones calculadas para esta venta
         const existingCommissions = await getPartnerCommissions({
@@ -104,6 +105,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
       fecha_firma_to?: string;
       collection_status?: string;
       phase?: 'sale-phase' | 'post-sale-phase';
+      includeHidden?: boolean;
     } = {};
 
     if (desarrollo && desarrollo !== 'all') {
@@ -121,6 +123,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
 
     if (phase) {
       filters.phase = phase;
+    }
+
+    if (includeHidden) {
+      filters.includeHidden = true;
     }
 
     logger.info('Filtros aplicados para partner commissions', {
@@ -200,18 +206,11 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     }
 
     const body = await request.json();
-    const { id, collection_status, phase } = body;
+    const { id, collection_status, phase, is_cash_payment } = body;
 
-    if (!id || !collection_status) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, error: 'id y collection_status son requeridos' },
-        { status: 400 }
-      );
-    }
-
-    if (!['pending_invoice', 'invoiced', 'collected'].includes(collection_status)) {
-      return NextResponse.json(
-        { success: false, error: 'collection_status debe ser: pending_invoice, invoiced o collected' },
+        { success: false, error: 'id es requerido' },
         { status: 400 }
       );
     }
@@ -219,14 +218,40 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     // Validar fase
     const validPhase = phase === 'post_sale_phase' ? 'post_sale_phase' : 'sale_phase';
 
-    // Actualizar el estado por fase
-    await updatePartnerCommissionStatus(id, collection_status, payload.userId, validPhase);
+    // Si viene is_cash_payment, actualizar la bandera de efectivo
+    if (is_cash_payment !== undefined) {
+      await updatePartnerCommissionCashStatus(id, validPhase, is_cash_payment, payload.userId);
 
-    return NextResponse.json({
-      success: true,
-      data: { id, collection_status },
-      message: 'Estado de comisión actualizado correctamente'
-    });
+      return NextResponse.json({
+        success: true,
+        data: { id, phase: validPhase, is_cash_payment },
+        message: 'Estado de pago en efectivo actualizado correctamente'
+      });
+    }
+
+    // Si viene collection_status, actualizar el estado de cobro
+    if (collection_status) {
+      if (!['pending_invoice', 'invoiced', 'collected'].includes(collection_status)) {
+        return NextResponse.json(
+          { success: false, error: 'collection_status debe ser: pending_invoice, invoiced o collected' },
+          { status: 400 }
+        );
+      }
+
+      // Actualizar el estado por fase
+      await updatePartnerCommissionStatus(id, collection_status, payload.userId, validPhase);
+
+      return NextResponse.json({
+        success: true,
+        data: { id, collection_status },
+        message: 'Estado de comisión actualizado correctamente'
+      });
+    }
+
+    return NextResponse.json(
+      { success: false, error: 'Se requiere collection_status o is_cash_payment' },
+      { status: 400 }
+    );
 
   } catch (error) {
     logger.error('Error actualizando estado de comisión de socio', error, {}, 'commissions-partner-commissions-patch');

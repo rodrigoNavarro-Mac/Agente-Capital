@@ -83,20 +83,20 @@ export function normalizePersonName(roleType: CommissionRoleType, currentName: s
   if (ROLE_PERSON_NAMES[roleType]) {
     return ROLE_PERSON_NAMES[roleType]!;
   }
-  
+
   // Casos especiales
   if (roleType === 'sale_manager' && desarrollo) {
     return getSaleManagerName(desarrollo);
   }
-  
+
   if (roleType === 'deal_owner' && sale) {
     return sale.propietario_deal;
   }
-  
+
   if (roleType === 'external_advisor' && sale?.asesor_externo) {
     return sale.asesor_externo;
   }
-  
+
   // Si el nombre actual es genérico, reemplazarlo con el nombre específico
   const genericNames: Record<string, string[]> = {
     marketing: ['Gerente de Marketing', 'Departamento de Marketing', 'Marketing'],
@@ -104,7 +104,7 @@ export function normalizePersonName(roleType: CommissionRoleType, currentName: s
     legal_manager: ['Gerente Legal', 'Legal'],
     post_sale_coordinator: ['Coordinador Postventas', 'Coordinador de Postventa', 'Postventa'],
   };
-  
+
   const genericNamesForRole = genericNames[roleType];
   if (genericNamesForRole && genericNamesForRole.some(name => currentName.includes(name) || name.includes(currentName))) {
     // Si el nombre actual es genérico, usar el nombre específico del mapeo
@@ -112,7 +112,7 @@ export function normalizePersonName(roleType: CommissionRoleType, currentName: s
       return ROLE_PERSON_NAMES[roleType]!;
     }
   }
-  
+
   // Si no hay nombre específico y el actual no es genérico, mantener el actual
   return currentName;
 }
@@ -125,20 +125,20 @@ function getRolePersonName(roleType: CommissionRoleType, sale?: CommissionSale, 
   if (ROLE_PERSON_NAMES[roleType]) {
     return ROLE_PERSON_NAMES[roleType]!;
   }
-  
+
   // Casos especiales
   if (roleType === 'sale_manager' && desarrollo) {
     return getSaleManagerName(desarrollo);
   }
-  
+
   if (roleType === 'deal_owner' && sale) {
     return sale.propietario_deal;
   }
-  
+
   if (roleType === 'external_advisor' && sale?.asesor_externo) {
     return sale.asesor_externo;
   }
-  
+
   // Por defecto, usar el nombre del rol
   return ROLE_DISPLAY_NAMES[roleType] || roleType;
 }
@@ -188,14 +188,14 @@ function redistributeExternalAdvisorPercent(
   const saleManager = Number(saleManagerPercent) || 0;
   const dealOwner = Number(dealOwnerPercent) || 0;
   const externalAdvisor = Number(externalAdvisorPercent) || 0;
-  
+
   if (externalAdvisor === 0 || externalAdvisor === null) {
     return { saleManagerPercent: saleManager, dealOwnerPercent: dealOwner };
   }
 
   // Calcular el total actual (sin el asesor externo)
   const totalWithoutAdvisor = saleManager + dealOwner;
-  
+
   if (totalWithoutAdvisor === 0) {
     // Si ambos son 0, dividir el porcentaje del asesor equitativamente
     return {
@@ -226,7 +226,7 @@ function calculateSalePhaseDistribution(
   const distributions: RoleDistribution[] = [];
 
   // Verificar si el propietario del deal es "Asesor Externo" literal
-  const isDealOwnerExternalAdvisor = sale.propietario_deal && 
+  const isDealOwnerExternalAdvisor = sale.propietario_deal &&
     sale.propietario_deal.trim().toLowerCase() === 'asesor externo';
 
   // Obtener porcentajes redistribuidos si no hay asesor externo
@@ -295,10 +295,10 @@ function calculateSalePhaseDistribution(
     const amount = (poolAmount * externalAdvisorPercent) / 100;
     distributions.push({
       role_type: 'external_advisor',
-      person_name: isDealOwnerExternalAdvisor 
-        ? getRolePersonName('deal_owner', sale) 
+      person_name: isDealOwnerExternalAdvisor
+        ? getRolePersonName('deal_owner', sale)
         : getRolePersonName('external_advisor', sale),
-      person_id: isDealOwnerExternalAdvisor 
+      person_id: isDealOwnerExternalAdvisor
         ? (sale.propietario_deal_id || null)
         : (sale.asesor_externo_id || null),
       percent: externalAdvisorPercent,
@@ -344,7 +344,7 @@ function calculatePostSalePhaseDistribution(
   globalConfigs: CommissionGlobalConfig[]
 ): RoleDistribution[] {
   const distributions: RoleDistribution[] = [];
-  
+
   // Asegurar que valorTotal sea un número
   const valorTotalNum = Number(valorTotal) || 0;
 
@@ -434,22 +434,22 @@ export function calculateCommission(
   // Asegurar que todos los valores numéricos sean números (pueden venir como strings desde la BD)
   const valorTotal = Number(sale.valor_total) || 0;
   const commissionPercentNum = Number(commissionPercent) || 100;
-  
+
   // Calcular comisión base sobre el monto total (SIN incluir reglas)
   const commissionBase = Number(((valorTotal * commissionPercentNum) / 100).toFixed(3));
 
   // Calcular utilidad por reglas aplicables (NO se distribuye en fases, solo se referencia)
   let ruleUtilityAmount = 0;
-  const ruleDetails: { 
-    rule_name: string; 
-    percent: number; 
-    amount: number; 
+  const ruleDetails: {
+    rule_name: string;
+    percent: number;
+    amount: number;
     fulfilled: boolean;
     unidades_requeridas: number;
     unidades_vendidas: number;
     operador: string;
   }[] = [];
-  
+
   // Función helper para obtener el conteo de unidades vendidas en el período
   // Si hay un mapa proporcionado, usar el conteo real; si no, usar 1 (comportamiento legacy)
   const getUnidadesVendidas = (ruleId: number): number => {
@@ -458,7 +458,7 @@ export function calculateCommission(
     }
     return 1; // Comportamiento legacy: 1 unidad por venta
   };
-  
+
   // Agregar reglas cumplidas
   if (applicableRules.length > 0) {
     applicableRules.forEach((rule) => {
@@ -477,7 +477,7 @@ export function calculateCommission(
       });
     });
   }
-  
+
   // Agregar reglas no cumplidas (solo para referencia visual)
   if (allRules.length > 0) {
     const applicableRuleIds = new Set(applicableRules.map(r => r.id));
@@ -512,23 +512,23 @@ export function calculateCommission(
   // Calcular suma real de distribuciones por fase
   const salePhaseDistributed = saleDistributions.reduce((sum, dist) => sum + dist.amount, 0);
   const postSalePhaseDistributed = postSaleDistributions.reduce((sum, dist) => sum + dist.amount, 0);
-  
+
   // La comisión total es la suma de las fases distribuidas (NO incluye utilidad)
   const commissionTotal = Number((salePhaseDistributed + postSalePhaseDistributed).toFixed(3));
-  
+
   // Calcular totales de fase (montos asignados según porcentajes de configuración)
   const totalCommissionsByPhase = salePhaseAmount + postSalePhaseAmount;
-  
+
   // Calcular utilidad restante (Monto total comisiones por fase - Total de comisiones pagadas)
   const remainingUtility = Number((totalCommissionsByPhase - commissionTotal).toFixed(3));
-  
+
   // Agregar utilidad de reglas como distribución separada (referencia)
   const utilityDistributions: RoleDistribution[] = [];
   // Crear una distribución por cada regla (cumplida o no cumplida)
   ruleDetails.forEach((ruleDetail) => {
     // Codificar información de unidades en person_name: "Nombre|unidades_vendidas|unidades_requeridas|operador|fulfilled"
     const personNameWithInfo = `${ruleDetail.rule_name}|${ruleDetail.unidades_vendidas}|${ruleDetail.unidades_requeridas}|${ruleDetail.operador}|${ruleDetail.fulfilled ? '1' : '0'}`;
-    
+
     if (ruleDetail.fulfilled) {
       // Regla cumplida: mostrar utilidad
       utilityDistributions.push({
@@ -549,11 +549,11 @@ export function calculateCommission(
       });
     }
   });
-  
+
   // Si hay utilidad restante (diferencia entre total de fases y lo distribuido), agregarla
   if (remainingUtility > 0.01) { // Tolerancia de 0.01 para errores de redondeo
     // Asegurar que valorTotal no sea 0 para evitar división por cero
-    const percentValue = valorTotal > 0 
+    const percentValue = valorTotal > 0
       ? Number(((remainingUtility / valorTotal) * 100).toFixed(3))
       : 0;
     utilityDistributions.push({
@@ -616,9 +616,9 @@ export function calculateCommission(
   const partnerData = getPartnerDataForSale(sale.id);
   const partner_commissions = partnerData.length > 0
     ? calculatePartnerCommissionsForSale(sale, partnerData, {
-        phase_sale_percent: config.phase_sale_percent,
-        phase_post_sale_percent: config.phase_post_sale_percent,
-      })
+      phase_sale_percent: config.phase_sale_percent,
+      phase_post_sale_percent: config.phase_post_sale_percent,
+    })
     : undefined;
 
   return {
@@ -730,6 +730,8 @@ export function calculatePartnerCommissionsForSale(
           post_sale_phase_amount: postSalePhaseAmount,
           sale_phase_collection_status: 'pending_invoice' as const,
           post_sale_phase_collection_status: 'pending_invoice' as const,
+          sale_phase_is_cash_payment: false,
+          post_sale_phase_is_cash_payment: false,
           collection_status: 'pending_invoice' as const,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -750,6 +752,8 @@ export function calculatePartnerCommissionsForSale(
         post_sale_phase_amount: postSalePhaseAmount,
         sale_phase_collection_status: 'pending_invoice' as const,
         post_sale_phase_collection_status: 'pending_invoice' as const,
+        sale_phase_is_cash_payment: false,
+        post_sale_phase_is_cash_payment: false,
         collection_status: 'pending_invoice' as const,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -790,6 +794,8 @@ export function calculatePartnerCommissionsForSale(
         post_sale_phase_amount: 0,
         sale_phase_collection_status: 'pending_invoice' as const,
         post_sale_phase_collection_status: 'pending_invoice' as const,
+        sale_phase_is_cash_payment: false,
+        post_sale_phase_is_cash_payment: false,
         collection_status: 'pending_invoice' as const,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -816,6 +822,8 @@ export function calculatePartnerCommissionsForSale(
       post_sale_phase_amount: partnerPostSalePhaseAmount,
       sale_phase_collection_status: 'pending_invoice' as const,
       post_sale_phase_collection_status: 'pending_invoice' as const,
+      sale_phase_is_cash_payment: false,
+      post_sale_phase_is_cash_payment: false,
       collection_status: 'pending_invoice' as const,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

@@ -54,20 +54,20 @@ export type AdjustmentType = 'percent_change' | 'amount_change' | 'role_change';
 export interface CommissionConfig {
   id: number;
   desarrollo: string;
-  
+
   // Porcentajes de fases (solo como guía, el cálculo es sobre monto total)
   phase_sale_percent: number;
   phase_post_sale_percent: number;
-  
+
   // Fase Venta - Roles directos
   sale_manager_percent: number; // Gerente de ventas del desarrollo
   deal_owner_percent: number; // Asesor Interno (Propietario del Lead)
   external_advisor_percent: number | null; // Asesor Externo (Opcional)
-  
+
   // Fase Venta - Pool (Opcional, solo si cumplen reglas)
   pool_enabled: boolean;
   sale_pool_total_percent: number;
-  
+
   // Fase Postventa - Roles opcionales
   customer_service_enabled: boolean; // Atención a clientes (Opcional)
   customer_service_percent: number | null;
@@ -75,7 +75,7 @@ export interface CommissionConfig {
   deliveries_percent: number | null;
   bonds_enabled: boolean;
   bonds_percent: number | null;
-  
+
   // Metadata
   created_at: string;
   updated_at: string;
@@ -85,11 +85,11 @@ export interface CommissionConfig {
 
 export interface CommissionGlobalConfig {
   id: number;
-  config_key: 
-    | 'operations_coordinator_percent' // Fase Venta
-    | 'marketing_percent' // Fase Venta
-    | 'legal_manager_percent' // Fase Postventa
-    | 'post_sale_coordinator_percent'; // Fase Postventa
+  config_key:
+  | 'operations_coordinator_percent' // Fase Venta
+  | 'marketing_percent' // Fase Venta
+  | 'legal_manager_percent' // Fase Postventa
+  | 'post_sale_coordinator_percent'; // Fase Postventa
   config_value: number;
   description: string | null;
   updated_at: string;
@@ -178,7 +178,7 @@ export interface CommissionSale {
   commission_total: number;
   commission_sale_phase: number;
   commission_post_sale_phase: number;
-  
+
   // Porcentajes de fase usados cuando se calculó (estáticos, no cambian aunque se actualice la configuración)
   calculated_phase_sale_percent: number | null;
   calculated_phase_post_sale_percent: number | null;
@@ -467,7 +467,11 @@ export interface PartnerCommission {
   // Estados de cobro por fase (independientes)
   sale_phase_collection_status: PartnerCommissionStatus;
   post_sale_phase_collection_status: PartnerCommissionStatus;
-  
+
+  // Banderas de pago en efectivo (sin IVA)
+  sale_phase_is_cash_payment: boolean;
+  post_sale_phase_is_cash_payment: boolean;
+
   // Estado de cobro legacy (deprecated, mantener por compatibilidad)
   collection_status: PartnerCommissionStatus;
 

@@ -20,8 +20,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { decodeAccessToken } from '@/lib/auth/auth';
 import { DEVELOPMENTS } from '@/lib/config/constants';
 import type { UserRole } from '@/types/documents';
@@ -67,6 +68,8 @@ export default function CommissionsPage() {
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [showHiddenPartners, setShowHiddenPartners] = useState<boolean>(false);
+  const [hiddenPartners, setHiddenPartners] = useState<Set<string>>(new Set());
 
   // Debug: Log cambios en filtros
   useEffect(() => {
@@ -75,7 +78,7 @@ export default function CommissionsPage() {
       selectedYear,
       selectedStatus
     });
-  }, [selectedDesarrollo, selectedYear, selectedStatus]);
+  }, [selectedYear, selectedDesarrollo, selectedStatus, showHiddenPartners]);
 
   // Verificar rol del usuario
   useEffect(() => {
@@ -196,6 +199,78 @@ export default function CommissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Removida dependencia de selectedDesarrollo para evitar recargas automáticas
 
+  // Cargar socios ocultos
+  const loadHiddenPartners = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+
+      const response = await fetch('/api/commissions/hidden-partners', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const result = await response.json();
+      if (result.success && Array.isArray(result.data)) {
+        const hiddenSet = new Set<string>(result.data.map((p: any) => p.socio_name));
+        setHiddenPartners(hiddenSet);
+      }
+    } catch (error) {
+      console.error('Error loading hidden partners:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHiddenPartners();
+  }, [loadHiddenPartners]);
+
+  const handleHidePartner = async (socioName: string) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/hidden-partners', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ socio_name: socioName, description: 'Ocultado por usuario' })
+      });
+
+      if (response.ok) {
+        setHiddenPartners(prev => {
+          const newSet = new Set(prev);
+          newSet.add(socioName);
+          return newSet;
+        });
+        toast({ title: 'Socio ocultado', description: `${socioName} ha sido ocultado.` });
+        loadPartnerCommissions();
+      }
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo ocultar el socio.', variant: 'destructive' });
+    }
+  };
+
+  const handleUnhidePartner = async (socioName: string) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/commissions/hidden-partners?socio_name=${encodeURIComponent(socioName)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        setHiddenPartners(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(socioName);
+          return newSet;
+        });
+        toast({ title: 'Socio visible', description: `${socioName} ahora es visible.` });
+        loadPartnerCommissions();
+      }
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo restaurar el socio.', variant: 'destructive' });
+    }
+  };
+
   // Función para cargar lista completa de desarrollos disponibles
   const loadAllDevelopments = useCallback(async () => {
     console.log('[DEBUG] Loading all available developments');
@@ -288,6 +363,9 @@ export default function CommissionsPage() {
       params.append('phase', phase);
       console.log('[DEBUG] Adding phase filter to partner-commissions:', phase);
     }
+    if (showHiddenPartners) {
+      params.append('includeHidden', 'true');
+    }
 
     const url = `/api/commissions/partner-commissions?${params.toString()}`;
     console.log('[DEBUG] loadPartnerCommissions URL:', url);
@@ -329,7 +407,7 @@ export default function CommissionsPage() {
         variant: 'destructive',
       });
     }
-  }, [selectedDesarrollo, selectedYear, selectedStatus, toast]);
+  }, [selectedDesarrollo, selectedYear, selectedStatus, showHiddenPartners, toast]);
 
   const loadPartnerInvoices = useCallback(async () => {
     const token = localStorage.getItem('accessToken');
@@ -511,6 +589,11 @@ export default function CommissionsPage() {
             loading={loading}
             availableDevelopments={allAvailableDevelopments}
             configs={configs}
+            showHiddenPartners={showHiddenPartners}
+            setShowHiddenPartners={setShowHiddenPartners}
+            hiddenPartners={hiddenPartners}
+            handleHidePartner={handleHidePartner}
+            handleUnhidePartner={handleUnhidePartner}
           />
         </TabsContent>
 
@@ -3017,10 +3100,17 @@ function DistributionTab({
                     ) : (
                       <div className="divide-y">
                         {partnerCommissionsForSale.map((commission) => {
-                          // Calcular IVA
+                          // Calcular IVA (Considerando flag de efectivo por fase)
                           const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
-                          const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
-                          const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+
+                          const calculateIva = (amount: number, isCash: boolean) => {
+                            if (isCash) return 0;
+                            return Number(((amount * ivaPercent) / 100).toFixed(2));
+                          };
+
+                          const calculateTotalWithIva = (amount: number, isCash: boolean) => {
+                            return Number((amount + calculateIva(amount, isCash)).toFixed(2));
+                          };
 
                           // Calcular valor total de cada fase usando porcentajes
                           const commissionBase = Number(selectedSale?.valor_total || 0);
@@ -3042,12 +3132,15 @@ function DistributionTab({
                           const postSalePhaseAmount = Number(((commissionBase * postSalePhasePercent) / 100).toFixed(2));
                           const totalAmount = Number(commission.total_commission_amount || 0);
 
-                          const salePhaseIva = calculateIva(salePhaseAmount);
-                          const postSalePhaseIva = calculateIva(postSalePhaseAmount);
+                          const salePhaseIva = calculateIva(salePhaseAmount, commission.sale_phase_is_cash_payment);
+                          const postSalePhaseIva = calculateIva(postSalePhaseAmount, commission.post_sale_phase_is_cash_payment);
 
-                          const salePhaseTotal = calculateTotalWithIva(salePhaseAmount);
-                          const postSalePhaseTotal = calculateTotalWithIva(postSalePhaseAmount);
-                          const totalWithIva = calculateTotalWithIva(totalAmount);
+                          const salePhaseTotal = calculateTotalWithIva(salePhaseAmount, commission.sale_phase_is_cash_payment);
+                          const postSalePhaseTotal = calculateTotalWithIva(postSalePhaseAmount, commission.post_sale_phase_is_cash_payment);
+
+                          // Recalcular el total general sumando los totales de cada fase (con sus respectivos IVAs)
+                          // Esto es más preciso que usar calculateTotalWithIva(totalAmount) ya que cada fase puede tener diferente estado de IVA
+                          const totalWithIva = Number((salePhaseTotal + postSalePhaseTotal).toFixed(2));
 
                           return (
                             <div key={commission.id} className="p-3 space-y-2">
@@ -3092,7 +3185,7 @@ function DistributionTab({
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-muted-foreground">IVA:</span>
+                                      <span className="text-muted-foreground">IVA {commission.sale_phase_is_cash_payment && '(Efectivo - 0%)'}:</span>
                                       <span className="font-medium">
                                         ${salePhaseIva.toLocaleString('es-MX', {
                                           minimumFractionDigits: 2,
@@ -3145,7 +3238,7 @@ function DistributionTab({
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-muted-foreground">IVA:</span>
+                                      <span className="text-muted-foreground">IVA {commission.post_sale_phase_is_cash_payment && '(Efectivo - 0%)'}:</span>
                                       <span className="font-medium">
                                         ${postSalePhaseIva.toLocaleString('es-MX', {
                                           minimumFractionDigits: 2,
@@ -4797,7 +4890,12 @@ function PartnersTab({
   onRefresh,
   loading,
   availableDevelopments,
-  configs
+  configs,
+  showHiddenPartners,
+  setShowHiddenPartners,
+  hiddenPartners,
+  handleHidePartner,
+  handleUnhidePartner
 }: {
   partnerCommissions: PartnerCommission[];
   partnerInvoices: PartnerInvoice[];
@@ -4812,6 +4910,11 @@ function PartnersTab({
   loading: boolean;
   availableDevelopments: string[];
   configs: CommissionConfig[];
+  showHiddenPartners: boolean;
+  setShowHiddenPartners: (show: boolean) => void;
+  hiddenPartners: Set<string>;
+  handleHidePartner: (name: string) => void;
+  handleUnhidePartner: (name: string) => void;
 }) {
   const { toast } = useToast();
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
@@ -4820,8 +4923,13 @@ function PartnersTab({
 
   // Calcular IVA (usando el mismo porcentaje que en otras partes del sistema)
   const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
-  const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
-  const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+  const calculateIva = (amount: number, isCash: boolean = false) => {
+    if (isCash) return 0;
+    return Number(((amount * ivaPercent) / 100).toFixed(2));
+  };
+  const calculateTotalWithIva = (amount: number, isCash: boolean = false) => {
+    return Number((amount + calculateIva(amount, isCash)).toFixed(2));
+  };
 
   // Recargar automáticamente cuando cambian los filtros (año, estado, desarrollo)
   useEffect(() => {
@@ -4829,7 +4937,8 @@ function PartnersTab({
       selectedYear,
       selectedStatus,
       selectedDesarrollo,
-      activePhaseTab
+      activePhaseTab,
+      showHiddenPartners
     });
 
     // Recargar la fase activa cuando cambian los filtros
@@ -4841,7 +4950,7 @@ function PartnersTab({
 
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedYear, selectedStatus, selectedDesarrollo, activePhaseTab]);
+  }, [selectedYear, selectedStatus, selectedDesarrollo, activePhaseTab, showHiddenPartners]);
 
   const handleUploadPartnerInvoice = async (commissionId: number, file: File) => {
     setUploadingInvoice(commissionId);
@@ -4930,6 +5039,50 @@ function PartnersTab({
       setUpdatingStatus(null);
     }
   };
+
+  const handleCashPaymentToggle = async (
+    id: number,
+    phase: 'sale_phase' | 'post_sale_phase',
+    isCash: boolean
+  ) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/partner-commissions', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id,
+          phase,
+          is_cash_payment: isCash,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Método de pago actualizado',
+          description: `Se ha ${isCash ? 'activado' : 'desactivado'} el pago en efectivo para la fase seleccionada`,
+        });
+        onRefresh(phase === 'sale_phase' ? 'sale-phase' : 'post-sale-phase');
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al actualizar método de pago',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error updating cash status:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar método de pago',
+        variant: 'destructive',
+      });
+    }
+  };
   return (
     <div className="space-y-4">
       {/* Header con filtros */}
@@ -5007,6 +5160,14 @@ function PartnersTab({
                   <SelectItem value="collected">Cobrado</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="show-hidden-partners">Mostrar ocultos:</Label>
+              <Switch
+                id="show-hidden-partners"
+                checked={showHiddenPartners}
+                onCheckedChange={setShowHiddenPartners}
+              />
             </div>
           </div>
         </CardContent>
@@ -5142,8 +5303,26 @@ function PartnersTab({
                               return (
                                 <div key={socioName} className="space-y-2">
                                   <div className="flex items-center justify-between pb-2 border-b">
-                                    <div className="px-3 py-1 rounded-lg bg-yellow-50 border border-yellow-200">
-                                      <h4 className="font-semibold text-base">{socioName}</h4>
+                                    <div className="flex items-center gap-2">
+                                      <div className="px-3 py-1 rounded-lg bg-yellow-50 border border-yellow-200">
+                                        <h4 className="font-semibold text-base">{socioName}</h4>
+                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (hiddenPartners.has(socioName)) {
+                                            handleUnhidePartner(socioName);
+                                          } else {
+                                            handleHidePartner(socioName);
+                                          }
+                                        }}
+                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                        title={hiddenPartners.has(socioName) ? "Mostrar socio" : "Ocultar socio"}
+                                      >
+                                        {hiddenPartners.has(socioName) ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                                      </Button>
                                     </div>
                                     <span className="text-sm text-muted-foreground">
                                       {socioCommissions.length} {socioCommissions.length === 1 ? 'transacción' : 'transacciones'}
@@ -5199,51 +5378,69 @@ function PartnersTab({
                                                 })}
                                               </TableCell>
                                               <TableCell className="font-mono text-sm">
-                                                ${calculateIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2,
-                                                })}
+                                                <div className="flex flex-col">
+                                                  <span>
+                                                    ${calculateIva(Number(commission.sale_phase_amount) || 0, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
+                                                      minimumFractionDigits: 2,
+                                                      maximumFractionDigits: 2,
+                                                    })}
+                                                  </span>
+                                                  {commission.sale_phase_is_cash_payment && (
+                                                    <span className="text-[10px] text-muted-foreground">(Efectivo)</span>
+                                                  )}
+                                                </div>
                                               </TableCell>
                                               <TableCell className="font-mono text-sm">
-                                                ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
                                                   minimumFractionDigits: 2,
                                                   maximumFractionDigits: 2,
                                                 })}
                                               </TableCell>
                                               <TableCell>
-                                                <Select
-                                                  value={commission.sale_phase_collection_status || commission.collection_status}
-                                                  onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'sale_phase')}
-                                                  disabled={updatingStatus === commission.id}
-                                                >
-                                                  <SelectTrigger
-                                                    className={`w-40 h-7 text-xs ${(commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
-                                                      (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
-                                                        'border-border'
-                                                      }`}
+                                                <div className="flex flex-col gap-2">
+                                                  <Select
+                                                    value={commission.sale_phase_collection_status || commission.collection_status}
+                                                    onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'sale_phase')}
+                                                    disabled={updatingStatus === commission.id}
                                                   >
-                                                    {updatingStatus === commission.id ? (
-                                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                                    ) : (
-                                                      <SelectValue>
-                                                        {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                          (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                            'Cobrado'}
-                                                      </SelectValue>
-                                                    )}
-                                                  </SelectTrigger>
-                                                  <SelectContent>
-                                                    <SelectItem value="pending_invoice">
-                                                      <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
-                                                    </SelectItem>
-                                                    <SelectItem value="invoiced">
-                                                      <Badge variant="secondary" className="text-xs">Facturado</Badge>
-                                                    </SelectItem>
-                                                    <SelectItem value="collected">
-                                                      <Badge variant="default" className="text-xs">Cobrado</Badge>
-                                                    </SelectItem>
-                                                  </SelectContent>
-                                                </Select>
+                                                    <SelectTrigger
+                                                      className={`w-40 h-7 text-xs ${(commission.sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                        (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                          'border-border'
+                                                        }`}
+                                                    >
+                                                      {updatingStatus === commission.id ? (
+                                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                                      ) : (
+                                                        <SelectValue>
+                                                          {(commission.sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                            (commission.sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                              'Cobrado'}
+                                                        </SelectValue>
+                                                      )}
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                      <SelectItem value="pending_invoice">
+                                                        <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
+                                                      </SelectItem>
+                                                      <SelectItem value="invoiced">
+                                                        <Badge variant="secondary" className="text-xs">Facturado</Badge>
+                                                      </SelectItem>
+                                                      <SelectItem value="collected">
+                                                        <Badge variant="default" className="text-xs">Cobrado</Badge>
+                                                      </SelectItem>
+                                                    </SelectContent>
+                                                  </Select>
+
+                                                  <div className="flex items-center gap-2 px-1">
+                                                    <Switch
+                                                      checked={commission.sale_phase_is_cash_payment}
+                                                      onCheckedChange={(checked) => handleCashPaymentToggle(commission.id, 'sale_phase', checked)}
+                                                      className="h-3 w-5 scale-75 origin-left"
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground">Efectivo</span>
+                                                  </div>
+                                                </div>
                                               </TableCell>
                                               <TableCell>
                                                 <div className="flex items-center gap-1">
@@ -5688,51 +5885,69 @@ function PartnersTab({
                                               })}
                                             </TableCell>
                                             <TableCell className="font-mono text-sm">
-                                              ${calculateIva(postSalePhaseTotal).toLocaleString('es-MX', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                              })}
+                                              <div className="flex flex-col">
+                                                <span>
+                                                  ${calculateIva(postSalePhaseTotal, commission.post_sale_phase_is_cash_payment).toLocaleString('es-MX', {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                  })}
+                                                </span>
+                                                {commission.post_sale_phase_is_cash_payment && (
+                                                  <span className="text-[10px] text-muted-foreground">(Efectivo)</span>
+                                                )}
+                                              </div>
                                             </TableCell>
                                             <TableCell className="font-mono text-sm">
-                                              ${calculateTotalWithIva(postSalePhaseTotal).toLocaleString('es-MX', {
+                                              ${calculateTotalWithIva(postSalePhaseTotal, commission.post_sale_phase_is_cash_payment).toLocaleString('es-MX', {
                                                 minimumFractionDigits: 2,
                                                 maximumFractionDigits: 2,
                                               })}
                                             </TableCell>
                                             <TableCell>
-                                              <Select
-                                                value={commission.post_sale_phase_collection_status || commission.collection_status}
-                                                onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'post_sale_phase')}
-                                                disabled={updatingStatus === commission.id}
-                                              >
-                                                <SelectTrigger
-                                                  className={`w-40 h-7 text-xs ${(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
-                                                    (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
-                                                      'border-border'
-                                                    }`}
+                                              <div className="flex flex-col gap-2">
+                                                <Select
+                                                  value={commission.post_sale_phase_collection_status || commission.collection_status}
+                                                  onValueChange={(value) => handleStatusChange(commission.id, value as 'pending_invoice' | 'invoiced' | 'collected', 'post_sale_phase')}
+                                                  disabled={updatingStatus === commission.id}
                                                 >
-                                                  {updatingStatus === commission.id ? (
-                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                  ) : (
-                                                    <SelectValue>
-                                                      {(commission.post_sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
-                                                        (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
-                                                          'Cobrado'}
-                                                    </SelectValue>
-                                                  )}
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  <SelectItem value="pending_invoice">
-                                                    <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
-                                                  </SelectItem>
-                                                  <SelectItem value="invoiced">
-                                                    <Badge variant="secondary" className="text-xs">Facturado</Badge>
-                                                  </SelectItem>
-                                                  <SelectItem value="collected">
-                                                    <Badge variant="default" className="text-xs">Cobrado</Badge>
-                                                  </SelectItem>
-                                                </SelectContent>
-                                              </Select>
+                                                  <SelectTrigger
+                                                    className={`w-40 h-7 text-xs ${(commission.post_sale_phase_collection_status || commission.collection_status) === 'collected' ? 'bg-primary text-primary-foreground' :
+                                                      (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'bg-secondary text-secondary-foreground' :
+                                                        'border-border'
+                                                      }`}
+                                                  >
+                                                    {updatingStatus === commission.id ? (
+                                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                                    ) : (
+                                                      <SelectValue>
+                                                        {(commission.post_sale_phase_collection_status || commission.collection_status) === 'pending_invoice' ? 'Pendiente Facturar' :
+                                                          (commission.post_sale_phase_collection_status || commission.collection_status) === 'invoiced' ? 'Facturado' :
+                                                            'Cobrado'}
+                                                      </SelectValue>
+                                                    )}
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="pending_invoice">
+                                                      <Badge variant="outline" className="text-xs">Pendiente Facturar</Badge>
+                                                    </SelectItem>
+                                                    <SelectItem value="invoiced">
+                                                      <Badge variant="secondary" className="text-xs">Facturado</Badge>
+                                                    </SelectItem>
+                                                    <SelectItem value="collected">
+                                                      <Badge variant="default" className="text-xs">Cobrado</Badge>
+                                                    </SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+
+                                                <div className="flex items-center gap-2 px-1">
+                                                  <Switch
+                                                    checked={commission.post_sale_phase_is_cash_payment}
+                                                    onCheckedChange={(checked) => handleCashPaymentToggle(commission.id, 'post_sale_phase', checked)}
+                                                    className="h-3 w-5 scale-75 origin-left"
+                                                  />
+                                                  <span className="text-[10px] text-muted-foreground">Efectivo</span>
+                                                </div>
+                                              </div>
                                             </TableCell>
                                             <TableCell>
                                               <div className="flex items-center gap-1">
@@ -5852,7 +6067,7 @@ function PartnersTab({
           </CardContent>
         </Card>
       </div>
-    </div>
+    </div >
   );
 }
 
