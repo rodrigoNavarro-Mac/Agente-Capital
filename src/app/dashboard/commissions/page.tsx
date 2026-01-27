@@ -347,65 +347,77 @@ export default function CommissionsPage() {
       phase
     });
 
-    const token = localStorage.getItem('accessToken');
-    const params = new URLSearchParams();
-    params.append('year', selectedYear.toString());
-    if (selectedDesarrollo !== 'all') {
-      const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
-      params.append('desarrollo', normalizedFilter);
-      console.log('[DEBUG] Adding desarrollo filter to partner-commissions:', selectedDesarrollo, '-> normalized:', normalizedFilter);
-    }
-    if (selectedStatus !== 'all') {
-      params.append('collection_status', selectedStatus);
-      console.log('[DEBUG] Adding status filter to partner-commissions:', selectedStatus);
-    }
-    if (phase) {
-      params.append('phase', phase);
-      console.log('[DEBUG] Adding phase filter to partner-commissions:', phase);
-    }
-    if (showHiddenPartners) {
-      params.append('includeHidden', 'true');
-    }
+    setLoading(true); // Start loading
+    try {
+      const token = localStorage.getItem('accessToken');
+      const params = new URLSearchParams();
+      params.append('year', selectedYear.toString());
+      if (selectedDesarrollo !== 'all') {
+        const normalizedFilter = normalizeDevelopmentForFilter(selectedDesarrollo);
+        params.append('desarrollo', normalizedFilter);
+        console.log('[DEBUG] Adding desarrollo filter to partner-commissions:', selectedDesarrollo, '-> normalized:', normalizedFilter);
+      }
+      if (selectedStatus !== 'all') {
+        params.append('collection_status', selectedStatus);
+        console.log('[DEBUG] Adding status filter to partner-commissions:', selectedStatus);
+      }
+      if (phase) {
+        params.append('phase', phase);
+        console.log('[DEBUG] Adding phase filter to partner-commissions:', phase);
+      }
+      if (showHiddenPartners) {
+        params.append('includeHidden', 'true');
+      }
 
-    const url = `/api/commissions/partner-commissions?${params.toString()}`;
-    console.log('[DEBUG] loadPartnerCommissions URL:', url);
+      const url = `/api/commissions/partner-commissions?${params.toString()}`;
+      console.log('[DEBUG] loadPartnerCommissions URL:', url);
 
-    logger.info('Cargando partner commissions desde frontend', {
-      selectedYear,
-      selectedDesarrollo,
-      selectedStatus,
-      phase,
-      url,
-    }, 'commissions-partners');
+      logger.info('Cargando partner commissions desde frontend', {
+        selectedYear,
+        selectedDesarrollo,
+        selectedStatus,
+        phase,
+        url,
+      }, 'commissions-partners');
 
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-    const data = await response.json();
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
 
-    logger.info('Respuesta de partner commissions API', {
-      success: data.success,
-      totalCommissions: data.data?.length || 0,
-      phase,
-      selectedYear,
-      sampleCommission: data.data?.[0] ? {
-        id: data.data[0].id,
-        commission_sale_id: data.data[0].commission_sale_id,
-        socio_name: data.data[0].socio_name,
-        sale_info: data.data[0].sale_info,
-      } : null,
-    }, 'commissions-partners');
+      logger.info('Respuesta de partner commissions API', {
+        success: data.success,
+        totalCommissions: data.data?.length || 0,
+        phase,
+        selectedYear,
+        sampleCommission: data.data?.[0] ? {
+          id: data.data[0].id,
+          commission_sale_id: data.data[0].commission_sale_id,
+          socio_name: data.data[0].socio_name,
+          sale_info: data.data[0].sale_info,
+        } : null,
+      }, 'commissions-partners');
 
-    if (data.success) {
-      setPartnerCommissions(data.data || []);
-    } else {
+      if (data.success) {
+        setPartnerCommissions(data.data || []);
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Error al cargar comisiones por socio',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error loading partner commissions:', error);
       toast({
         title: 'Error',
-        description: data.error || 'Error al cargar comisiones por socio',
+        description: 'Error al cargar comisiones por socio',
         variant: 'destructive',
       });
+    } finally {
+      setLoading(false); // End loading
     }
   }, [selectedDesarrollo, selectedYear, selectedStatus, showHiddenPartners, toast]);
 
@@ -5176,7 +5188,7 @@ function PartnersTab({
       {/* Tabs para Fase Venta y Fase Postventa */}
       <Tabs value={activePhaseTab} onValueChange={(value) => {
         setActivePhaseTab(value as 'sale-phase' | 'post-sale-phase');
-        onRefresh(value as 'sale-phase' | 'post-sale-phase');
+        // onRefresh is handled by useEffect when activePhaseTab changes
       }} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="sale-phase">Fase Venta</TabsTrigger>
