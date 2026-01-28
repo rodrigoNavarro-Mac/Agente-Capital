@@ -5362,7 +5362,34 @@ function PartnersTab({
                                         const cliente = saleInfo?.cliente_nombre || 'N/A';
                                         const desarrollo = saleInfo?.desarrollo || 'N/A';
                                         const desarrolloCapitalizado = desarrollo !== 'N/A' ? desarrollo.charAt(0).toUpperCase() + desarrollo.slice(1) : desarrollo;
-                                        const concepto = `Comisión   venta de lote ${lote} desarrollo ${desarrolloCapitalizado}`;
+                                        const concepto = `Comisión venta de lote ${lote} desarrollo ${desarrolloCapitalizado}`;
+
+                                        // Calcular el monto total de la fase venta (igual al que se muestra en "Total" en distribución)
+                                        const saleInfoFromAPI = (commission as any).sale_info || commission.saleInfo;
+                                        const saleInfoFromSales = sales.find(s => s.id === commission.commission_sale_id);
+                                        const saleInfoData = saleInfoFromAPI || saleInfoFromSales;
+
+                                        const valorTotal = saleInfoData?.valor_total != null
+                                          ? Number(saleInfoData.valor_total)
+                                          : 0;
+
+                                        // Obtener porcentaje: primero desde sale_info, luego desde sales, finalmente desde config
+                                        const salePhasePercentFromSale = saleInfoData?.calculated_phase_sale_percent != null
+                                          ? Number(saleInfoData.calculated_phase_sale_percent)
+                                          : null;
+
+                                        // Si no hay porcentaje guardado, usar el de la configuración
+                                        const config = desarrollo !== 'N/A' ? configs.find(c => c.desarrollo.toLowerCase() === desarrollo.toLowerCase()) : null;
+                                        const salePhasePercentFromConfig = config ? Number(config.phase_sale_percent) : 0;
+
+                                        const salePhasePercent = salePhasePercentFromSale != null
+                                          ? salePhasePercentFromSale
+                                          : salePhasePercentFromConfig;
+
+                                        // Calcular monto total de fase venta: valor_total * porcentaje / 100
+                                        const salePhaseTotal = salePhasePercent > 0 && valorTotal > 0
+                                          ? Number(((valorTotal * salePhasePercent) / 100).toFixed(2))
+                                          : 0;
 
                                         // Buscar si hay factura para esta comisión
                                         const invoice = partnerInvoices.find(inv => inv.partner_commission_id === commission.id);
@@ -5384,7 +5411,7 @@ function PartnersTab({
                                                 {Number(commission.participacion).toFixed(2)}%
                                               </TableCell>
                                               <TableCell className="font-mono text-sm">
-                                                ${(Number(commission.sale_phase_amount) || 0).toLocaleString('es-MX', {
+                                                ${salePhaseTotal.toLocaleString('es-MX', {
                                                   minimumFractionDigits: 2,
                                                   maximumFractionDigits: 2,
                                                 })}
@@ -5392,7 +5419,7 @@ function PartnersTab({
                                               <TableCell className="font-mono text-sm">
                                                 <div className="flex flex-col">
                                                   <span>
-                                                    ${calculateIva(Number(commission.sale_phase_amount) || 0, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
+                                                    ${calculateIva(salePhaseTotal, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
                                                       minimumFractionDigits: 2,
                                                       maximumFractionDigits: 2,
                                                     })}
@@ -5403,7 +5430,7 @@ function PartnersTab({
                                                 </div>
                                               </TableCell>
                                               <TableCell className="font-mono text-sm">
-                                                ${calculateTotalWithIva(Number(commission.sale_phase_amount) || 0, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
+                                                ${calculateTotalWithIva(salePhaseTotal, commission.sale_phase_is_cash_payment).toLocaleString('es-MX', {
                                                   minimumFractionDigits: 2,
                                                   maximumFractionDigits: 2,
                                                 })}
