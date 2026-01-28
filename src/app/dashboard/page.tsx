@@ -467,18 +467,18 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6 md:space-y-8">
+    <div className="responsive-spacing-y">
       {/* Header */}
-      <div className="pl-0 sm:pl-4">
-        <h1 className="text-lg font-bold navy-text">Dashboard</h1>
-        <p className="text-xs text-muted-foreground">
+      <div className="pl-0">
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold navy-text">Dashboard</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">
           {isAdmin
             ? 'Vista administrativa del sistema'
             : 'Resumen de tus desarrollos y actividad'
           }
         </p>
         {error && (
-          <div className="mt-3 sm:mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+          <div className="mt-3 sm:mt-4 p-3 sm:p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
             <p className="text-xs sm:text-sm text-destructive">{error}</p>
           </div>
         )}
@@ -578,8 +578,8 @@ export default function DashboardPage() {
                         <Star
                           key={star}
                           className={`h-3 w-3 ${star <= Math.round(stats.averageRating)
-                              ? 'fill-yellow-400 text-yellow-400'
-                              : 'text-gray-300'
+                            ? 'fill-yellow-400 text-yellow-400'
+                            : 'text-gray-300'
                             }`}
                         />
                       ))}
@@ -908,10 +908,10 @@ export default function DashboardPage() {
                             strokeDasharray={`${2 * Math.PI * 40}`}
                             strokeDashoffset={`${2 * Math.PI * 40 * (1 - adminStats.accuracyStats.accuracyPercentage / 100)}`}
                             className={`${adminStats.accuracyStats.accuracyPercentage >= 80
-                                ? 'text-green-600'
-                                : adminStats.accuracyStats.accuracyPercentage >= 60
-                                  ? 'text-yellow-600'
-                                  : 'text-red-600'
+                              ? 'text-green-600'
+                              : adminStats.accuracyStats.accuracyPercentage >= 60
+                                ? 'text-yellow-600'
+                                : 'text-red-600'
                               }`}
                             strokeLinecap="round"
                           />
@@ -1177,8 +1177,8 @@ export default function DashboardPage() {
                                 <Star
                                   key={star}
                                   className={`h-4 w-4 ${star <= (rating.feedback_rating || 0)
-                                      ? 'fill-yellow-400 text-yellow-400'
-                                      : 'text-gray-300'
+                                    ? 'fill-yellow-400 text-yellow-400'
+                                    : 'text-gray-300'
                                     }`}
                                 />
                               ))}

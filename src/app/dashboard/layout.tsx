@@ -91,7 +91,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       >
         <Navbar />
         <main className="flex-1 overflow-hidden pt-16">
-          <div className="h-full p-3 sm:p-4 md:p-6 overflow-y-auto">
+          <div className="h-full responsive-container py-3 sm:py-4 md:py-6 overflow-y-auto mobile-scroll">
             {children}
           </div>
         </main>

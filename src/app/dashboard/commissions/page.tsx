@@ -508,39 +508,41 @@ export default function CommissionsPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="responsive-container responsive-spacing-y overflow-x-hidden max-w-full">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-lg font-bold">Módulo de Comisiones</h1>
-          <p className="text-xs text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Módulo de Comisiones</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             Sistema configurable, auditable y flexible para gestión de comisiones
           </p>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="config">
-            <Settings className="mr-2 h-4 w-4" />
-            Configuración
-          </TabsTrigger>
-          <TabsTrigger value="sales">
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            Ventas Comisionables
-          </TabsTrigger>
-          <TabsTrigger value="distribution">
-            <PieChart className="mr-2 h-4 w-4" />
-            Distribución Interna
-          </TabsTrigger>
-          <TabsTrigger value="partners">
-            <BarChart3 className="mr-2 h-4 w-4" />
-            Comisiones Socios
-          </TabsTrigger>
-          <TabsTrigger value="dashboard">
-            <BarChart3 className="mr-2 h-4 w-4" />
-            Dashboard
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="responsive-spacing-y overflow-x-hidden max-w-full">
+        <div className="overflow-x-auto mobile-scroll -mx-4 px-4 sm:mx-0 sm:px-0">
+          <TabsList className="inline-flex w-auto min-w-full sm:w-full sm:grid sm:grid-cols-5">
+            <TabsTrigger value="config">
+              <Settings className="mr-2 h-4 w-4" />
+              Configuración
+            </TabsTrigger>
+            <TabsTrigger value="sales">
+              <ShoppingCart className="mr-2 h-4 w-4" />
+              Ventas Comisionables
+            </TabsTrigger>
+            <TabsTrigger value="distribution">
+              <PieChart className="mr-2 h-4 w-4" />
+              Distribución Interna
+            </TabsTrigger>
+            <TabsTrigger value="partners">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Comisiones Socios
+            </TabsTrigger>
+            <TabsTrigger value="dashboard">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Dashboard
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Pestaña: Configuración */}
         <TabsContent value="config" className="space-y-4">
@@ -2206,7 +2208,7 @@ function ConfigTab({
           {/* Fase Venta */}
           <div className="space-y-4 border-l-4 border-blue-500 pl-4">
             <h3 className="text-sm font-semibold text-blue-600">Fase Venta</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-2">
                 <Label>% Coordinador de Operaciones de Venta</Label>
                 <div className="flex gap-2">
@@ -2269,7 +2271,7 @@ function ConfigTab({
           {/* Fase Postventa */}
           <div className="space-y-4 border-l-4 border-green-500 pl-4">
             <h3 className="text-sm font-semibold text-green-600">Fase Postventa</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-2">
                 <Label>% Gerente Legal</Label>
                 <div className="flex gap-2">
@@ -2523,21 +2525,19 @@ function SalesTab({
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Ventas Comisionables</CardTitle>
-              <CardDescription>
-                Deals cerrados-ganados que generan comisión. Procesa los deals desde la base de datos local.
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
+    <div className="space-y-4 overflow-x-hidden max-w-full">
+      <Card className="overflow-x-hidden">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-4">
+            <CardTitle>Ventas Comisionables</CardTitle>
+            <CardDescription>
+              Deals cerrados-ganados que generan comisión. Procesa los deals desde la base de datos local.
+            </CardDescription>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap">
               <div className="flex items-center gap-2">
-                <Label htmlFor="year-filter-sales">Año:</Label>
+                <Label htmlFor="year-filter-sales" className="whitespace-nowrap text-xs sm:text-sm">Año:</Label>
                 <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value, 10))}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-28 sm:w-32">
                     <SelectValue placeholder="Seleccionar año" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2553,7 +2553,7 @@ function SalesTab({
                 </Select>
               </div>
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Todos los desarrollos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2569,6 +2569,7 @@ function SalesTab({
                 onClick={handleSync}
                 variant="default"
                 disabled={syncing}
+                className="w-full sm:w-auto"
               >
                 {syncing ? (
                   <>
@@ -2578,12 +2579,14 @@ function SalesTab({
                 ) : (
                   <>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    Cargar Ventas desde BD
+                    <span className="hidden sm:inline">Cargar Ventas desde BD</span>
+                    <span className="sm:hidden">Cargar Ventas</span>
                   </>
                 )}
               </Button>
-              <Button onClick={onRefresh} variant="outline">
+              <Button onClick={onRefresh} variant="outline" className="w-full sm:w-auto">
                 <RefreshCw className="h-4 w-4" />
+                <span className="ml-2 sm:hidden">Refrescar</span>
               </Button>
             </div>
           </div>
@@ -3004,18 +3007,18 @@ function DistributionTab({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4">
             <div>
-              <CardTitle>Distribución de Comisiones</CardTitle>
+              <CardTitle>Distribución Interna de Comisiones</CardTitle>
               <CardDescription>
-                Visualiza y gestiona la distribución de comisiones por venta
+                Ver distribución interna por venta y gestionar comisiones a socios
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap">
               <div className="flex items-center gap-2">
-                <Label htmlFor="year-filter-distribution">Año:</Label>
+                <Label htmlFor="year-filter-dist" className="whitespace-nowrap text-xs sm:text-sm">Año:</Label>
                 <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value, 10))}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-28 sm:w-32">
                     <SelectValue placeholder="Seleccionar año" />
                   </SelectTrigger>
                   <SelectContent>
@@ -3031,7 +3034,7 @@ function DistributionTab({
                 </Select>
               </div>
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Todos los desarrollos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -3043,8 +3046,9 @@ function DistributionTab({
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={onRefresh} variant="outline">
+              <Button onClick={onRefresh} variant="outline" className="w-full sm:w-auto">
                 <RefreshCw className="h-4 w-4" />
+                <span className="ml-2 sm:hidden">Refrescar</span>
               </Button>
             </div>
           </div>
@@ -3296,8 +3300,9 @@ function DistributionTab({
             </div>
 
             {/* Distribuciones de la venta seleccionada */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
+            <div className="responsive-spacing-y">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
                 <h3 className="font-semibold">Distribución de Comisiones</h3>
                 {selectedSale && (
                   <div className="flex gap-2">
@@ -4090,19 +4095,19 @@ function DashboardTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 overflow-x-hidden max-w-full">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4">
             <div>
               <CardTitle>Dashboard de Comisiones</CardTitle>
               <CardDescription>
                 {selectedDesarrollo !== 'all' ? `Vista por desarrollo: ${selectedDesarrollo}` : 'Vista general Capital Plus'}
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap">
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Todos los desarrollos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -4117,19 +4122,22 @@ function DashboardTab({
                       ))}
                 </SelectContent>
               </Select>
-              <Select value={selectedYear.toString()} onValueChange={(v) => onYearChange(parseInt(v, 10))}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 6 }, (_, i) => 2025 + i).map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="year-dashboard" className="whitespace-nowrap text-xs sm:text-sm">Año:</Label>
+                <Select value={selectedYear.toString()} onValueChange={(v) => onYearChange(parseInt(v, 10))}>
+                  <SelectTrigger className="w-28 sm:w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 6 }, (_, i) => 2025 + i).map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -5124,11 +5132,11 @@ function PartnersTab({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <Label htmlFor="year-filter-partners">Año:</Label>
+              <Label htmlFor="year-filter-partners" className="whitespace-nowrap text-xs sm:text-sm">Año:</Label>
               <Select value={selectedYear.toString()} onValueChange={(value) => onYearChange(parseInt(value))}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger className="w-28 sm:w-32">
                   <SelectValue placeholder="Seleccionar año" />
                 </SelectTrigger>
                 <SelectContent>
@@ -5143,10 +5151,10 @@ function PartnersTab({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="desarrollo-filter-partners">Desarrollo:</Label>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Label htmlFor="desarrollo-filter-partners" className="whitespace-nowrap text-xs sm:text-sm">Desarrollo:</Label>
               <Select value={selectedDesarrollo} onValueChange={onDesarrolloChange}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-full max-w-full">
                   <SelectValue placeholder="Seleccionar desarrollo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -5162,7 +5170,7 @@ function PartnersTab({
             <div className="flex items-center gap-2">
               <Label htmlFor="status-filter-partners">Estado:</Label>
               <Select value={selectedStatus} onValueChange={onStatusChange}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-full max-w-full">
                   <SelectValue placeholder="Seleccionar estado" />
                 </SelectTrigger>
                 <SelectContent>

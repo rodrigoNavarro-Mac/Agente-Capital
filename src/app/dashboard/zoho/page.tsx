@@ -1644,9 +1644,9 @@ export default function ZohoCRMPage() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col gap-6">
+    <div className="w-full h-full flex flex-col responsive-spacing-y">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-lg font-bold navy-text">ZOHO CRM</h1>
           <p className="text-muted-foreground">
@@ -2155,7 +2155,7 @@ export default function ZohoCRMPage() {
               </Card>
 
               {/* Tarjetas KPI Principales */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 {/* Total Leads */}
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -2672,7 +2672,7 @@ export default function ZohoCRMPage() {
                             </div>
                           </div>
 
-                          <div className="grid gap-3 md:grid-cols-5">
+                          <div className="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
                             <div className="p-3 bg-white rounded-lg border">
                               <p className="text-[11px] text-muted-foreground">No contesta / sin contacto</p>
                               <p className="text-xl font-bold">{aiNotesInsights.metrics?.noAnswerOrNoContact ?? 0}</p>
@@ -2698,7 +2698,7 @@ export default function ZohoCRMPage() {
                       )}
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
                       <div className="p-4 border rounded-lg">
                         <p className="text-xs text-muted-foreground mb-1">Llamadas registradas</p>
                         <p className="text-xl font-bold">
@@ -2727,7 +2727,7 @@ export default function ZohoCRMPage() {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div className="mt-4 grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
                       {/* IA: Top temas/objeciones/fricción/acciones */}
                       <Card className="border">
                         <CardHeader>
@@ -2838,7 +2838,7 @@ export default function ZohoCRMPage() {
               )}
 
               {/* SECCIÓN: EVOLUCIÓN TEMPORAL */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
                 {displayedStats &&
                   ((displayedStats.leadsByDate && Object.keys(displayedStats.leadsByDate).length > 0) ||
                     (displayedStats.dealsByDate && Object.keys(displayedStats.dealsByDate).length > 0)) && (

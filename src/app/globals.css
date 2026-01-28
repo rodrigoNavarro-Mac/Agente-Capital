@@ -9,67 +9,81 @@
     --capital-gold: #fdc23e;
     --capital-white: #ffffff;
     --capital-gray: #1e3d5c;
-    
+
     /* ShadCN Theme Variables - Light Theme */
-    --background: 0 0% 100%; /* #ffffff - fondo blanco */
-    --foreground: 210 60% 15%; /* #0f2a47 - azul oscuro casi negro */
-    
+    --background: 0 0% 100%;
+    /* #ffffff - fondo blanco */
+    --foreground: 210 60% 15%;
+    /* #0f2a47 - azul oscuro casi negro */
+
     --card: 0 0% 100%;
     --card-foreground: 210 60% 15%;
-    
+
     --popover: 0 0% 100%;
     --popover-foreground: 210 60% 15%;
-    
-    --primary: 45 97% 62%; /* #fdc23e */
-    --primary-foreground: 210 60% 15%; /* #0f2a47 */
-    
+
+    --primary: 45 97% 62%;
+    /* #fdc23e */
+    --primary-foreground: 210 60% 15%;
+    /* #0f2a47 */
+
     --secondary: 210 60% 96%;
     --secondary-foreground: 210 60% 15%;
-    
+
     --muted: 210 60% 96%;
     --muted-foreground: 210 60% 40%;
-    
-    --accent: 45 97% 62%; /* #fdc23e */
-    --accent-foreground: 210 60% 15%; /* #0f2a47 */
-    
+
+    --accent: 45 97% 62%;
+    /* #fdc23e */
+    --accent-foreground: 210 60% 15%;
+    /* #0f2a47 */
+
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    
+
     --border: 210 60% 85%;
     --input: 210 60% 85%;
-    --ring: 45 97% 62%; /* #fdc23e */
-    
+    --ring: 45 97% 62%;
+    /* #fdc23e */
+
     --radius: 0.5rem;
   }
-  
+
   .dark {
-    --background: 0 0% 100%; /* #ffffff - fondo blanco */
-    --foreground: 210 60% 15%; /* #0f2a47 - azul oscuro casi negro */
-    
+    --background: 0 0% 100%;
+    /* #ffffff - fondo blanco */
+    --foreground: 210 60% 15%;
+    /* #0f2a47 - azul oscuro casi negro */
+
     --card: 0 0% 100%;
     --card-foreground: 210 60% 15%;
-    
+
     --popover: 0 0% 100%;
     --popover-foreground: 210 60% 15%;
-    
-    --primary: 45 97% 62%; /* #fdc23e */
-    --primary-foreground: 210 60% 15%; /* #0f2a47 */
-    
+
+    --primary: 45 97% 62%;
+    /* #fdc23e */
+    --primary-foreground: 210 60% 15%;
+    /* #0f2a47 */
+
     --secondary: 210 60% 96%;
     --secondary-foreground: 210 60% 15%;
-    
+
     --muted: 210 60% 96%;
     --muted-foreground: 210 60% 40%;
-    
-    --accent: 45 97% 62%; /* #fdc23e */
-    --accent-foreground: 210 60% 15%; /* #0f2a47 */
-    
+
+    --accent: 45 97% 62%;
+    /* #fdc23e */
+    --accent-foreground: 210 60% 15%;
+    /* #0f2a47 */
+
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 100%;
-    
+
     --border: 210 60% 85%;
     --input: 210 60% 85%;
-    --ring: 45 97% 62%; /* #fdc23e */
+    --ring: 45 97% 62%;
+    /* #fdc23e */
   }
 }
 
@@ -77,6 +91,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, sans-serif;
@@ -84,63 +99,90 @@
     line-height: 1.5;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
-  
+
+  /* Mejorar legibilidad en móviles */
+  @media (max-width: 640px) {
+    body {
+      font-size: 15px;
+      line-height: 1.6;
+    }
+  }
+
   /* Typography - Titles */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'Montserrat', sans-serif;
     font-weight: 700;
     line-height: 1.3;
     color: #153356;
   }
-  
+
   h1 {
     font-size: clamp(28px, 4vw, 36px);
   }
-  
+
   h2 {
     font-size: clamp(24px, 3.5vw, 30px);
   }
-  
+
   h3 {
     font-size: clamp(20px, 3vw, 24px);
   }
-  
+
   h4 {
     font-size: clamp(18px, 2.5vw, 20px);
   }
-  
+
   h5 {
     font-size: clamp(16px, 2vw, 18px);
   }
-  
+
   h6 {
     font-size: clamp(14px, 1.5vw, 16px);
   }
-  
+
   /* Body text */
-  p, span, div, li, td, th, label, input, textarea, select, button {
+  p,
+  span,
+  div,
+  li,
+  td,
+  th,
+  label,
+  input,
+  textarea,
+  select,
+  button {
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: #153356;
   }
-  
+
   /* Sidebar y Navbar - texto blanco explícito */
-  aside, header {
+  aside,
+  header {
     color: #ffffff !important;
   }
-  
-  aside *, header * {
+
+  aside *,
+  header * {
     color: inherit;
   }
-  
+
   /* Excepciones para elementos específicos en sidebar/navbar */
-  aside .text-white, header .text-white {
+  aside .text-white,
+  header .text-white {
     color: #ffffff !important;
   }
-  
+
   /* Small text */
-  small, .text-sm {
+  small,
+  .text-sm {
     font-size: 12px;
     line-height: 1.5;
   }
@@ -170,6 +212,7 @@
   0% {
     background-position: -1000px 0;
   }
+
   100% {
     background-position: 1000px 0;
   }
@@ -177,13 +220,11 @@
 
 .animate-shimmer {
   animation: shimmer 2s infinite linear;
-  background: linear-gradient(
-    to right,
-    #f6f7f8 0%,
-    #edeef1 20%,
-    #f6f7f8 40%,
-    #f6f7f8 100%
-  );
+  background: linear-gradient(to right,
+      #f6f7f8 0%,
+      #edeef1 20%,
+      #f6f7f8 40%,
+      #f6f7f8 100%);
   background-size: 1000px 100%;
 }
 
@@ -202,9 +243,12 @@
 
 /* Login page animations */
 @keyframes gradient-shift {
-  0%, 100% {
+
+  0%,
+  100% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
   }
@@ -215,6 +259,7 @@
     opacity: 0;
     transform: translateY(-10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -225,6 +270,7 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -245,12 +291,13 @@
 
 /* Safari/WebKit specific fixes for flexbox height issues */
 @supports (-webkit-appearance: none) {
+
   /* Asegurar que los contenedores flex usen todo el espacio vertical en Safari */
   .flex-1 {
     flex: 1 1 0%;
     min-height: 0;
   }
-  
+
   /* Fix para contenedores de scroll en Safari */
   .overflow-y-auto {
     -webkit-overflow-scrolling: touch;
@@ -277,6 +324,7 @@
 
 /* Utilidades responsive adicionales */
 @layer utilities {
+
   /* Mejorar el scroll en móviles */
   .mobile-scroll {
     -webkit-overflow-scrolling: touch;
@@ -284,6 +332,13 @@
   }
 
   /* Texto truncado con ellipsis */
+  .text-truncate-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .text-truncate-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -322,12 +377,92 @@
       min-width: 44px;
     }
   }
+
+  /* Cards optimizadas para móvil */
+  .mobile-card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm;
+  }
+
+  @media (max-width: 640px) {
+    .mobile-card {
+      @apply rounded-md;
+    }
+  }
+
+  /* Container con padding responsive optimizado */
+  .responsive-container {
+    @apply px-3 sm:px-4 md:px-6 lg:px-8;
+  }
+
+  /* Espaciado vertical responsive */
+  .responsive-spacing-y {
+    @apply space-y-3 sm:space-y-4 md:space-y-6;
+  }
+
+  /* Grid responsive con mejor manejo móvil */
+  .mobile-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6;
+  }
+
+  /* Tablas con scroll horizontal mejorado */
+  .mobile-table-container {
+    @apply overflow-x-auto -mx-3 sm:mx-0;
+  }
+
+  .mobile-table-container::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .mobile-table-container::-webkit-scrollbar-track {
+    background: #f5f5f5;
+  }
+
+  .mobile-table-container::-webkit-scrollbar-thumb {
+    background: #153356;
+    border-radius: 3px;
+  }
+
+  /* Tabla responsive */
+  .mobile-table {
+    @apply min-w-full text-sm;
+  }
+
+  @media (max-width: 640px) {
+    .mobile-table {
+      @apply text-xs;
+    }
+
+    .mobile-table th,
+    .mobile-table td {
+      @apply px-2 py-2;
+      white-space: nowrap;
+    }
+  }
+
+  /* Modal/Dialog optimizado para móvil */
+  .mobile-dialog {
+    @apply w-[95vw] max-w-lg;
+  }
+
+  @media (min-width: 640px) {
+    .mobile-dialog {
+      @apply w-full;
+    }
+  }
+
+  /* Badges que se ajustan en móvil */
+  .mobile-badge-container {
+    @apply flex flex-wrap gap-1.5 sm:gap-2;
+  }
 }
 
 /* Mejoras de accesibilidad y UX en móviles */
 @media (max-width: 768px) {
+
   /* Mejorar el espaciado táctil */
-  button, a, [role="button"] {
+  button,
+  a,
+  [role="button"] {
     min-height: 44px;
     min-width: 44px;
   }
@@ -351,6 +486,7 @@
 
 /* Mejoras para tablets */
 @media (min-width: 768px) and (max-width: 1024px) {
+
   /* Ajustes específicos para tablets */
   .tablet-grid {
     grid-template-columns: repeat(2, 1fr);

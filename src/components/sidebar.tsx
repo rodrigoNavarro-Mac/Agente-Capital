@@ -34,73 +34,73 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { 
-    title: 'Dashboard', 
-    href: '/dashboard', 
-    icon: LayoutDashboard 
+  {
+    title: 'Dashboard',
+    href: '/dashboard',
+    icon: LayoutDashboard
   },
-  { 
-    title: 'Subir Documentos', 
-    href: '/dashboard/upload', 
+  {
+    title: 'Subir Documentos',
+    href: '/dashboard/upload',
     icon: Upload,
     requiresPermission: 'upload_documents' // Requiere permiso upload_documents
   },
-  { 
-    title: 'Consultar Agente', 
-    href: '/dashboard/agent', 
-    icon: MessageSquare 
+  {
+    title: 'Consultar Agente',
+    href: '/dashboard/agent',
+    icon: MessageSquare
   },
-  { 
-    title: 'Documentos', 
-    href: '/dashboard/documents', 
-    icon: FileText 
+  {
+    title: 'Documentos',
+    href: '/dashboard/documents',
+    icon: FileText
   },
-  { 
-    title: 'Guía de Usuario', 
-    href: '/dashboard/guia', 
+  {
+    title: 'Guía de Usuario',
+    href: '/dashboard/guia',
     icon: BookOpen
     // Disponible para todos los usuarios
   },
-  { 
-    title: 'ZOHO CRM', 
-    href: '/dashboard/zoho', 
+  {
+    title: 'ZOHO CRM',
+    href: '/dashboard/zoho',
     icon: Building2,
     allowedRoles: ['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
   },
-  { 
-    title: 'Comisiones', 
-    href: '/dashboard/commissions', 
+  {
+    title: 'Comisiones',
+    href: '/dashboard/commissions',
     icon: DollarSign,
     allowedRoles: ['admin', 'ceo'] as UserRole[]
   },
-  { 
-    title: 'Mi Perfil', 
-    href: '/dashboard/profile', 
+  {
+    title: 'Mi Perfil',
+    href: '/dashboard/profile',
     icon: User,
     // Todos los usuarios pueden acceder a su perfil
   },
-  { 
-    title: 'Configuración', 
-    href: '/dashboard/config', 
+  {
+    title: 'Configuración',
+    href: '/dashboard/config',
     icon: Settings,
     allowedRoles: ['admin'] as UserRole[] // Solo ADMIN
   },
-  { 
-    title: 'Logs', 
-    href: '/dashboard/logs', 
+  {
+    title: 'Logs',
+    href: '/dashboard/logs',
     icon: Activity,
     allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
   },
-  { 
-    title: 'Sesiones y Actividad', 
-    href: '/dashboard/admin/sessions', 
+  {
+    title: 'Sesiones y Actividad',
+    href: '/dashboard/admin/sessions',
     icon: Monitor,
     allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
   },
-  { 
-    title: 'Usuarios', 
-    href: '/dashboard/users', 
-    icon: Users, 
+  {
+    title: 'Usuarios',
+    href: '/dashboard/users',
+    icon: Users,
     allowedRoles: ['admin', 'ceo'] as UserRole[]
   },
 ];
@@ -138,7 +138,7 @@ export function Sidebar() {
     // Verificar permisos necesarios para los items del menú
     const checkPermissions = async () => {
       const permissionsToCheck: string[] = [];
-      
+
       // Recopilar todos los permisos requeridos por los items
       NAV_ITEMS.forEach(item => {
         if (item.requiresPermission) {
@@ -197,35 +197,35 @@ export function Sidebar() {
       {/* Overlay para móviles cuando el sidebar está abierto */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-300"
+          className="fixed inset-0 bg-black/60 z-30 md:hidden transition-opacity duration-300 backdrop-blur-sm"
           onClick={toggleSidebar}
           aria-hidden="true"
         />
       )}
 
-      <aside 
+      <aside
         className={cn(
-          'fixed left-0 top-0 h-screen bg-[#153356] text-white transition-all duration-300 ease-in-out z-40',
+          'fixed left-0 top-0 h-screen bg-[#153356] text-white transition-all duration-300 ease-in-out z-40 shadow-2xl',
           // En móviles: overlay que se desliza desde la izquierda
           // En desktop: sidebar fijo
-          'md:fixed md:z-20',
-          sidebarOpen 
-            ? 'w-64 translate-x-0' 
+          'md:fixed md:z-20 md:shadow-lg',
+          sidebarOpen
+            ? 'w-64 translate-x-0'
             : 'w-0 -translate-x-full md:w-0'
         )}
       >
         {/* Logo */}
         <div className={cn(
-          'flex h-16 items-center border-b border-[#1e3d5c] px-6 min-w-[256px] transition-opacity duration-300',
+          'flex h-16 items-center border-b border-[#1e3d5c] px-4 sm:px-6 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
-          <h1 className="text-lg font-bold font-heading">
-            Capital <span className="text-[#fdc23e] text-lg">Plus</span>
+          <h1 className="text-base sm:text-lg font-bold font-heading">
+            Capital <span className="text-[#fdc23e]">Plus</span>
           </h1>
           {/* Botón para plegar sidebar */}
           <button
             onClick={toggleSidebar}
-            className="ml-auto p-1 rounded hover:bg-white/10 transition-colors"
+            className="ml-auto p-2 rounded-md hover:bg-white/10 active:bg-white/20 transition-all duration-200 touch-target"
             aria-label="Ocultar sidebar"
           >
             <ChevronLeft className="h-5 w-5" />
@@ -234,7 +234,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className={cn(
-          'flex-1 space-y-1 p-4 min-w-[256px] transition-opacity duration-300 overflow-y-auto',
+          'flex-1 space-y-1 p-3 sm:p-4 min-w-[256px] transition-opacity duration-300 overflow-y-auto mobile-scroll',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
           {filteredItems.map((item) => {
@@ -252,14 +252,20 @@ export function Sidebar() {
                   }
                 }}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors text-white',
+                  'flex items-center gap-3 rounded-lg px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-medium transition-all duration-200 text-white touch-target',
                   isActive
-                    ? 'bg-[#fdc23e] text-[#153356]'
-                    : 'hover:bg-[#1e3d5c] text-white'
+                    ? 'bg-[#fdc23e] text-[#153356] shadow-md scale-[1.02]'
+                    : 'hover:bg-[#1e3d5c] active:bg-[#0f2a47] text-white hover:scale-[1.01]'
                 )}
               >
-                <Icon className="h-5 w-5 flex-shrink-0 text-white" />
-                <span className="truncate text-white">{item.title}</span>
+                <Icon className={cn(
+                  "h-5 w-5 flex-shrink-0 transition-colors",
+                  isActive ? "text-[#153356]" : "text-white"
+                )} />
+                <span className={cn(
+                  "truncate transition-colors",
+                  isActive ? "text-[#153356] font-semibold" : "text-white"
+                )}>{item.title}</span>
               </Link>
             );
           })}
@@ -267,7 +273,7 @@ export function Sidebar() {
 
         {/* Footer */}
         <div className={cn(
-          'border-t border-[#1e3d5c] p-4 min-w-[256px] transition-opacity duration-300',
+          'border-t border-[#1e3d5c] p-3 sm:p-4 min-w-[256px] transition-opacity duration-300',
           !sidebarOpen && 'opacity-0 pointer-events-none'
         )}>
           <p className="text-xs text-white/60">© 2026 Capital Plus</p>
@@ -278,7 +284,7 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="hidden md:flex fixed left-0 top-20 z-20 h-10 w-10 rounded-r-md bg-[#153356] text-[#fdc23e] shadow-lg hover:bg-[#1e3d5c] transition-all duration-300 items-center justify-center border border-[#1e3d5c]"
+          className="hidden md:flex fixed left-0 top-20 z-20 h-12 w-10 rounded-r-lg bg-[#153356] text-[#fdc23e] shadow-xl hover:bg-[#1e3d5c] hover:w-12 active:scale-95 transition-all duration-300 items-center justify-center border-r border-t border-b border-[#1e3d5c]"
           aria-label="Mostrar sidebar"
         >
           <ChevronRight className="h-5 w-5" />
