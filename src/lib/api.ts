@@ -193,8 +193,16 @@ export interface DocumentChunksResponse {
 }
 
 export async function getDocumentChunks(id: number, userId: number): Promise<DocumentChunksResponse> {
+  // Obtener token de autenticación
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
   const response = await fetcher<{ success: boolean; data: DocumentChunksResponse }>(
-    `/api/documents/${id}/chunks?userId=${userId}`
+    `/api/documents/${id}/chunks?userId=${userId}`,
+    {
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : undefined,
+    }
   );
 
   if (!response.success || !response.data) {

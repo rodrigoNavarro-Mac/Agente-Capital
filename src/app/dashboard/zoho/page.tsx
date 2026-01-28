@@ -24,7 +24,7 @@ import {
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie, ReferenceLine } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/utils/development-colors';
 import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, getPreviousPeriodForCustomRange, type TimePeriod } from '@/lib/utils/time-buckets';
 import { logger } from '@/lib/utils/logger';
@@ -2851,52 +2851,131 @@ export default function ZohoCRMPage() {
                       </CardHeader>
                       <CardContent>
                         <ResponsiveContainer width="100%" height={300}>
-                          <LineChart
-                            data={Object.keys({
+                          {(() => {
+                            const chartData = Object.keys({
                               ...(displayedStats.leadsByDate || {}),
                               ...(displayedStats.dealsByDate || {}),
                             })
                               .sort((a, b) => a.localeCompare(b))
                               .map((bucket) => ({
                                 bucket,
-                                // Si falta un bucket en uno de los dos, lo tratamos como 0.
-                                // Esto permite comparar en el mismo eje X sin “huecos” raros.
                                 leads: displayedStats.leadsByDate?.[bucket] ?? 0,
                                 deals: displayedStats.dealsByDate?.[bucket] ?? 0,
-                              }))}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis
-                              dataKey="bucket"
-                              tickFormatter={(value) =>
-                                formatBucketLabel(selectedPeriod, String(value))
-                              }
-                            />
-                            <YAxis />
-                            <Tooltip
-                              labelFormatter={(label) =>
-                                formatBucketLabel(selectedPeriod, String(label))
-                              }
-                            />
-                            <Legend />
-                            <Line
-                              type="monotone"
-                              dataKey="leads"
-                              stroke={colors.primary}
-                              name="Leads"
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="deals"
-                              stroke={colors.secondary}
-                              name="Deals"
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                          </LineChart>
+                              }));
+
+                            // Calculate averages
+                            const totalLeads = chartData.reduce((sum, d) => sum + d.leads, 0);
+                            const totalDeals = chartData.reduce((sum, d) => sum + d.deals, 0);
+                            const avgLeads = chartData.length > 0 ? totalLeads / chartData.length : 0;
+                            const avgDeals = chartData.length > 0 ? totalDeals / chartData.length : 0;
+
+                            return (
+                              <LineChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis
+                                  dataKey="bucket"
+                                  tickFormatter={(value) =>
+                                    formatBucketLabel(selectedPeriod, String(value))
+                                  }
+                                />
+                                <YAxis />
+                                <Tooltip
+                                  labelFormatter={(label) =>
+                                    formatBucketLabel(selectedPeriod, String(label))
+                                  }
+                                />
+                                <Legend />
+                                <Line
+                                  type="monotone"
+                                  dataKey="leads"
+                                  stroke={colors.primary}
+                                  name="Leads"
+                                  strokeWidth={2}
+                                  dot={false}
+                                />
+                                <Line
+                                  type="monotone"
+                                  dataKey="deals"
+                                  stroke={colors.secondary}
+                                  name="Deals"
+                                  strokeWidth={2}
+                                  dot={false}
+                                />
+                                {/* Average reference lines */}
+                                <ReferenceLine
+                                  y={avgLeads}
+                                  stroke={colors.primary}
+                                  strokeDasharray="5 5"
+                                  strokeWidth={2}
+                                  label={{
+                                    value: `Promedio: ${avgLeads.toFixed(1)}`,
+                                    position: 'insideTopRight',
+                                    fill: colors.primary,
+                                    fontSize: 12,
+                                  }}
+                                />
+                                <ReferenceLine
+                                  y={avgDeals}
+                                  stroke={colors.secondary}
+                                  strokeDasharray="5 5"
+                                  strokeWidth={2}
+                                  label={{
+                                    value: `Promedio: ${avgDeals.toFixed(1)}`,
+                                    position: 'insideBottomRight',
+                                    fill: colors.secondary,
+                                    fontSize: 12,
+                                  }}
+                                />
+                              </LineChart>
+                            );
+                          })()}
                         </ResponsiveContainer>
+
+                        {/* Average values display below chart */}
+                        <div className="mt-4 grid grid-cols-2 gap-4">
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-xs text-blue-600 font-medium mb-1">
+                              Promedio de Leads {selectedPeriod === 'week' ? '(diario)' : selectedPeriod === 'month' ? '(semanal)' : selectedPeriod === 'quarter' ? '(mensual)' : ''}
+                            </p>
+                            <p className="text-2xl font-bold text-blue-700">
+                              {(() => {
+                                const chartData = Object.keys({
+                                  ...(displayedStats.leadsByDate || {}),
+                                  ...(displayedStats.dealsByDate || {}),
+                                })
+                                  .sort((a, b) => a.localeCompare(b))
+                                  .map((bucket) => ({
+                                    bucket,
+                                    leads: displayedStats.leadsByDate?.[bucket] ?? 0,
+                                  }));
+                                const totalLeads = chartData.reduce((sum, d) => sum + d.leads, 0);
+                                const avgLeads = chartData.length > 0 ? totalLeads / chartData.length : 0;
+                                return avgLeads.toFixed(1);
+                              })()}
+                            </p>
+                          </div>
+                          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <p className="text-xs text-green-600 font-medium mb-1">
+                              Promedio de Deals {selectedPeriod === 'week' ? '(diario)' : selectedPeriod === 'month' ? '(semanal)' : selectedPeriod === 'quarter' ? '(mensual)' : ''}
+                            </p>
+                            <p className="text-2xl font-bold text-green-700">
+                              {(() => {
+                                const chartData = Object.keys({
+                                  ...(displayedStats.leadsByDate || {}),
+                                  ...(displayedStats.dealsByDate || {}),
+                                })
+                                  .sort((a, b) => a.localeCompare(b))
+                                  .map((bucket) => ({
+                                    bucket,
+                                    deals: displayedStats.dealsByDate?.[bucket] ?? 0,
+                                  }));
+                                const totalDeals = chartData.reduce((sum, d) => sum + d.deals, 0);
+                                const avgDeals = chartData.length > 0 ? totalDeals / chartData.length : 0;
+                                return avgDeals.toFixed(1);
+                              })()}
+                            </p>
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   )}
