@@ -2935,7 +2935,7 @@ export default function ZohoCRMPage() {
                         <div className="mt-4 grid grid-cols-2 gap-4">
                           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                             <p className="text-xs text-blue-600 font-medium mb-1">
-                              Promedio de Leads {selectedPeriod === 'week' ? '(diario)' : selectedPeriod === 'month' ? '(semanal)' : selectedPeriod === 'quarter' ? '(mensual)' : ''}
+                              Promedio de Leads (diario)
                             </p>
                             <p className="text-2xl font-bold text-blue-700">
                               {(() => {
@@ -2956,7 +2956,7 @@ export default function ZohoCRMPage() {
                           </div>
                           <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                             <p className="text-xs text-green-600 font-medium mb-1">
-                              Promedio de Deals {selectedPeriod === 'week' ? '(diario)' : selectedPeriod === 'month' ? '(semanal)' : selectedPeriod === 'quarter' ? '(mensual)' : ''}
+                              Promedio de Deals (diario)
                             </p>
                             <p className="text-2xl font-bold text-green-700">
                               {(() => {
