@@ -2122,8 +2122,9 @@ export default function ZohoCRMPage() {
                       <p className="text-sm font-medium text-blue-900 mb-1">
                         Periodo: {selectedPeriod === 'week' ? 'Semanal' : selectedPeriod === 'month' ? 'Mensual' : selectedPeriod === 'quarter' ? 'Trimestral' : 'Anual'}
                         {selectedDesarrollo !== 'all' && ` | Desarrollo: ${selectedDesarrollo}`}
-                        {selectedSource !== 'all' && ` | Fuente: ${selectedSource}`}
-                        {selectedOwner !== 'all' && ` | Asesor: ${selectedOwner}`}
+                        {selectedSource.length > 0 && ` | Fuente: ${selectedSource.join(', ')}`}
+                        {selectedOwner.length > 0 && ` | Asesor: ${selectedOwner.join(', ')}`}
+                        {selectedStatus.length > 0 && ` | Estado: ${selectedStatus.join(', ')}`}
                       </p>
                       <p className="text-xs text-blue-700">
                         Mostrando {showLastMonth ? 'datos del periodo anterior' : 'datos del periodo actual'}
