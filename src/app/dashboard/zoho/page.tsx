@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import {
@@ -59,9 +60,9 @@ export default function ZohoCRMPage() {
 
   // Filtros
   const [selectedDesarrollo, setSelectedDesarrollo] = useState<string>('all');
-  const [selectedSource, setSelectedSource] = useState<string>('all');
-  const [selectedOwner, setSelectedOwner] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedSource, setSelectedSource] = useState<string[]>([]);
+  const [selectedOwner, setSelectedOwner] = useState<string[]>([]);
+  const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>({
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -285,9 +286,9 @@ export default function ZohoCRMPage() {
         setActivityStatsLoading(true);
         const data = await getZohoStats({
           desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
-          source: selectedSource === 'all' ? undefined : selectedSource,
-          owner: selectedOwner === 'all' ? undefined : selectedOwner,
-          status: selectedStatus === 'all' ? undefined : selectedStatus,
+          source: selectedSource.length === 0 ? undefined : selectedSource.join(','),
+          owner: selectedOwner.length === 0 ? undefined : selectedOwner.join(','),
+          status: selectedStatus.length === 0 ? undefined : selectedStatus.join(','),
           startDate,
           endDate,
           debug: debugZohoStats,
@@ -390,9 +391,9 @@ export default function ZohoCRMPage() {
         const leadDesarrollo = lead.Desarrollo || (lead as any).Desarollo;
         if (!compareDevelopments(leadDesarrollo, selectedDesarrollo)) return false;
       }
-      if (selectedSource !== 'all' && lead.Lead_Source !== selectedSource) return false;
-      if (selectedOwner !== 'all' && lead.Owner?.name !== selectedOwner) return false;
-      if (selectedStatus !== 'all' && lead.Lead_Status !== selectedStatus) return false;
+      if (selectedSource.length > 0 && !selectedSource.includes(normalizeLeadSource(lead.Lead_Source))) return false;
+      if (selectedOwner.length > 0 && !selectedOwner.includes(lead.Owner?.name || '')) return false;
+      if (selectedStatus.length > 0 && !selectedStatus.includes(lead.Lead_Status || '')) return false;
       return true;
     });
 
@@ -406,9 +407,9 @@ export default function ZohoCRMPage() {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
         if (!compareDevelopments(dealDesarrollo, selectedDesarrollo)) return false;
       }
-      if (selectedSource !== 'all' && deal.Lead_Source !== selectedSource) return false;
-      if (selectedOwner !== 'all' && deal.Owner?.name !== selectedOwner) return false;
-      if (selectedStatus !== 'all' && deal.Stage !== selectedStatus) return false;
+      if (selectedSource.length > 0 && !selectedSource.includes(normalizeLeadSource(deal.Lead_Source))) return false;
+      if (selectedOwner.length > 0 && !selectedOwner.includes(deal.Owner?.name || '')) return false;
+      if (selectedStatus.length > 0 && !selectedStatus.includes(deal.Stage || '')) return false;
       return true;
     });
 
@@ -566,9 +567,9 @@ export default function ZohoCRMPage() {
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
           desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
-          source: selectedSource === 'all' ? undefined : selectedSource,
-          owner: selectedOwner === 'all' ? undefined : selectedOwner,
-          status: selectedStatus === 'all' ? undefined : selectedStatus,
+          source: selectedSource.length === 0 ? undefined : selectedSource.join(','),
+          owner: selectedOwner.length === 0 ? undefined : selectedOwner.join(','),
+          status: selectedStatus.length === 0 ? undefined : selectedStatus.join(','),
         });
         if (!cancelled) setStoredNotesInsights(data);
       } catch (e) {
@@ -622,9 +623,9 @@ export default function ZohoCRMPage() {
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
           desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
-          source: selectedSource === 'all' ? undefined : selectedSource,
-          owner: selectedOwner === 'all' ? undefined : selectedOwner,
-          status: selectedStatus === 'all' ? undefined : selectedStatus,
+          source: selectedSource.length === 0 ? undefined : selectedSource.join(','),
+          owner: selectedOwner.length === 0 ? undefined : selectedOwner.join(','),
+          status: selectedStatus.length === 0 ? undefined : selectedStatus.join(','),
         },
         regenerate: true,
       });
@@ -655,9 +656,9 @@ export default function ZohoCRMPage() {
     period: TimePeriod,
     isLastPeriod: boolean,
     desarrollo?: string,
-    source?: string,
-    owner?: string,
-    status?: string,
+    source?: string[],
+    owner?: string[],
+    status?: string[],
     overrideEndDate?: Date,
     customRange?: DateRange
   ): ZohoStats => {
@@ -758,13 +759,13 @@ export default function ZohoCRMPage() {
       }
 
       // Filtro de fuente
-      if (source && source !== 'all' && normalizeLeadSource(lead.Lead_Source) !== source) return false;
+      if (source && source.length > 0 && !source.includes(normalizeLeadSource(lead.Lead_Source))) return false;
 
       // Filtro de asesor
-      if (owner && owner !== 'all' && lead.Owner?.name !== owner) return false;
+      if (owner && owner.length > 0 && !owner.includes(lead.Owner?.name || '')) return false;
 
       // Filtro de estado
-      if (status && status !== 'all' && lead.Lead_Status !== status) return false;
+      if (status && status.length > 0 && !status.includes(lead.Lead_Status || '')) return false;
 
       return true;
     });
@@ -808,19 +809,19 @@ export default function ZohoCRMPage() {
       }
 
       // Filtro de fuente
-      if (source && source !== 'all' && normalizeLeadSource(deal.Lead_Source) !== source) {
+      if (source && source.length > 0 && !source.includes(normalizeLeadSource(deal.Lead_Source))) {
         dealExclusionReasons.sourceMismatch++;
         return false;
       }
 
       // Filtro de asesor
-      if (owner && owner !== 'all' && deal.Owner?.name !== owner) {
+      if (owner && owner.length > 0 && !owner.includes(deal.Owner?.name || '')) {
         dealExclusionReasons.ownerMismatch++;
         return false;
       }
 
       // Filtro de estado
-      if (status && status !== 'all' && deal.Stage !== status) {
+      if (status && status.length > 0 && !status.includes(deal.Stage || '')) {
         dealExclusionReasons.statusMismatch++;
         return false;
       }
@@ -841,9 +842,9 @@ export default function ZohoCRMPage() {
         const dealDesarrollo = deal.Desarrollo || (deal as any).Desarollo;
         if (dealDesarrollo !== desarrollo) return false;
       }
-      if (source && source !== 'all' && normalizeLeadSource(deal.Lead_Source) !== source) return false;
-      if (owner && owner !== 'all' && deal.Owner?.name !== owner) return false;
-      if (status && status !== 'all' && deal.Stage !== status) return false;
+      if (source && source.length > 0 && !source.includes(normalizeLeadSource(deal.Lead_Source))) return false;
+      if (owner && owner.length > 0 && !owner.includes(deal.Owner?.name || '')) return false;
+      if (status && status.length > 0 && !status.includes(deal.Stage || '')) return false;
 
       if (!isWonStage(deal.Stage)) return false;
       const closeKey = getDealClosedWonDateKey(deal);
@@ -1781,51 +1782,30 @@ export default function ZohoCRMPage() {
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
-                <Select value={selectedSource} onValueChange={setSelectedSource}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar fuente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas las fuentes</SelectItem>
-                    {availableSources.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {source}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={availableSources.map((source) => ({ label: source, value: source }))}
+                  selected={selectedSource}
+                  onChange={setSelectedSource}
+                  placeholder="Seleccionar fuentes"
+                />
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">Asesor</label>
-                <Select value={selectedOwner} onValueChange={setSelectedOwner}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar asesor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los asesores</SelectItem>
-                    {availableOwners.map((owner) => (
-                      <SelectItem key={owner} value={owner}>
-                        {owner}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={availableOwners.map((owner) => ({ label: owner, value: owner }))}
+                  selected={selectedOwner}
+                  onChange={setSelectedOwner}
+                  placeholder="Seleccionar asesores"
+                />
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
-                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar estado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los estados</SelectItem>
-                    {availableStatuses.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {status}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={availableStatuses.map((status) => ({ label: status, value: status }))}
+                  selected={selectedStatus}
+                  onChange={setSelectedStatus}
+                  placeholder="Seleccionar estados"
+                />
               </div>
               <div className="flex items-end">
                 <Button
