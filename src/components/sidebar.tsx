@@ -98,6 +98,12 @@ const NAV_ITEMS: NavItem[] = [
     allowedRoles: ['admin', 'ceo'] as UserRole[] // Solo ADMIN y CEO
   },
   {
+    title: 'Meta Ads',
+    href: '/dashboard/meta-ads',
+    icon: Activity,
+    allowedRoles: ['admin'] as UserRole[] // Solo ADMIN
+  },
+  {
     title: 'Usuarios',
     href: '/dashboard/users',
     icon: Users,

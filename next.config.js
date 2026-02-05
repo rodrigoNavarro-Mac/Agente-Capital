@@ -64,7 +64,7 @@ const nextConfig = {
           // Content-Security-Policy básica (puede requerir ajustes según uso de scripts externos)
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:;",
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://connect.facebook.net https://graph.facebook.com; connect-src 'self' https://graph.facebook.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:;",
           }
         ],
       },
