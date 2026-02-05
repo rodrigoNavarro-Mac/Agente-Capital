@@ -21,7 +21,9 @@ export function MetaSdkProvider() {
                     appId: process.env.NEXT_PUBLIC_META_APP_ID || '', // Needs to be added to public env
                     cookie: true,
                     xfbml: true,
-                    console.log('[MetaSDK] Initialized');
+                    version: 'v19.0'
+                });
+                console.log('[MetaSDK] Initialized');
                 (window as any).fbSdkReady = true;
                 window.dispatchEvent(new Event('meta-sdk-ready'));
             }

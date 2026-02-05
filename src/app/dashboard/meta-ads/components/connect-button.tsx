@@ -77,14 +77,6 @@ export function ConnectMetaButton() {
 
         window.addEventListener('meta-sdk-ready', onSdkReady);
 
-        // Fallback polling in case we missed the event
-        const interval = setInterval(() => {
-            // We can't strictly know if init was called just by window.FB existing.
-            // But if the Provider ran, it dispatched.
-            // Let's just rely on the user clicking "Refresh" if it hangs, or better:
-            // The Provider is in layout, so it should run once.
-        }, 1000);
-
         return () => window.removeEventListener('meta-sdk-ready', onSdkReady);
     }, []);
 
