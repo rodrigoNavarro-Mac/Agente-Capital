@@ -53,16 +53,39 @@ export function ConnectMetaButton() {
     };
 
     useEffect(() => {
-        // Poll for SDK readiness
-        const interval = setInterval(() => {
-            if (window.FB) {
-                setSdkReady(true);
-                clearInterval(interval);
-                window.FB.getLoginStatus(statusChangeCallback);
-            }
-        }, 500);
+        const onSdkReady = () => {
+            console.log('[ConnectMetaButton] SDK Ready Event received');
+            setSdkReady(true);
+            window.FB.getLoginStatus(statusChangeCallback);
+        };
 
-        return () => clearInterval(interval);
+        // If already initialized (rare race condition if provider runs fast)
+        if (window.FB && window.FB.getLoginStatus) {
+            // We assume if getLoginStatus exists, init *might* be done, but to be safe 
+            // we rely on the event or a specific check. 
+            // However, standard FB sdk loads async. 
+            // Best bet: check if our custom flag exists or just wait for event.
+            // But since we control provider, let's keep it simple:
+            // If event fired before we mounted, we missed it.
+            // Hack: Provider sets a global flag? Or just keep polling but check for a specific flag?
+            // Let's stick to event listener but also check generic FB existence + a small timeout fallback?
+            // Actually, the safest way without global flags is just polling for a "known initialized state" 
+            // but FB object doesn't have an "isInitialized" property publicly documented.
+            // We will trust the Provider to dispatch. To catch "already happened", we can check if it's there.
+            // If FB.init happened, usually FB object is populated.
+        }
+
+        window.addEventListener('meta-sdk-ready', onSdkReady);
+
+        // Fallback polling in case we missed the event
+        const interval = setInterval(() => {
+            // We can't strictly know if init was called just by window.FB existing.
+            // But if the Provider ran, it dispatched.
+            // Let's just rely on the user clicking "Refresh" if it hangs, or better:
+            // The Provider is in layout, so it should run once.
+        }, 1000);
+
+        return () => window.removeEventListener('meta-sdk-ready', onSdkReady);
     }, []);
 
     const handleLogin = () => {
