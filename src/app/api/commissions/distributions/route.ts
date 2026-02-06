@@ -20,6 +20,7 @@ import {
   getCommissionRules,
   deleteCommissionDistributions,
   getRuleUnitsCountMap,
+  getPartnerCommissions,
 } from '@/lib/db/commission-db';
 import { calculateCommission } from '@/lib/domain/commission-calculator';
 import { logger } from '@/lib/utils/logger';
@@ -129,32 +130,32 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 
     const rawBody = await request.json();
     const validation = validateRequest(updateCommissionDistributionSchema, rawBody, 'commissions-distributions');
-    
+
     if (!validation.success) {
       return NextResponse.json(
         { success: false, error: validation.error },
         { status: validation.status }
       );
     }
-    
+
     const { sale_id, commission_percent, recalculate } = validation.data;
-    
+
     // Verificar si ya existen distribuciones calculadas para esta venta
     const existingDistributions = await getCommissionDistributions(sale_id);
-    
+
     // Si ya existen distribuciones y no se solicita recalcular explícitamente,
     // devolver un error para proteger las distribuciones ya calculadas
     if (existingDistributions.length > 0 && !recalculate) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Ya existen distribuciones calculadas para esta venta. Use el parámetro recalculate=true para recalcular con la nueva configuración.',
           data: { existing_distributions: existingDistributions }
         },
         { status: 409 } // 409 Conflict - indica que hay un conflicto con el estado actual
       );
     }
-    
+
     // Si se solicita recalcular, eliminar distribuciones existentes primero
     if (recalculate && existingDistributions.length > 0) {
       await deleteCommissionDistributions(sale_id);
@@ -188,7 +189,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       sale.desarrollo,
       sale.fecha_firma
     );
-    
+
     // Obtener todas las reglas del desarrollo (para mostrar cuáles no se cumplieron)
     const allRules = await getCommissionRules(sale.desarrollo);
 
@@ -210,8 +211,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       ruleUnitsCountMap
     );
 
+    // Obtener partner_commissions para obtener flags de pago en efectivo
+    const partnerCommissions = await getPartnerCommissions({ commission_sale_id: sale_id });
+    const partnerCommission = partnerCommissions[0]; // Asumiendo que hay solo uno por venta
+
+    // Agregar flag is_cash_payment a cada distribución según su fase
+    const distributionsWithCashFlag = calculation.distributions.map(dist => ({
+      ...dist,
+      is_cash_payment:
+        dist.phase === 'sale' ? (partnerCommission?.sale_phase_is_cash_payment || false) :
+          dist.phase === 'post_sale' ? (partnerCommission?.post_sale_phase_is_cash_payment || false) :
+            false // utility phase no tiene pago en efectivo
+    }));
+
     // Guardar distribuciones
-    const distributions = await createCommissionDistributions(calculation.distributions);
+    const distributions = await createCommissionDistributions(distributionsWithCashFlag);
 
     // Actualizar estado de la venta (guardando también los porcentajes de fase usados)
     await updateCommissionSaleCalculation(
@@ -372,8 +386,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
 
 /**
  * PATCH /api/commissions/distributions
- * Actualiza el estado de pago de una distribución de comisión
- * Body: { distribution_id: number, payment_status: 'pending' | 'paid' }
+ * Actualiza el estado de pago o el estado de una distribución de comisión
+ * Body: 
+ *   - { distribution_id: number, payment_status: 'pending' | 'paid' }
+ *   - { distribution_id: number, estado: 'SOLICITADA' | 'NO_APLICA' }
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
@@ -407,16 +423,24 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     const body = await request.json();
     const { distribution_id, payment_status } = body;
 
-    if (!distribution_id || !payment_status) {
+    if (!distribution_id) {
       return NextResponse.json(
-        { success: false, error: 'distribution_id y payment_status son requeridos' },
+        { success: false, error: 'distribution_id es requerido' },
         { status: 400 }
       );
     }
 
-    if (payment_status !== 'pending' && payment_status !== 'paid') {
+    if (!payment_status) {
       return NextResponse.json(
-        { success: false, error: 'payment_status debe ser "pending" o "paid"' },
+        { success: false, error: 'payment_status es requerido' },
+        { status: 400 }
+      );
+    }
+
+    // Validar que payment_status sea uno de los 4 valores permitidos
+    if (!['pending', 'paid', 'SOLICITADA', 'NO_APLICA'].includes(payment_status)) {
+      return NextResponse.json(
+        { success: false, error: 'payment_status debe ser "pending", "paid", "SOLICITADA" o "NO_APLICA"' },
         { status: 400 }
       );
     }
@@ -426,16 +450,17 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
       payment_status
     );
 
+
     return NextResponse.json({
       success: true,
       data: distribution,
     });
   } catch (error) {
-    logger.error('Error actualizando estado de pago de distribución', error, {}, 'commissions-distributions');
+    logger.error('Error actualizando distribución', error, {}, 'commissions-distributions');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Error actualizando estado de pago',
+        error: error instanceof Error ? error.message : 'Error actualizando distribución',
       },
       { status: 500 }
     );

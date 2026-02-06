@@ -17,6 +17,10 @@
 export type InternalSalePhaseStatus = 'visible' | 'pending' | 'paid';
 export type InternalPostSalePhaseStatus = 'hidden' | 'upcoming' | 'payable' | 'paid';
 
+// Estados de distribución de comisiones (comisiones por pagar)
+// Incluye: pending (pendiente de pago), paid (pagada), SOLICITADA (solicitada/aprobada), NO_APLICA (no aplica - monto automático 0)
+export type CommissionPaymentStatus = 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA';
+
 // Estados del flujo de socios (ingresos - cobros a socios)
 export type PartnerCommissionStatus = 'pending_invoice' | 'invoiced' | 'collected';
 
@@ -259,7 +263,8 @@ export interface CommissionDistribution {
   phase: CommissionPhase;
   percent_assigned: number;
   amount_calculated: number;
-  payment_status: PaymentStatus;
+  payment_status: CommissionPaymentStatus;
+  is_cash_payment: boolean; // Flag indicating if this is a cash payment (no IVA)
   invoice_pdf_path: string | null;
   created_at: string;
   updated_at: string;
@@ -273,7 +278,8 @@ export interface CommissionDistributionInput {
   phase: CommissionPhase;
   percent_assigned: number;
   amount_calculated: number;
-  payment_status?: PaymentStatus;
+  payment_status?: CommissionPaymentStatus;
+  is_cash_payment?: boolean; // Optional when creating, defaults to false
 }
 
 // =====================================================

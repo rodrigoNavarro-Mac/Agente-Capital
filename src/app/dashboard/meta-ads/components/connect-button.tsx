@@ -59,20 +59,11 @@ export function ConnectMetaButton() {
             window.FB.getLoginStatus(statusChangeCallback);
         };
 
-        // If already initialized (rare race condition if provider runs fast)
-        if (window.FB && window.FB.getLoginStatus) {
-            // We assume if getLoginStatus exists, init *might* be done, but to be safe 
-            // we rely on the event or a specific check. 
-            // However, standard FB sdk loads async. 
-            // Best bet: check if our custom flag exists or just wait for event.
-            // But since we control provider, let's keep it simple:
-            // If event fired before we mounted, we missed it.
-            // Hack: Provider sets a global flag? Or just keep polling but check for a specific flag?
-            // Let's stick to event listener but also check generic FB existence + a small timeout fallback?
-            // Actually, the safest way without global flags is just polling for a "known initialized state" 
-            // but FB object doesn't have an "isInitialized" property publicly documented.
-            // We will trust the Provider to dispatch. To catch "already happened", we can check if it's there.
-            // If FB.init happened, usually FB object is populated.
+        // If already initialized
+        if ((window as any).fbSdkReady && window.FB) {
+            console.log('[ConnectMetaButton] SDK already ready on mount');
+            setSdkReady(true);
+            window.FB.getLoginStatus(statusChangeCallback);
         }
 
         window.addEventListener('meta-sdk-ready', onSdkReady);
@@ -81,12 +72,20 @@ export function ConnectMetaButton() {
     }, []);
 
     const handleLogin = () => {
-        if (!window.FB) return;
+        if (!(window as any).fbSdkReady || !window.FB) {
+            console.warn('[ConnectMetaButton] SDK not ready yet.');
+            toast({
+                title: 'Espera un momento',
+                description: 'El SDK de Facebook aún se está cargando.',
+                variant: 'destructive'
+            });
+            return;
+        }
 
         setLoading(true);
         window.FB.login((response: any) => {
             statusChangeCallback(response);
-        }, { scope: 'ads_read,read_insights,ads_management' });
+        }, { scope: 'public_profile,email,ads_read,read_insights,ads_management' });
     };
 
     const handleLogout = () => {
@@ -121,7 +120,7 @@ export function ConnectMetaButton() {
     }
 
     return (
-        <Button onClick={handleLogin} disabled={loading} className="bg-[#1877F2] hover:bg-[#166fe5] text-white">
+        <Button onClick={handleLogin} disabled={!sdkReady || loading} className="bg-[#1877F2] hover:bg-[#166fe5] text-white">
             <Facebook className="mr-2 h-4 w-4" />
             {loading ? 'Conectando...' : 'Conectar con Facebook'}
         </Button>

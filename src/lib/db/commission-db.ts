@@ -831,11 +831,13 @@ export async function createCommissionDistribution(
   distribution: CommissionDistributionInput
 ): Promise<CommissionDistribution> {
   try {
+    // El trigger de BD automáticamente establece amount_calculated en 0 si payment_status es 'NO_APLICA'
+
     const result = await query<CommissionDistribution>(
       `INSERT INTO commission_distributions (
         sale_id, role_type, person_name, person_id,
-        phase, percent_assigned, amount_calculated, payment_status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        phase, percent_assigned, amount_calculated, payment_status, is_cash_payment
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
       [
         distribution.sale_id,
@@ -845,7 +847,8 @@ export async function createCommissionDistribution(
         distribution.phase,
         distribution.percent_assigned,
         distribution.amount_calculated,
-        distribution.payment_status || 'pending',
+        distribution.payment_status || 'SOLICITADA',
+        distribution.is_cash_payment || false,
       ]
     );
     return result.rows[0];
@@ -935,7 +938,7 @@ export async function updateCommissionDistribution(
  */
 export async function updateCommissionDistributionPaymentStatus(
   distributionId: number,
-  paymentStatus: 'pending' | 'paid'
+  paymentStatus: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA'
 ): Promise<CommissionDistribution> {
   try {
     const result = await query<CommissionDistribution>(
@@ -955,6 +958,8 @@ export async function updateCommissionDistributionPaymentStatus(
     throw error;
   }
 }
+
+
 
 /**
  * Obtiene todas las distribuciones con informaciÃ³n de la venta
@@ -984,6 +989,10 @@ export async function getCommissionDistributionsWithSaleInfo(
     // Excluir reglas y utilidades (solo mostrar comisiones reales a pagar)
     whereConditions.push("cd.role_type != 'rule_bonus'");
     whereConditions.push("cd.phase != 'utility'");
+
+    // Excluir distribuciones con estado NO_APLICA (no se deben mostrar en cálculos de totales)
+    // Nota: Este filtro se puede remover si se desea mostrar todas las comisiones independiente de su estado
+    // whereConditions.push("cd.estado != 'NO_APLICA'");
 
     if (filters?.desarrollo) {
       whereConditions.push(`cs.desarrollo = $${paramIndex}`);
@@ -2449,6 +2458,8 @@ export async function getPartnerCommissions(
   collection_status: string;
   sale_phase_collection_status: string;
   post_sale_phase_collection_status: string;
+  sale_phase_is_cash_payment: boolean;
+  post_sale_phase_is_cash_payment: boolean;
   calculated_at: string;
   sale_info?: {
     cliente_nombre: string;

@@ -2961,7 +2961,7 @@ function DistributionTab({
     }
   };
 
-  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid') => {
+  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') => {
     try {
       const token = localStorage.getItem('accessToken');
       const response = await fetch('/api/commissions/distributions', {
@@ -2978,24 +2978,50 @@ function DistributionTab({
       const data = await response.json();
       if (data.success) {
         // Actualizar el estado local
+        // El trigger de BD automáticamente establece amount_calculated en 0 si newStatus es NO_APLICA
         setSaleDistributions(prev =>
           prev.map(dist =>
             dist.id === distributionId
-              ? { ...dist, payment_status: newStatus }
+              ? {
+                ...dist,
+                payment_status: newStatus,
+                // Si el nuevo status es NO_APLICA, establecer amount en 0
+                amount_calculated: newStatus === 'NO_APLICA' ? 0 : dist.amount_calculated
+              }
               : dist
           )
         );
+        const statusLabels = {
+          'paid': 'Pag ada',
+          'pending': 'Pendiente',
+          'SOLICITADA': 'Solicitada',
+          'NO_APLICA': 'No Aplica'
+        };
         toast({
           title: 'Estado actualizado',
-          description: `La comisión ha sido marcada como ${newStatus === 'paid' ? 'pagada' : 'pendiente'}`,
+          description: `La comisión ha sido marcada como ${statusLabels[newStatus]}`,
         });
+        // Recargar la venta para actualizar los totales
+        onRefresh();
       } else {
         logger.error('Error updating payment status:', data.error);
+        toast({
+          title: 'Error',
+          description: data.error || 'No se pudo actualizar el estado',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       logger.error('Error updating payment status:', error);
+      toast({
+        title: 'Error',
+        description: 'Ocurrió un error al actualizar el estado',
+        variant: 'destructive',
+      });
     }
   };
+
+
 
   const selectedSale = filteredSales.find(s => s.id === selectedSaleId);
 
@@ -3521,7 +3547,7 @@ function DistributionTab({
                               <TableHead>Persona</TableHead>
                               <TableHead>%</TableHead>
                               <TableHead>Monto</TableHead>
-                              <TableHead>Estado de Pago</TableHead>
+                              <TableHead>Estado</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -3542,28 +3568,21 @@ function DistributionTab({
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
+                                    {dist.is_cash_payment && (
+                                      <Badge variant="outline" className="ml-2 text-[9px] py-0 px-1 bg-green-50 text-green-700 border-green-200 h-4">
+                                        EFECTIVO
+                                      </Badge>
+                                    )}
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell style={{ display: 'none' }}>
                                     <Select
-                                      value={dist.payment_status || 'pending'}
+                                      value={undefined as any}
                                       onValueChange={(value: 'pending' | 'paid') =>
                                         handlePaymentStatusChange(dist.id, value)
                                       }
                                     >
                                       <SelectTrigger className="w-[140px]">
-                                        <SelectValue>
-                                          {dist.payment_status === 'paid' ? (
-                                            <div className="flex items-center gap-2">
-                                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                              <span>Pagada</span>
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-2">
-                                              <Clock className="h-4 w-4 text-yellow-600" />
-                                              <span>Pendiente</span>
-                                            </div>
-                                          )}
-                                        </SelectValue>
+                                        <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="pending">
@@ -3578,6 +3597,24 @@ function DistributionTab({
                                             Pagada
                                           </div>
                                         </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Select
+                                      value={dist.payment_status || 'SOLICITADA'}
+                                      onValueChange={(value: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') =>
+                                        handlePaymentStatusChange(dist.id, value)
+                                      }
+                                    >
+                                      <SelectTrigger className="w-[140px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="SOLICITADA">Solicitada</SelectItem>
+                                        <SelectItem value="NO_APLICA">No Aplica</SelectItem>
+                                        <SelectItem value="pending">Pendiente</SelectItem>
+                                        <SelectItem value="paid">Pagada</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
@@ -3605,6 +3642,7 @@ function DistributionTab({
                               <TableHead>%</TableHead>
                               <TableHead>Monto</TableHead>
                               <TableHead>Estado de Pago</TableHead>
+                              <TableHead>Estado</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -3625,28 +3663,21 @@ function DistributionTab({
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
+                                    {dist.is_cash_payment && (
+                                      <Badge variant="outline" className="ml-2 text-[9px] py-0 px-1 bg-green-50 text-green-700 border-green-200 h-4">
+                                        EFECTIVO
+                                      </Badge>
+                                    )}
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell style={{ display: 'none' }}>
                                     <Select
-                                      value={dist.payment_status || 'pending'}
+                                      value={undefined as any}
                                       onValueChange={(value: 'pending' | 'paid') =>
                                         handlePaymentStatusChange(dist.id, value)
                                       }
                                     >
                                       <SelectTrigger className="w-[140px]">
-                                        <SelectValue>
-                                          {dist.payment_status === 'paid' ? (
-                                            <div className="flex items-center gap-2">
-                                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                              <span>Pagada</span>
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-2">
-                                              <Clock className="h-4 w-4 text-yellow-600" />
-                                              <span>Pendiente</span>
-                                            </div>
-                                          )}
-                                        </SelectValue>
+                                        <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="pending">
@@ -3664,12 +3695,30 @@ function DistributionTab({
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
+                                  <TableCell>
+                                    <Select
+                                      value={dist.payment_status || 'SOLICITADA'}
+                                      onValueChange={(value: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') =>
+                                        handlePaymentStatusChange(dist.id, value)
+                                      }
+                                    >
+                                      <SelectTrigger className="w-[140px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="SOLICITADA">Solicitada</SelectItem>
+                                        <SelectItem value="NO_APLICA">No Aplica</SelectItem>
+                                        <SelectItem value="pending">Pendiente</SelectItem>
+                                        <SelectItem value="paid">Pagada</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
                                 </TableRow>
                               );
                             })}
                             {saleDistributions.filter(d => d.phase === 'post_sale').length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                <TableCell colSpan={6} className="text-center text-muted-foreground">
                                   No hay distribuciones en fase postventa
                                 </TableCell>
                               </TableRow>
@@ -3822,7 +3871,7 @@ function DashboardTab({
     plazo_deal: string | null;
   }>>([]);
   const [loadingDistributions, setLoadingDistributions] = useState(false);
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA'>('all');
   const [personFilter, setPersonFilter] = useState<string>('all');
   const { toast } = useToast();
 
@@ -4045,7 +4094,7 @@ function DashboardTab({
   };
 
   // Manejar cambio de estado de pago
-  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid') => {
+  const handlePaymentStatusChange = async (distributionId: number, newStatus: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') => {
     try {
       const token = localStorage.getItem('accessToken');
       const response = await fetch('/api/commissions/distributions', {
@@ -4062,9 +4111,15 @@ function DashboardTab({
 
       const data = await response.json();
       if (data.success) {
+        const statusLabels = {
+          'paid': 'Pagada',
+          'pending': 'Pendiente',
+          'SOLICITADA': 'Solicitada',
+          'NO_APLICA': 'No Aplica'
+        };
         toast({
           title: 'Estado actualizado',
-          description: `La comisión ha sido marcada como ${newStatus === 'paid' ? 'pagada' : 'pendiente'}`,
+          description: `La comisión ha sido marcada como ${statusLabels[newStatus]}`,
         });
         // Recargar distribuciones para actualizar el estado
         await loadDistributions();
@@ -4086,9 +4141,16 @@ function DashboardTab({
   };
 
   // Calcular IVA (usando el mismo porcentaje que en comisiones por socio)
+  // Calcular IVA (usando el mismo porcentaje que en comisiones por socio)
   const ivaPercent = parseFloat(process.env.NEXT_PUBLIC_IVA_PERCENT || '16');
-  const calculateIva = (amount: number) => Number(((amount * ivaPercent) / 100).toFixed(2));
-  const calculateTotalWithIva = (amount: number) => Number((amount + calculateIva(amount)).toFixed(2));
+  const calculateIva = (amount: number, isCash: boolean = false) => {
+    if (isCash) return 0;
+    return Number(((amount * ivaPercent) / 100).toFixed(2));
+  };
+  const calculateTotalWithIva = (amount: number, isCash: boolean = false) => {
+    if (isCash) return amount;
+    return Number((amount + calculateIva(amount, isCash)).toFixed(2));
+  };
 
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
@@ -4583,13 +4645,15 @@ function DashboardTab({
                   </Select>
                   <Select
                     value={paymentStatusFilter}
-                    onValueChange={(value: 'all' | 'pending' | 'paid') => setPaymentStatusFilter(value)}
+                    onValueChange={(value: 'all' | 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') => setPaymentStatusFilter(value)}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todas</SelectItem>
+                      <SelectItem value="SOLICITADA">Solicitadas</SelectItem>
+                      <SelectItem value="NO_APLICA">No Aplica</SelectItem>
                       <SelectItem value="pending">Pendientes</SelectItem>
                       <SelectItem value="paid">Pagadas</SelectItem>
                     </SelectContent>
@@ -4653,8 +4717,8 @@ function DashboardTab({
 
                         // Calcular totales del mes
                         const totalMonth = monthDistributions.reduce((sum, d) => sum + Number(d.amount_calculated || 0), 0);
-                        const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0)), 0);
-                        const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0)), 0);
+                        const totalIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateIva(Number(d.amount_calculated || 0), d.is_cash_payment || false), 0);
+                        const totalConIvaMonth = monthDistributions.reduce((sum, d) => sum + calculateTotalWithIva(Number(d.amount_calculated || 0), d.is_cash_payment || false), 0);
                         const numTransacciones = monthDistributions.length;
                         const monthYear = `${selectedYear}-${String(month).padStart(2, '0')}`;
 
@@ -4720,8 +4784,9 @@ function DashboardTab({
                                 <TableBody>
                                   {monthDistributions.map((dist) => {
                                     const amount = Number(dist.amount_calculated || 0);
-                                    const iva = calculateIva(amount);
-                                    const totalConIva = calculateTotalWithIva(amount);
+                                    const isCash = dist.is_cash_payment || false;
+                                    const iva = calculateIva(amount, isCash);
+                                    const totalConIva = calculateTotalWithIva(amount, isCash);
 
                                     return (
                                       <TableRow key={dist.id} className="h-8">
@@ -4757,6 +4822,11 @@ function DashboardTab({
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })}
+                                          {isCash && (
+                                            <Badge variant="outline" className="ml-2 text-[9px] py-0 px-1 bg-green-50 text-green-700 border-green-200 h-4">
+                                              EFECTIVO
+                                            </Badge>
+                                          )}
                                         </TableCell>
                                         <TableCell className="text-xs py-1.5 px-2 text-right">
                                           ${iva.toLocaleString('es-MX', {
@@ -4773,7 +4843,7 @@ function DashboardTab({
                                         <TableCell className="text-xs py-1.5 px-2">
                                           <Select
                                             value={dist.payment_status}
-                                            onValueChange={(value: 'pending' | 'paid') => handlePaymentStatusChange(dist.id, value)}
+                                            onValueChange={(value: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') => handlePaymentStatusChange(dist.id, value)}
                                           >
                                             <SelectTrigger className="w-[110px] h-7 text-xs">
                                               <SelectValue>
@@ -4791,6 +4861,8 @@ function DashboardTab({
                                               </SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
+                                              <SelectItem value="SOLICITADA">Solicitada</SelectItem>
+                                              <SelectItem value="NO_APLICA">No Aplica</SelectItem>
                                               <SelectItem value="pending">
                                                 <div className="flex items-center gap-2">
                                                   <Clock className="h-4 w-4 text-yellow-600" />
