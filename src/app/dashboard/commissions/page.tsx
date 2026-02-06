@@ -4684,6 +4684,9 @@ function DashboardTab({
                   // Filtrar por estado de pago
                   if (paymentStatusFilter !== 'all') {
                     filteredDistributions = filteredDistributions.filter(d => d.payment_status === paymentStatusFilter);
+                  } else {
+                    // Si es 'all', excluir NO_APLICA por defecto
+                    filteredDistributions = filteredDistributions.filter(d => d.payment_status !== 'NO_APLICA');
                   }
 
                   if (filteredDistributions.length === 0) {
