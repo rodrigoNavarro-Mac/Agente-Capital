@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, EyeOff, ChevronDown, ChevronUp, MinusCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { decodeAccessToken } from '@/lib/auth/auth';
@@ -3703,13 +3703,69 @@ function DistributionTab({
                                       }
                                     >
                                       <SelectTrigger className="w-[140px]">
-                                        <SelectValue />
+                                        <SelectValue>
+                                          {(() => {
+                                            const status = dist.payment_status || 'SOLICITADA';
+                                            switch (status) {
+                                              case 'paid':
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                                    <span>Pagada</span>
+                                                  </div>
+                                                );
+                                              case 'pending':
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <Clock className="h-4 w-4 text-yellow-600" />
+                                                    <span>Pendiente</span>
+                                                  </div>
+                                                );
+                                              case 'SOLICITADA':
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <Clock className="h-4 w-4 text-blue-600" />
+                                                    <span>Solicitada</span>
+                                                  </div>
+                                                );
+                                              case 'NO_APLICA':
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <MinusCircle className="h-4 w-4 text-red-600" />
+                                                    <span>No Aplica</span>
+                                                  </div>
+                                                );
+                                              default:
+                                                return <span>{status}</span>;
+                                            }
+                                          })()}
+                                        </SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="SOLICITADA">Solicitada</SelectItem>
-                                        <SelectItem value="NO_APLICA">No Aplica</SelectItem>
-                                        <SelectItem value="pending">Pendiente</SelectItem>
-                                        <SelectItem value="paid">Pagada</SelectItem>
+                                        <SelectItem value="SOLICITADA">
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-blue-600" />
+                                            Solicitada
+                                          </div>
+                                        </SelectItem>
+                                        <SelectItem value="NO_APLICA">
+                                          <div className="flex items-center gap-2">
+                                            <MinusCircle className="h-4 w-4 text-red-600" />
+                                            No Aplica
+                                          </div>
+                                        </SelectItem>
+                                        <SelectItem value="pending">
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-yellow-600" />
+                                            Pendiente
+                                          </div>
+                                        </SelectItem>
+                                        <SelectItem value="paid">
+                                          <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                            Pagada
+                                          </div>
+                                        </SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
@@ -4845,27 +4901,61 @@ function DashboardTab({
                                         </TableCell>
                                         <TableCell className="text-xs py-1.5 px-2">
                                           <Select
-                                            value={dist.payment_status}
+                                            value={dist.payment_status || 'SOLICITADA'}
                                             onValueChange={(value: 'pending' | 'paid' | 'SOLICITADA' | 'NO_APLICA') => handlePaymentStatusChange(dist.id, value)}
                                           >
-                                            <SelectTrigger className="w-[110px] h-7 text-xs">
+                                            <SelectTrigger className="w-[140px] h-7 text-xs">
                                               <SelectValue>
-                                                {dist.payment_status === 'paid' ? (
-                                                  <div className="flex items-center gap-1">
-                                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                                    <span className="text-xs">Pagada</span>
-                                                  </div>
-                                                ) : (
-                                                  <div className="flex items-center gap-1">
-                                                    <Clock className="h-3 w-3 text-yellow-600" />
-                                                    <span className="text-xs">Pendiente</span>
-                                                  </div>
-                                                )}
+                                                {(() => {
+                                                  const status = dist.payment_status || 'SOLICITADA';
+                                                  switch (status) {
+                                                    case 'paid':
+                                                      return (
+                                                        <div className="flex items-center gap-1">
+                                                          <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                                          <span className="text-xs">Pagada</span>
+                                                        </div>
+                                                      );
+                                                    case 'pending':
+                                                      return (
+                                                        <div className="flex items-center gap-1">
+                                                          <Clock className="h-3 w-3 text-yellow-600" />
+                                                          <span className="text-xs">Pendiente</span>
+                                                        </div>
+                                                      );
+                                                    case 'SOLICITADA':
+                                                      return (
+                                                        <div className="flex items-center gap-1">
+                                                          <Clock className="h-3 w-3 text-blue-600" />
+                                                          <span className="text-xs">Solicitada</span>
+                                                        </div>
+                                                      );
+                                                    case 'NO_APLICA':
+                                                      return (
+                                                        <div className="flex items-center gap-1">
+                                                          <MinusCircle className="h-3 w-3 text-red-600" />
+                                                          <span className="text-xs">No Aplica</span>
+                                                        </div>
+                                                      );
+                                                    default:
+                                                      return <span className="text-xs">{status}</span>;
+                                                  }
+                                                })()}
                                               </SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
-                                              <SelectItem value="SOLICITADA">Solicitada</SelectItem>
-                                              <SelectItem value="NO_APLICA">No Aplica</SelectItem>
+                                              <SelectItem value="SOLICITADA">
+                                                <div className="flex items-center gap-2">
+                                                  <Clock className="h-4 w-4 text-blue-600" />
+                                                  Solicitada
+                                                </div>
+                                              </SelectItem>
+                                              <SelectItem value="NO_APLICA">
+                                                <div className="flex items-center gap-2">
+                                                  <MinusCircle className="h-4 w-4 text-red-600" />
+                                                  No Aplica
+                                                </div>
+                                              </SelectItem>
                                               <SelectItem value="pending">
                                                 <div className="flex items-center gap-2">
                                                   <Clock className="h-4 w-4 text-yellow-600" />
