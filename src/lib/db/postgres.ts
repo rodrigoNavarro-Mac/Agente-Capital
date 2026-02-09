@@ -4165,6 +4165,195 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
   }
 }
 
+/**
+ * Enmascara un número de teléfono para privacidad
+ * Ejemplo: "5215551234567" → "521***4567"
+ */
+function maskPhoneNumber(phone: string): string {
+  if (phone.length <= 7) return phone;
+  const countryCode = phone.substring(0, 3);
+  const lastDigits = phone.substring(phone.length - 4);
+  return `${countryCode}***${lastDigits}`;
+}
+
+/**
+ * Log de WhatsApp con número enmascarado
+ */
+export interface WhatsAppLogWithMask {
+  id: number;
+  user_phone_masked: string;
+  development: string;
+  message_preview: string;
+  response_preview: string;
+  created_at: Date;
+}
+
+/**
+ * Obtiene logs de WhatsApp con paginación y filtros
+ */
+export async function getWhatsAppLogs(options: {
+  development?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<WhatsAppLogWithMask[]> {
+  const { development, limit = 50, offset = 0 } = options;
+
+  try {
+    let queryText = `
+      SELECT 
+        id,
+        user_phone,
+        development,
+        LEFT(message, 100) as message_preview,
+        LEFT(response, 100) as response_preview,
+        created_at
+      FROM whatsapp_logs
+    `;
+
+    const params: unknown[] = [];
+    let paramIndex = 1;
+
+    if (development) {
+      queryText += ` WHERE development = $${paramIndex}`;
+      params.push(development);
+      paramIndex++;
+    }
+
+    queryText += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
+
+    const result = await query<{
+      id: number;
+      user_phone: string;
+      development: string;
+      message_preview: string;
+      response_preview: string;
+      created_at: Date;
+    }>(queryText, params);
+
+    return result.rows.map(row => ({
+      id: row.id,
+      user_phone_masked: maskPhoneNumber(row.user_phone),
+      development: row.development,
+      message_preview: row.message_preview,
+      response_preview: row.response_preview,
+      created_at: row.created_at,
+    }));
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Cuenta total de logs con filtros opcionales
+ */
+export async function countWhatsAppLogs(options: {
+  development?: string;
+}): Promise<number> {
+  const { development } = options;
+
+  try {
+    let queryText = 'SELECT COUNT(*) as count FROM whatsapp_logs';
+    const params: unknown[] = [];
+
+    if (development) {
+      queryText += ' WHERE development = $1';
+      params.push(development);
+    }
+
+    const result = await query<{ count: string }>(queryText, params);
+    return parseInt(result.rows[0]?.count ?? '0', 10);
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Métricas de WhatsApp
+ */
+export interface WhatsAppMetrics {
+  total_messages: number;
+  unique_users: number;
+  by_development: Record<string, number>;
+  last_24h: number;
+  avg_response_length: number;
+}
+
+/**
+ * Obtiene métricas de WhatsApp
+ */
+export async function getWhatsAppMetrics(): Promise<WhatsAppMetrics> {
+  try {
+    // Total de mensajes
+    const totalResult = await query<{ count: string }>(
+      'SELECT COUNT(*) as count FROM whatsapp_logs'
+    );
+    const total_messages = parseInt(totalResult.rows[0]?.count ?? '0', 10);
+
+    // Usuarios únicos
+    const uniqueUsersResult = await query<{ count: string }>(
+      'SELECT COUNT(DISTINCT user_phone) as count FROM whatsapp_logs'
+    );
+    const unique_users = parseInt(uniqueUsersResult.rows[0]?.count ?? '0', 10);
+
+    // Por desarrollo
+    const byDevResult = await query<{ development: string; count: string }>(
+      'SELECT development, COUNT(*) as count FROM whatsapp_logs GROUP BY development'
+    );
+    const by_development: Record<string, number> = {};
+    byDevResult.rows.forEach(row => {
+      by_development[row.development] = parseInt(row.count, 10);
+    });
+
+    // Últimas 24 horas
+    const last24hResult = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM whatsapp_logs 
+       WHERE created_at > NOW() - INTERVAL '24 hours'`
+    );
+    const last_24h = parseInt(last24hResult.rows[0]?.count ?? '0', 10);
+
+    // Promedio de longitud de respuesta
+    const avgLengthResult = await query<{ avg: string }>(
+      'SELECT AVG(LENGTH(response)) as avg FROM whatsapp_logs'
+    );
+    const avg_response_length = Math.round(parseFloat(avgLengthResult.rows[0]?.avg ?? '0'));
+
+    return {
+      total_messages,
+      unique_users,
+      by_development,
+      last_24h,
+      avg_response_length,
+    };
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return {
+        total_messages: 0,
+        unique_users: 0,
+        by_development: {},
+        last_24h: 0,
+        avg_response_length: 0,
+      };
+    }
+    throw error;
+  }
+}
+
 
 
 

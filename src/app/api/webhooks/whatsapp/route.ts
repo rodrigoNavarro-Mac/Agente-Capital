@@ -116,10 +116,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             messageLength: message.length,
         }, 'whatsapp-webhook');
 
-        // 5. Construir ContextSnapshot
-        const context = buildContextSnapshot(phoneNumberId, userPhone, message, development);
-
-        // 6. Procesar con el agente de IA
+        // 5. Procesar con el agente de IA
         let agentResponse: string;
 
         try {
