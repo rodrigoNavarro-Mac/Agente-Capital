@@ -47,15 +47,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
         // Verificar que sea una solicitud de suscripción válida
         if (mode === 'subscribe' && token === WHATSAPP_VERIFY_TOKEN) {
-            logger.info('Webhook verified successfully', undefined, 'whatsapp-webhook');
+            logger.info('Webhook verified successfully', {}, 'whatsapp-webhook');
+            // Retornar el challenge directamente como texto plano
             return new NextResponse(challenge, { status: 200 });
         }
 
         logger.warn('Webhook verification failed', { mode, tokenMatch: token === WHATSAPP_VERIFY_TOKEN }, 'whatsapp-webhook');
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        return new NextResponse('Forbidden', { status: 403 });
     } catch (error) {
-        logger.error('Error in webhook verification', error, undefined, 'whatsapp-webhook');
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        logger.error('Error in webhook verification', error, {}, 'whatsapp-webhook');
+        return new NextResponse('Internal server error', { status: 500 });
     }
 }
 
