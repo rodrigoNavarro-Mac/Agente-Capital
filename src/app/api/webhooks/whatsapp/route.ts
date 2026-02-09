@@ -43,6 +43,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const token = searchParams.get('hub.verify_token');
         const challenge = searchParams.get('hub.challenge');
 
+        // Debug logging
+        console.log("VERIFY DEBUG", {
+            received: token,
+            env: process.env.WHATSAPP_VERIFY_TOKEN,
+            mode,
+            challenge,
+        });
+
         logger.debug('Webhook verification request', { mode, tokenPresent: !!token }, 'whatsapp-webhook');
 
         // Verificar que sea una solicitud de suscripción válida

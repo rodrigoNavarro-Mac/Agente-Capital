@@ -47,7 +47,11 @@ export async function middleware(request: NextRequest) {
   }
 
   // Rutas públicas que no requieren autenticación
-  const publicRoutes = ['/api/auth/login', '/api/auth/refresh'];
+  const publicRoutes = [
+    '/api/auth/login',
+    '/api/auth/refresh',
+    '/api/webhooks/whatsapp',  // Webhook de WhatsApp (verifica con hub.verify_token)
+  ];
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
   // Intentar obtener userId del token si está disponible
