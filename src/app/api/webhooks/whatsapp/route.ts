@@ -13,7 +13,6 @@ import type { WhatsAppWebhookPayload } from '@/lib/modules/whatsapp/types';
 import {
     isValidWebhookPayload,
     extractMessageData,
-    buildContextSnapshot,
 } from '@/lib/modules/whatsapp/webhook-handler';
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';

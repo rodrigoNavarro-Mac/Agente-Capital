@@ -9,6 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getWhatsAppLogs, countWhatsAppLogs } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 
+// Marcar como ruta dinámica (usa searchParams)
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/whatsapp/logs
  * 
