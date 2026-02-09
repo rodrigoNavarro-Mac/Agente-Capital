@@ -23,15 +23,18 @@ export const TIMEOUTS = {
   PINECONE_EMBED: 30 * 1000,      // 30 segundos para generar embeddings
   PINECONE_QUERY: 15 * 1000,      // 15 segundos para queries
   PINECONE_UPSERT: 30 * 1000,     // 30 segundos para upsert
-  
+
   // LLM: generación de texto puede tomar tiempo
   LLM_REQUEST: 60 * 1000,         // 60 segundos para respuestas LLM
   LLM_STREAM: 120 * 1000,          // 120 segundos para streaming
-  
+
   // Zoho: API externa, puede tener latencia variable
   ZOHO_REQUEST: 20 * 1000,         // 20 segundos para requests a Zoho
   ZOHO_SYNC: 120 * 1000,            // 120 segundos para sincronizaciones completas
-  
+
+  // External APIs: WhatsApp, etc
+  EXTERNAL_API: 10 * 1000,          // 10 segundos para APIs externas
+
   // General: timeout por defecto
   DEFAULT: 30 * 1000,               // 30 segundos por defecto
 } as const;
@@ -52,19 +55,19 @@ export function createTimeout(
 ): { signal: AbortSignal; timeoutPromise: Promise<never> } {
   const controller = new AbortController();
   const signal = controller.signal;
-  
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timeoutId = setTimeout(() => {
       controller.abort();
       reject(new TimeoutError(message, timeoutMs));
     }, timeoutMs);
-    
+
     // Limpiar timeout si la señal es abortada externamente
     signal.addEventListener('abort', () => {
       clearTimeout(timeoutId);
     });
   });
-  
+
   return { signal, timeoutPromise };
 }
 
@@ -101,30 +104,30 @@ export async function fetchWithTimeout(
     timeoutMs,
     `Request a ${url} excedió el tiempo límite`
   );
-  
+
   // Combinar signals si ya hay uno en options
   const existingSignal = options.signal;
   let combinedSignal: AbortSignal | undefined;
-  
+
   if (existingSignal) {
     // Si ya hay un signal, crear uno combinado que se active si cualquiera se aborta
     const combinedController = new AbortController();
     const abortHandler = () => combinedController.abort();
-    
+
     existingSignal.addEventListener('abort', abortHandler);
     timeoutSignal.addEventListener('abort', abortHandler);
-    
+
     combinedSignal = combinedController.signal;
   } else {
     combinedSignal = timeoutSignal;
   }
-  
+
   try {
     const fetchPromise = fetch(url, {
       ...options,
       signal: combinedSignal,
     });
-    
+
     // Race entre fetch y timeout
     return await Promise.race([fetchPromise, timeoutPromise]);
   } catch (error) {
@@ -164,7 +167,7 @@ export async function withTimeout<T>(
   errorMessage: string = 'Operación excedió el tiempo límite'
 ): Promise<T> {
   const { timeoutPromise } = createTimeout(timeoutMs, errorMessage);
-  
+
   try {
     return await Promise.race([promise, timeoutPromise]);
   } catch (error) {
@@ -196,7 +199,7 @@ export async function executeWithTimeout<T>(
     timeoutMs,
     `${operationName} excedió el tiempo límite de ${timeoutMs}ms`
   );
-  
+
   try {
     const operationPromise = operation(signal);
     return await Promise.race([operationPromise, timeoutPromise]);

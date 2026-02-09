@@ -4120,6 +4120,51 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
   }
 }
 
+// =====================================================
+// FUNCIONES DE WHATSAPP LOGS
+// =====================================================
+
+/**
+ * Interfaz para log de WhatsApp
+ */
+export interface WhatsAppLogData {
+  user_phone: string;
+  development: string;
+  message: string;
+  response: string;
+  phone_number_id: string;
+}
+
+/**
+ * Guarda un log de mensaje/respuesta de WhatsApp
+ */
+export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO whatsapp_logs 
+       (user_phone, development, message, response, phone_number_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        log.user_phone,
+        log.development,
+        log.message,
+        log.response,
+        log.phone_number_id,
+      ]
+    );
+  } catch (error) {
+    // Si la tabla no existe, loguear advertencia y continuar
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      logger.warn('Table whatsapp_logs does not exist. Log was not saved. Run migration 036_whatsapp_logs.sql', undefined, 'postgres');
+      return;
+    }
+    throw error;
+  }
+}
+
 
 
 
