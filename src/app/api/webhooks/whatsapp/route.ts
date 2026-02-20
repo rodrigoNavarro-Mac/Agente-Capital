@@ -36,6 +36,8 @@ const _FALLBACK_MESSAGE = 'Lo siento, no tengo suficiente información para resp
  * WhatsApp envía: hub.mode, hub.verify_token, hub.challenge
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    // Log inmediato para confirmar que Meta llega a la URL (verificación del webhook)
+    console.log('[WhatsApp Webhook] GET received - verification');
     try {
         const searchParams = request.nextUrl.searchParams;
         const mode = searchParams.get('hub.mode');
@@ -75,6 +77,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * Procesa mensajes entrantes de WhatsApp
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    // Log inmediato para confirmar que Meta envía mensajes a esta URL
+    console.log('[WhatsApp Webhook] POST received - incoming message');
     const startTime = Date.now();
 
     try {

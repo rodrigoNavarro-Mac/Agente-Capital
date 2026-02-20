@@ -20,7 +20,8 @@ import { logger } from '@/lib/utils/logger';
  * Agregar aquí nuevos pares phone_number_id -> desarrollo cuando actives más números.
  */
 const CHANNEL_CONFIG: ChannelConfig = {
-    '1038953235961273': 'FUEGO',
+    // FUEGO: número de prueba - WABA ID: 2047862732669355
+    '980541871814181': 'FUEGO',
     // Ejemplos para cuando tengas los números de AMURA y PUNTO_TIERRA:
     // '<phone_number_id_amura>': 'AMURA',
     // '<phone_number_id_punto_tierra>': 'PUNTO_TIERRA',

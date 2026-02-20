@@ -140,7 +140,7 @@ El **número de teléfono de WhatsApp Business** (identificado por `phone_number
 ### Configuración (channel-router.ts)
 
 - **CHANNEL_CONFIG**: objeto que mapea `phone_number_id` (string) -> nombre del desarrollo (string).  
-  Ejemplo: `'1038953235961273': 'FUEGO'`. Se pueden añadir más pares para AMURA, PUNTO_TIERRA, etc.
+  Ejemplo: `'980541871814181': 'FUEGO'` (número de prueba; WABA ID: 2047862732669355). Se pueden añadir más pares para AMURA, PUNTO_TIERRA, etc.
 
 - **DEVELOPMENT_TO_ZONE**: mapeo desarrollo -> zona (por ejemplo para futuras consultas al agente).  
   Ejemplo: `FUEGO -> quintana_roo`, `AMURA -> yucatan`, `PUNTO_TIERRA -> yucatan`.
@@ -380,6 +380,30 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 - Guardar en log todos los mensajes enviados en una misma respuesta.
 - Limpiar estados legacy del tipo y de la FSM si no se van a usar.
 - Añadir más desarrollos: nuevo phone_number_id en channel-router, mensajes en development-content y medios en media-handler.
+
+---
+
+## 12. Solución de problemas
+
+### Webhook: "Webhook verification failed" con mode/token/challenge en null
+
+Si en los logs ves `received: null, mode: null, challenge: null`:
+
+- La petición GET que llegó **no** trae los query params de Meta (no fue la verificación de Meta).
+- Puede ser una visita en navegador, un health check o un monitor. La verificación real de Meta envía `hub.mode=subscribe`, `hub.verify_token=...` y `hub.challenge=...`.
+
+**Qué hacer:**
+
+1. En Meta (Configuración del webhook) pon el **Token de verificación** exactamente igual que la variable de entorno **WHATSAPP_VERIFY_TOKEN** en Vercel (por ejemplo `Bot_rag`).
+2. Guarda la URL del webhook en Meta y vuelve a hacer "Verificar y guardar". Solo entonces Meta enviará el GET con los parámetros y la verificación debería pasar.
+
+### Postgres: "Connection terminated due to connection timeout" / circuit breaker en Vercel
+
+Si ves timeouts de conexión o circuit breaker abierto:
+
+1. **Usar pooler (Transaction mode):** En Vercel configura **POSTGRES_URL** con la cadena de **Connection pooling** (Transaction mode) de Supabase, no la conexión directa.
+2. **Variables opcionales:** Puedes subir el timeout con `POSTGRES_CONNECTION_TIMEOUT=30000` (30 segundos). En serverless el código ya usa más reintentos automáticos.
+3. **Reset del circuit breaker:** Si el circuito queda abierto, puedes llamar a `POST /api/health/reset-circuit-breaker` (requiere rol admin/ceo) para forzar un nuevo intento.
 
 ---
 

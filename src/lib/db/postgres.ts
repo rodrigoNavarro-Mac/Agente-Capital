@@ -61,19 +61,12 @@ function isServerlessEnvironment(): boolean {
  * Configuración del pool de conexiones PostgreSQL.
  * 
  * Soporta múltiples formas de configuración (en orden de prioridad):
- * 1. POSTGRES_URL: ⭐ PRIORIDAD - Pooler de Supabase (Transaction mode) - RECOMENDADO
- *    Permite más conexiones simultáneas y evita "MaxClientsInSessionMode"
+ * 1. POSTGRES_URL: Pooler de Supabase (Transaction mode)
  * 2. DATABASE_URL: Configuración manual desde Supabase Dashboard
  * 3. POSTGRES_URL_NON_POOLING: Variable de integración Vercel (Session mode - limitado)
  * 4. POSTGRES_PRISMA_URL: Variable alternativa de la integración de Supabase
  * 5. Variables individuales: POSTGRES_HOST, POSTGRES_PORT, etc.
- *    (útil para desarrollo local)
- * 
- * IMPORTANTE SOBRE SUPABASE:
- * - Session mode (POSTGRES_URL_NON_POOLING): Límite de 4-10 conexiones según plan
- * - Transaction mode (POSTGRES_URL): Permite hasta 200 conexiones simultáneas
- * 
- * Para obtener las cadenas de conexión:
+ *
  * Supabase Dashboard > Settings > Database > Connection String
  * - "Connection pooling" (Transaction mode) → POSTGRES_URL
  * - "Direct connection" (Session mode) → POSTGRES_URL_NON_POOLING
@@ -91,12 +84,11 @@ function getPoolConfig() {
   // PRIORIDAD: POSTGRES_URL (Transaction mode) sobre conexión directa
   // Esto evita el error "MaxClientsInSessionMode" de Supabase
   const connectionString =
-    process.env.POSTGRES_URL ||              // ⭐ PRIORIDAD: Pooler (Transaction mode) - RECOMENDADO
-    process.env.DATABASE_URL ||              // Configuración manual
-    process.env.POSTGRES_URL_NON_POOLING ||  // Session mode (limitado)
-    process.env.POSTGRES_PRISMA_URL;         // Variable alternativa
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL;
 
-  // Detectar si estamos usando Supabase y qué modo
   const isSupabasePooler = !!process.env.POSTGRES_URL;
   const isSupabaseDirect = !!process.env.POSTGRES_URL_NON_POOLING ||
     !!process.env.POSTGRES_PRISMA_URL;
@@ -118,10 +110,9 @@ function getPoolConfig() {
         ? parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '3', 10) // Muy bajo para serverless
         : parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '4', 10); // Muy bajo para desarrollo
 
-      // Advertir sobre el uso de Session mode
       if (process.env.NODE_ENV !== 'production') {
         logger.warn(
-          '⚠️ Usando Supabase Session mode (conexión directa). Límite de conexiones muy bajo.',
+          'Usando Supabase Session mode (conexión directa). Límite de conexiones muy bajo.',
           { maxConnections, recommendation: 'Usa POSTGRES_URL (Transaction mode) para más conexiones' },
           'postgres'
         );
@@ -135,7 +126,7 @@ function getPoolConfig() {
   }
 
   const connectionTimeout = isServerless
-    ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '20000', 10) // 20s para cold starts
+    ? parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '30000', 10) // 30s para cold starts y redes lentas
     : parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '15000', 10); // 15s para desarrollo
 
   const idleTimeout = isServerless
@@ -407,15 +398,18 @@ pool.on('error', (err: Error & { code?: string }) => {
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
-  retries: number = 1,
+  retries?: number,
   allowRetry: boolean = false
 ): Promise<QueryResult<T>> {
+  // En serverless (Vercel) más reintentos para compensar cold starts y timeouts
+  const effectiveRetries = retries ?? (process.env.VERCEL ? 2 : 1);
+
   return withCircuitBreaker(
     async () => {
       const _start = Date.now();
       let lastError: unknown;
 
-      for (let attempt = 0; attempt <= retries; attempt++) {
+      for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
         try {
           const result = await pool.query<T>(text, params);
           recordSuccess(); // Registrar éxito después de la query
@@ -450,23 +444,25 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 
           recordFailure(error); // Registrar fallo
 
-          // Verificar si es un error de conexión que puede recuperarse
+          // Verificar si es un error de conexión que puede recuperarse (incl. timeout)
           const isConnectionError = error instanceof Error && (
             error.message.includes('shutdown') ||
             error.message.includes('db_termination') ||
             error.message.includes('terminating connection') ||
             (error as Error & { code?: string }).code === 'XX000' ||
             (error as Error & { code?: string }).code === '57P01' ||
+            (error as Error & { code?: string }).code === 'ETIMEDOUT' ||
             error.message.includes('Connection terminated') ||
+            error.message.includes('connection timeout') ||
             error.message.includes('server closed the connection')
           );
 
           // Si es un error de conexión y aún tenemos intentos, reintentar
-          if (isConnectionError && attempt < retries) {
-            const delay = Math.min(100 * Math.pow(2, attempt), 1000); // Backoff exponencial (max 1s)
+          if (isConnectionError && attempt < effectiveRetries) {
+            const delay = Math.min(100 * Math.pow(2, attempt), 2000); // Backoff exponencial (max 2s en serverless)
             logger.warn(
               'Database connection error detected; retrying',
-              { delayMs: delay, attempt: attempt + 1, totalAttempts: retries + 1 },
+              { delayMs: delay, attempt: attempt + 1, totalAttempts: effectiveRetries + 1 },
               'postgres'
             );
             await new Promise(resolve => setTimeout(resolve, delay));
@@ -501,7 +497,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
               (!process.env.DATABASE_URL && !process.env.POSTGRES_URL);
 
             if (isConnectionError) {
-              logger.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.', error, { attempt, retries }, 'postgres');
+              logger.error('⚠️ DIAGNÓSTICO: Error de conexión persistente después de reintentos.', error, { attempt, retries: effectiveRetries }, 'postgres');
               if (isLocalDev) {
                 logger.error('   DESARROLLO LOCAL: Verifica que:', undefined, undefined, 'postgres');
                 logger.error('   1. PostgreSQL esté corriendo (ej: pg_ctl start o servicio iniciado)', undefined, undefined, 'postgres');
