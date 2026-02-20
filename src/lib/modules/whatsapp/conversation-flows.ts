@@ -134,8 +134,10 @@ export async function handleIncomingMessage(
         return await handleInicio(development, userPhone);
     }
 
+    // Si el usuario ya estaba en handover pero escribe de nuevo, re-entrar al flujo (bienvenida)
     if (conversation.state === 'CLIENT_ACCEPTA' || conversation.is_qualified) {
-        return { outboundMessages: [] };
+        await updateState(userPhone, development, 'INICIO');
+        return await handleInicio(development, userPhone);
     }
 
     if (conversation.state === 'SALIDA_ELEGANTE') {

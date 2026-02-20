@@ -4174,7 +4174,8 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
 }
 
 /**
- * Actualiza la hora "visto" (leído) de un log por el ID del mensaje saliente (Meta envía status "read")
+ * Actualiza la hora "visto" (leído) de un log por el ID del mensaje saliente (Meta envía status "read").
+ * Si la columna outbound_message_id no existe (migración 038 no aplicada), no hace nada.
  */
 export async function updateWhatsAppLogSeenByOutboundMessageId(
   outboundMessageId: string,
@@ -4186,10 +4187,13 @@ export async function updateWhatsAppLogSeenByOutboundMessageId(
       [seenAt, outboundMessageId]
     );
   } catch (error) {
-    if (error instanceof Error && (
-      error.message.includes('no existe la relación') ||
-      error.message.includes('does not exist')
-    )) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Tabla o columna inexistente: migración 038 no aplicada; ignorar sin fallar
+    if (
+      msg.includes('no existe la relación') ||
+      msg.includes('does not exist') ||
+      (msg.includes('column') && msg.includes('outbound_message_id'))
+    ) {
       return;
     }
     logger.warn('Failed to update whatsapp_log seen_at', { outboundMessageId }, 'postgres');
