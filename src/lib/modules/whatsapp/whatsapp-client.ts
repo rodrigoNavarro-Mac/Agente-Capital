@@ -103,6 +103,155 @@ export async function sendTextMessage(
 }
 
 /**
+ * Envía una imagen con caption opcional por WhatsApp
+ * @param phoneNumberId - ID del número de WhatsApp Business
+ * @param to - Número de teléfono del destinatario (formato internacional sin +)
+ * @param imageUrl - URL pública de la imagen
+ * @param caption - Texto opcional que acompaña la imagen
+ * @returns Response de la API o null si falla
+ */
+export async function sendImageMessage(
+    phoneNumberId: string,
+    to: string,
+    imageUrl: string,
+    caption?: string
+): Promise<WhatsAppSendMessageResponse | null> {
+    try {
+        const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
+
+        const body = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'image',
+            image: {
+                link: imageUrl,
+                ...(caption && { caption }),
+            },
+        };
+
+        logger.debug('Sending WhatsApp image', {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+            imageUrl: imageUrl.substring(0, 50) + '...',
+            hasCaption: !!caption
+        }, 'whatsapp-client');
+
+        const response = await withTimeout(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }),
+            TIMEOUTS.EXTERNAL_API,
+            'Envío de imagen de WhatsApp excedió el tiempo límite'
+        );
+
+        if (!response.ok) {
+            const errorData: WhatsAppApiError = await response.json();
+            logger.error('WhatsApp API error sending image', undefined, {
+                status: response.status,
+                error: errorData.error,
+            }, 'whatsapp-client');
+            return null;
+        }
+
+        const data: WhatsAppSendMessageResponse = await response.json();
+
+        logger.debug('WhatsApp image sent successfully', {
+            messageId: data.messages?.[0]?.id,
+        }, 'whatsapp-client');
+
+        return data;
+    } catch (error) {
+        logger.error('Error sending WhatsApp image', error, {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+        }, 'whatsapp-client');
+        return null;
+    }
+}
+
+/**
+ * Envía un documento/PDF por WhatsApp
+ * @param phoneNumberId - ID del número de WhatsApp Business
+ * @param to - Número de teléfono del destinatario (formato internacional sin +)
+ * @param documentUrl - URL pública del documento
+ * @param filename - Nombre del archivo (con extensión)
+ * @param caption - Texto opcional que acompaña el documento
+ * @returns Response de la API o null si falla
+ */
+export async function sendDocumentMessage(
+    phoneNumberId: string,
+    to: string,
+    documentUrl: string,
+    filename: string,
+    caption?: string
+): Promise<WhatsAppSendMessageResponse | null> {
+    try {
+        const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
+
+        const body = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'document',
+            document: {
+                link: documentUrl,
+                filename,
+                ...(caption && { caption }),
+            },
+        };
+
+        logger.debug('Sending WhatsApp document', {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+            filename,
+            hasCaption: !!caption
+        }, 'whatsapp-client');
+
+        const response = await withTimeout(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }),
+            TIMEOUTS.EXTERNAL_API,
+            'Envío de documento de WhatsApp excedió el tiempo límite'
+        );
+
+        if (!response.ok) {
+            const errorData: WhatsAppApiError = await response.json();
+            logger.error('WhatsApp API error sending document', undefined, {
+                status: response.status,
+                error: errorData.error,
+            }, 'whatsapp-client');
+            return null;
+        }
+
+        const data: WhatsAppSendMessageResponse = await response.json();
+
+        logger.debug('WhatsApp document sent successfully', {
+            messageId: data.messages?.[0]?.id,
+        }, 'whatsapp-client');
+
+        return data;
+    } catch (error) {
+        logger.error('Error sending WhatsApp document', error, {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+        }, 'whatsapp-client');
+        return null;
+    }
+}
+
+/**
  * Valida el formato de un número de teléfono
  * @param phone - Número de teléfono
  * @returns true si el formato es válido

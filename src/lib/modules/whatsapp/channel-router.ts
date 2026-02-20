@@ -14,12 +14,16 @@ import { logger } from '@/lib/utils/logger';
 // =====================================================
 
 /**
- * Mapeo de phone_number_id a desarrollo
- * MVP: Solo FUEGO para testing
- * TODO: Agregar AMURA y PUNTO_TIERRA cuando estén disponibles
+ * Mapeo de phone_number_id a desarrollo (multi-desarrollo).
+ * Cada número de WhatsApp Business tiene su propio desarrollo; los mensajes,
+ * imagen hero y brochure se eligen según este desarrollo (development-content + media-handler).
+ * Agregar aquí nuevos pares phone_number_id -> desarrollo cuando actives más números.
  */
 const CHANNEL_CONFIG: ChannelConfig = {
-    '1038953235961273': 'FUEGO', // MVP Testing
+    '1038953235961273': 'FUEGO',
+    // Ejemplos para cuando tengas los números de AMURA y PUNTO_TIERRA:
+    // '<phone_number_id_amura>': 'AMURA',
+    // '<phone_number_id_punto_tierra>': 'PUNTO_TIERRA',
 };
 
 /**

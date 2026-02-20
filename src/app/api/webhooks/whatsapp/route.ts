@@ -15,10 +15,9 @@ import {
     extractMessageData,
 } from '@/lib/modules/whatsapp/webhook-handler';
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
-import { sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';
+import { sendTextMessage, sendImageMessage, sendDocumentMessage } from '@/lib/modules/whatsapp/whatsapp-client';
+import { handleIncomingMessage } from '@/lib/modules/whatsapp/conversation-flows';
 import { logger } from '@/lib/utils/logger';
-import { queryChunks, buildContextFromMatches } from '@/lib/db/pinecone';
-import { runRAGQuery } from '@/lib/services/llm';
 import { saveWhatsAppLog } from '@/lib/db/postgres';
 
 // =====================================================
@@ -124,64 +123,113 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             messageLength: message.length,
         }, 'whatsapp-webhook');
 
-        // 5. Procesar con el agente de IA
-        let agentResponse: string;
+        // 5. Procesar con flujo conversacional
+        let messageSent = false;
 
         try {
-            // Buscar contexto en Pinecone
-            const matches = await queryChunks(zone, { development }, message, 5);
+            const flowResult = await handleIncomingMessage({
+                development,
+                zone,
+                phoneNumberId,
+                userPhone,
+                messageText: message,
+            });
 
-            if (matches.length === 0) {
-                logger.warn('No relevant context found in Pinecone', { development, zone }, 'whatsapp-webhook');
-                agentResponse = FALLBACK_MESSAGE;
-            } else {
-                // Construir contexto desde matches
-                const ragContext = buildContextFromMatches(matches);
+            // 6. Enviar todos  los mensajes salientes
+            logger.debug('Outbound messages to send', {
+                count: flowResult.outboundMessages.length,
+                types: flowResult.outboundMessages.map(m => m.type),
+            }, 'whatsapp-webhook');
 
-                // Obtener respuesta del LLM
-                // Nota: No se pasan memorias en WhatsApp para mantener respuestas cortas
-                agentResponse = await runRAGQuery(message, ragContext, undefined, [], matches);
+            for (const outboundMessage of flowResult.outboundMessages) {
+                if (outboundMessage.type === 'image' && outboundMessage.imageUrl) {
+                    // Enviar imagen con caption
+                    const imageResult = await sendImageMessage(
+                        phoneNumberId,
+                        userPhone,
+                        outboundMessage.imageUrl,
+                        outboundMessage.caption
+                    );
 
-                // Validar que la respuesta no esté vacía
-                if (!agentResponse || agentResponse.trim() === '') {
-                    logger.warn('Agent returned empty response', undefined, 'whatsapp-webhook');
-                    agentResponse = FALLBACK_MESSAGE;
+                    if (!imageResult) {
+                        logger.error('Failed to send WhatsApp image', undefined, {
+                            phoneNumberId,
+                            userPhone: userPhone.substring(0, 5) + '***'
+                        }, 'whatsapp-webhook');
+                    } else {
+                        messageSent = true;
+                    }
+                } else if (outboundMessage.type === 'text' && outboundMessage.text) {
+                    const textResult = await sendTextMessage(
+                        phoneNumberId,
+                        userPhone,
+                        outboundMessage.text
+                    );
+
+                    if (!textResult) {
+                        logger.error('Failed to send WhatsApp text', undefined, {
+                            phoneNumberId,
+                            userPhone: userPhone.substring(0, 5) + '***'
+                        }, 'whatsapp-webhook');
+                    } else {
+                        messageSent = true;
+                    }
+                } else if (outboundMessage.type === 'document' && outboundMessage.documentUrl && outboundMessage.filename) {
+                    const docResult = await sendDocumentMessage(
+                        phoneNumberId,
+                        userPhone,
+                        outboundMessage.documentUrl,
+                        outboundMessage.filename,
+                        outboundMessage.caption
+                    );
+
+                    if (!docResult) {
+                        logger.error('Failed to send WhatsApp document', undefined, {
+                            phoneNumberId,
+                            userPhone: userPhone.substring(0, 5) + '***'
+                        }, 'whatsapp-webhook');
+                    } else {
+                        messageSent = true;
+                    }
                 }
             }
-        } catch (agentError) {
-            logger.error('Error processing with agent', agentError, { development, zone }, 'whatsapp-webhook');
-            agentResponse = FALLBACK_MESSAGE;
-        }
 
-        // 7. Enviar respuesta por WhatsApp
-        const sendResult = await sendTextMessage(phoneNumberId, userPhone, agentResponse);
+            // 7. Guardar logs
+            // TODO: Actualizar saveWhatsAppLog para guardar múltiples mensajes
+            if (flowResult.outboundMessages.length > 0) {
+                const firstMessage = flowResult.outboundMessages[0];
+                const responseText = firstMessage.type === 'text'
+                    ? firstMessage.text || ''
+                    : firstMessage.type === 'document'
+                        ? (firstMessage.caption || '[documento enviado]')
+                        : (firstMessage.caption || '[imagen enviada]');
 
-        if (!sendResult) {
-            logger.error('Failed to send WhatsApp message', undefined, {
+                await saveWhatsAppLog({
+                    user_phone: userPhone,
+                    development,
+                    message,
+                    response: responseText,
+                    phone_number_id: phoneNumberId,
+                });
+            }
+        } catch (flowError) {
+            logger.error('Error in conversation flow', flowError, { development, zone }, 'whatsapp-webhook');
+
+            // Enviar mensaje de fallback
+            const fallbackResult = await sendTextMessage(
                 phoneNumberId,
-                userPhone: userPhone.substring(0, 5) + '***'
-            }, 'whatsapp-webhook');
-        }
+                userPhone,
+                'Disculpa, tuve un problema. Por favor intenta de nuevo en un momento.'
+            );
 
-        // 8. Guardar log en PostgreSQL
-        try {
-            await saveWhatsAppLog({
-                user_phone: userPhone,
-                development,
-                message,
-                response: agentResponse,
-                phone_number_id: phoneNumberId,
-            });
-        } catch (logError) {
-            logger.error('Error saving WhatsApp log', logError, undefined, 'whatsapp-webhook');
-            // No fallar la request por error de logging
+            messageSent = !!fallbackResult;
         }
 
         const processingTime = Date.now() - startTime;
         logger.info('WhatsApp message processed', {
             processingTime,
             development,
-            messageSent: !!sendResult
+            messageSent
         }, 'whatsapp-webhook');
 
         // 9. Retornar 200 siempre (WhatsApp requiere)
