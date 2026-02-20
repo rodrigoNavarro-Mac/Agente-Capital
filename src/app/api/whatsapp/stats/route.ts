@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * GET /api/whatsapp/stats
  * Retorna estadísticas de leads por calidad
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   // MOCK DATA (Temporal fix for missing @vercel/postgres)
   const result = {
     byQuality: [],

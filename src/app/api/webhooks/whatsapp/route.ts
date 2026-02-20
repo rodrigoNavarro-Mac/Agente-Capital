@@ -25,7 +25,7 @@ import { saveWhatsAppLog } from '@/lib/db/postgres';
 // =====================================================
 
 const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || '';
-const FALLBACK_MESSAGE = 'Lo siento, no tengo suficiente información para responder tu pregunta. Un asesor se pondrá en contacto contigo pronto.';
+const _FALLBACK_MESSAGE = 'Lo siento, no tengo suficiente información para responder tu pregunta. Un asesor se pondrá en contacto contigo pronto.';
 
 // =====================================================
 // GET - VERIFICACIÓN DEL WEBHOOK

@@ -270,7 +270,7 @@ export async function resetConversation(
     development: string
 ): Promise<boolean> {
     try {
-        const result = await query(
+        const _result = await query(
             `DELETE FROM whatsapp_conversations 
        WHERE user_phone = $1 AND development = $2`,
             [userPhone, development]

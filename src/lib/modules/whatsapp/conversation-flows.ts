@@ -6,7 +6,7 @@
  * ENFOQUE UX: Empático, natural, sin prisa.
  */
 
-import type { ConversationState, UserData, LeadQuality } from './conversation-state';
+import type { ConversationState, UserData } from './conversation-state';
 import {
     getConversation,
     upsertConversation,
@@ -23,12 +23,8 @@ import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
 import { logger } from '@/lib/utils/logger';
 
-// Imports Legacy
-import {
-    classifyPerfilCompra,
-    classifyPresupuesto,
-    classifyUrgencia
-} from './intent-classifier';
+// Imports Legacy (reservados para uso futuro)
+// import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
 
 /**
  * Mensaje saliente del bot (texto, imagen o documento PDF)
@@ -72,7 +68,7 @@ function isBusinessHours(): boolean {
     // Horario laboral: 09:00 - 18:00 (Cancún Time - America/Cancun)
     const now = new Date();
     const cancunTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Cancun' }));
-    const hours = cancunTime.getHours();
+    const _hours = cancunTime.getHours();
 
     // TEMPORAL: Retornar false para permitir pruebas inmediatas
     // return hours >= 9 && hours < 18;
@@ -92,7 +88,7 @@ async function createZohoLead(userPhone: string, development: string, userData: 
 export async function handleIncomingMessage(
     context: IncomingMessageContext
 ): Promise<FlowResult> {
-    const { development, zone, userPhone, messageText } = context;
+    const { development, zone: _zone, userPhone, messageText } = context;
 
     // 1. DESARROLLO: Detectar comando /reset
     if (messageText.trim().toLowerCase() === '/reset') {
@@ -271,7 +267,7 @@ async function handleInfoReintento(
     messageText: string,
     development: string,
     userPhone: string,
-    userData: UserData
+    _userData: UserData
 ): Promise<FlowResult> {
     const intent = await classifyIntent(messageText);
     const text = messageText.toLowerCase();
@@ -360,7 +356,7 @@ async function handleSolicitudNombre(
     messageText: string,
     development: string,
     userPhone: string,
-    userData: UserData
+    _userData: UserData
 ): Promise<FlowResult> {
     const name = messageText.trim();
 
@@ -443,14 +439,14 @@ async function handleSalidaElegante(
     };
 }
 
-// Handlers Legacy (redirigen a inicio o devuelven vacío)
-async function handleEnvioBrochure(d: string, u: string, c: any) { return handleInicio(d, u); }
-async function handleRevalidacionInteres(m: string, d: string, u: string) { return handleInicio(d, u); }
-async function handleValidacionProducto(d: string, u: string) { return handleInicio(d, u); }
-async function handlePerfilCompra(m: string, d: string, u: string) { return handleInicio(d, u); }
-async function handleCalificacionPresupuesto(m: string, d: string, u: string) { return handleInicio(d, u); }
-async function handleOfertaPlanPagos(m: string, d: string, u: string) { return handleInicio(d, u); }
-async function handleCalificacionUrgencia(m: string, d: string, u: string, ud: any) { return handleInicio(d, u); }
-async function handleSolicitudAccion(m: string, d: string, u: string) { return handleInicio(d, u); }
-async function handleHandoverAsesor(d: string, u: string, ud: any) { return handleInicio(d, u); }
-async function handleConversacionLibre(m: string, d: string, z: string, ud: any) { return { outboundMessages: [] }; }
+// Handlers Legacy (redirigen a inicio o devuelven vacío; prefijo _ por no usados)
+async function _handleEnvioBrochure(d: string, u: string, _c: unknown) { return handleInicio(d, u); }
+async function _handleRevalidacionInteres(m: string, d: string, u: string) { return handleInicio(d, u); }
+async function _handleValidacionProducto(d: string, u: string) { return handleInicio(d, u); }
+async function _handlePerfilCompra(m: string, d: string, u: string) { return handleInicio(d, u); }
+async function _handleCalificacionPresupuesto(m: string, d: string, u: string) { return handleInicio(d, u); }
+async function _handleOfertaPlanPagos(m: string, d: string, u: string) { return handleInicio(d, u); }
+async function _handleCalificacionUrgencia(m: string, d: string, u: string, _ud: unknown) { return handleInicio(d, u); }
+async function _handleSolicitudAccion(m: string, d: string, u: string) { return handleInicio(d, u); }
+async function _handleHandoverAsesor(d: string, u: string, _ud: unknown) { return handleInicio(d, u); }
+async function _handleConversacionLibre(_m: string, _d: string, _z: string, _ud: unknown) { return { outboundMessages: [] }; }
