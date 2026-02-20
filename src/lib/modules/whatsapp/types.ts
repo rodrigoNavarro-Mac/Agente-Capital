@@ -54,6 +54,17 @@ export interface WhatsAppMessage {
     text?: {
         body: string;
     };
+    /** Respuesta a botón (template quick reply, etc.) */
+    button?: {
+        text?: string;
+        payload?: string;
+    };
+    /** Respuesta a mensaje interactivo (listas, botones) */
+    interactive?: {
+        type: string;
+        button_reply?: { id: string; title: string };
+        list_reply?: { id: string; title: string; description?: string };
+    };
     type: string;
 }
 

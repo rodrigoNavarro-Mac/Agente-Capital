@@ -13,12 +13,13 @@ import type { WhatsAppWebhookPayload } from '@/lib/modules/whatsapp/types';
 import {
     isValidWebhookPayload,
     extractMessageData,
+    extractStatusUpdates,
 } from '@/lib/modules/whatsapp/webhook-handler';
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage, sendImageMessage, sendDocumentMessage } from '@/lib/modules/whatsapp/whatsapp-client';
 import { handleIncomingMessage } from '@/lib/modules/whatsapp/conversation-flows';
 import { logger } from '@/lib/utils/logger';
-import { saveWhatsAppLog } from '@/lib/db/postgres';
+import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId } from '@/lib/db/postgres';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -99,20 +100,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             return NextResponse.json({ status: 'ok' }, { status: 200 });
         }
 
-        // 3. Extraer datos del mensaje
+        // 2b. Procesar actualizaciones de estado (sent, delivered, read) para métricas
+        const statusUpdates = extractStatusUpdates(payload);
+        for (const st of statusUpdates) {
+            if (st.status === 'read') {
+                const seenAt = new Date(parseInt(st.timestamp, 10) * 1000);
+                await updateWhatsAppLogSeenByOutboundMessageId(st.messageId, seenAt);
+            }
+        }
+
+        // 3. Extraer datos del mensaje (texto, botón o interactivo)
         const messageData = extractMessageData(payload);
 
         if (!messageData) {
+            console.log('[WhatsApp Webhook] No messageData: payload has no valid text/button/interactive message');
             logger.debug('No valid messages to process', undefined, 'whatsapp-webhook');
             return NextResponse.json({ status: 'ok' }, { status: 200 });
         }
 
-        const { phoneNumberId, userPhone, message } = messageData;
+        const { phoneNumberId, userPhone, message, messageId: incomingMessageId, messageTimestamp } = messageData;
+        const ts = parseInt(messageTimestamp, 10);
+        const receivedAt = Number.isFinite(ts) ? new Date(ts * 1000) : new Date();
+        console.log('[WhatsApp Webhook] messageData ok', { phoneNumberId, userPhonePrefix: userPhone.substring(0, 6) + '***', messageLen: message.length });
 
         // 4. Resolver desarrollo y zona
         const routing = getRouting(phoneNumberId);
 
         if (!routing) {
+            console.log('[WhatsApp Webhook] routing null for phoneNumberId', phoneNumberId);
             logger.error('Phone number ID not configured', undefined, { phoneNumberId }, 'whatsapp-webhook');
             // Enviar mensaje de error al usuario
             await sendTextMessage(
@@ -134,6 +149,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         // 5. Procesar con flujo conversacional
         let messageSent = false;
+        let firstOutboundMessageId: string | undefined;
 
         try {
             const flowResult = await handleIncomingMessage({
@@ -144,7 +160,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 messageText: message,
             });
 
-            // 6. Enviar todos  los mensajes salientes
+            console.log('[WhatsApp Webhook] flowResult', { outboundCount: flowResult.outboundMessages.length });
+
+            if (flowResult.outboundMessages.length === 0) {
+                console.log('[WhatsApp Webhook] No outbound messages to send (flow returned empty)');
+            }
+
+            // 6. Enviar todos los mensajes salientes y capturar el ID del primero (para métricas)
             logger.debug('Outbound messages to send', {
                 count: flowResult.outboundMessages.length,
                 types: flowResult.outboundMessages.map(m => m.type),
@@ -152,7 +174,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             for (const outboundMessage of flowResult.outboundMessages) {
                 if (outboundMessage.type === 'image' && outboundMessage.imageUrl) {
-                    // Enviar imagen con caption
                     const imageResult = await sendImageMessage(
                         phoneNumberId,
                         userPhone,
@@ -167,6 +188,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         }, 'whatsapp-webhook');
                     } else {
                         messageSent = true;
+                        if (!firstOutboundMessageId && imageResult.messages?.[0]?.id) {
+                            firstOutboundMessageId = imageResult.messages[0].id;
+                        }
                     }
                 } else if (outboundMessage.type === 'text' && outboundMessage.text) {
                     const textResult = await sendTextMessage(
@@ -182,6 +206,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         }, 'whatsapp-webhook');
                     } else {
                         messageSent = true;
+                        if (!firstOutboundMessageId && textResult.messages?.[0]?.id) {
+                            firstOutboundMessageId = textResult.messages[0].id;
+                        }
                     }
                 } else if (outboundMessage.type === 'document' && outboundMessage.documentUrl && outboundMessage.filename) {
                     const docResult = await sendDocumentMessage(
@@ -199,11 +226,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         }, 'whatsapp-webhook');
                     } else {
                         messageSent = true;
+                        if (!firstOutboundMessageId && docResult.messages?.[0]?.id) {
+                            firstOutboundMessageId = docResult.messages[0].id;
+                        }
                     }
                 }
             }
 
-            // 7. Guardar logs (no debe fallar el webhook si la DB falla; los mensajes ya se enviaron)
+            // Si el flujo no devolvió mensajes (ej. conversación ya en handover), enviar al menos un texto
+            if (flowResult.outboundMessages.length === 0 && !messageSent) {
+                const fallbackSent = await sendTextMessage(
+                    phoneNumberId,
+                    userPhone,
+                    'Escribe algo para comenzar o /reset para reiniciar la conversación.'
+                );
+                messageSent = !!fallbackSent;
+            }
+
+            const responseAt = new Date();
+
+            // 7. Guardar logs con métricas de desempeño (received_at, response_at, seen_at, message ids)
             if (flowResult.outboundMessages.length > 0) {
                 const firstMessage = flowResult.outboundMessages[0];
                 const responseText = firstMessage.type === 'text'
@@ -219,12 +261,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         message,
                         response: responseText,
                         phone_number_id: phoneNumberId,
+                        received_at: receivedAt,
+                        response_at: responseAt,
+                        incoming_message_id: incomingMessageId,
+                        outbound_message_id: firstOutboundMessageId,
                     });
                 } catch (logError) {
                     logger.error('Failed to save WhatsApp log (continuing)', logError, { userPhone: userPhone.substring(0, 5) + '***' }, 'whatsapp-webhook');
                 }
             }
         } catch (flowError) {
+            console.log('[WhatsApp Webhook] flowError', flowError instanceof Error ? flowError.message : String(flowError));
             logger.error('Error in conversation flow', flowError, { development, zone }, 'whatsapp-webhook');
 
             // Enviar mensaje de fallback
@@ -238,6 +285,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         const processingTime = Date.now() - startTime;
+        console.log('[WhatsApp Webhook] done', { processingTime, messageSent });
         logger.info('WhatsApp message processed', {
             processingTime,
             development,

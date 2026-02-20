@@ -19,6 +19,10 @@ interface WhatsAppLog {
     message_preview: string;
     response_preview: string;
     created_at: string;
+    received_at: string | null;
+    response_at: string | null;
+    seen_at: string | null;
+    response_time_ms: number | null;
 }
 
 interface WhatsAppMetrics {
@@ -27,6 +31,7 @@ interface WhatsAppMetrics {
     by_development: Record<string, number>;
     last_24h: number;
     avg_response_length: number;
+    avg_response_time_ms: number | null;
 }
 
 export default function WhatsAppDashboard() {
@@ -173,6 +178,25 @@ export default function WhatsAppDashboard() {
                         </div>
                     </div>
                 </div>
+
+                {/* Tiempo medio de respuesta */}
+                <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm text-gray-600">Tiempo medio respuesta</p>
+                            <p className="text-2xl font-bold text-gray-900 mt-1">
+                                {metrics?.avg_response_time_ms != null
+                                    ? `${metrics.avg_response_time_ms} ms`
+                                    : '—'}
+                            </p>
+                        </div>
+                        <div className="bg-indigo-100 p-3 rounded-full">
+                            <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Gráfico de mensajes por desarrollo */}
@@ -245,7 +269,13 @@ export default function WhatsAppDashboard() {
                                         Mensaje
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Fecha
+                                        Recibido
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Respuesta (ms)
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Visto
                                     </th>
                                 </tr>
                             </thead>
@@ -266,7 +296,19 @@ export default function WhatsAppDashboard() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {format(new Date(log.created_at), 'dd MMM yyyy, HH:mm', { locale: es })}
+                                            {log.received_at
+                                                ? format(new Date(log.received_at), 'dd MMM HH:mm', { locale: es })
+                                                : log.created_at
+                                                    ? format(new Date(log.created_at), 'dd MMM HH:mm', { locale: es })
+                                                    : '—'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                            {log.response_time_ms != null ? `${log.response_time_ms} ms` : '—'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {log.seen_at
+                                                ? format(new Date(log.seen_at), 'dd MMM HH:mm', { locale: es })
+                                                : '—'}
                                         </td>
                                     </tr>
                                 ))}

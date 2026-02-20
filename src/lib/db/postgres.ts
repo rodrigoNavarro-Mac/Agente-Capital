@@ -4121,7 +4121,7 @@ export async function countZohoClosedWonDealsFromDB(filters?: {
 // =====================================================
 
 /**
- * Interfaz para log de WhatsApp
+ * Interfaz para log de WhatsApp (incluye métricas de desempeño)
  */
 export interface WhatsAppLogData {
   user_phone: string;
@@ -4129,23 +4129,35 @@ export interface WhatsAppLogData {
   message: string;
   response: string;
   phone_number_id: string;
+  /** Hora en que se recibió el mensaje del usuario */
+  received_at?: Date;
+  /** Hora en que se envió la respuesta */
+  response_at?: Date;
+  /** ID del mensaje entrante (Meta) */
+  incoming_message_id?: string;
+  /** ID del mensaje saliente (Meta); para actualizar seen_at cuando el usuario lee */
+  outbound_message_id?: string;
 }
 
 /**
- * Guarda un log de mensaje/respuesta de WhatsApp
+ * Guarda un log de mensaje/respuesta de WhatsApp con métricas de desempeño
  */
 export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
   try {
     await query(
       `INSERT INTO whatsapp_logs 
-       (user_phone, development, message, response, phone_number_id)
-       VALUES ($1, $2, $3, $4, $5)`,
+       (user_phone, development, message, response, phone_number_id, received_at, response_at, incoming_message_id, outbound_message_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         log.user_phone,
         log.development,
         log.message,
         log.response,
         log.phone_number_id,
+        log.received_at ?? null,
+        log.response_at ?? null,
+        log.incoming_message_id ?? null,
+        log.outbound_message_id ?? null,
       ]
     );
   } catch (error) {
@@ -4162,6 +4174,29 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
 }
 
 /**
+ * Actualiza la hora "visto" (leído) de un log por el ID del mensaje saliente (Meta envía status "read")
+ */
+export async function updateWhatsAppLogSeenByOutboundMessageId(
+  outboundMessageId: string,
+  seenAt: Date
+): Promise<void> {
+  try {
+    await query(
+      `UPDATE whatsapp_logs SET seen_at = $1 WHERE outbound_message_id = $2 AND seen_at IS NULL`,
+      [seenAt, outboundMessageId]
+    );
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return;
+    }
+    logger.warn('Failed to update whatsapp_log seen_at', { outboundMessageId }, 'postgres');
+  }
+}
+
+/**
  * Enmascara un número de teléfono para privacidad
  * Ejemplo: "5215551234567" → "521***4567"
  */
@@ -4173,7 +4208,7 @@ function maskPhoneNumber(phone: string): string {
 }
 
 /**
- * Log de WhatsApp con número enmascarado
+ * Log de WhatsApp con número enmascarado y métricas de desempeño
  */
 export interface WhatsAppLogWithMask {
   id: number;
@@ -4182,6 +4217,11 @@ export interface WhatsAppLogWithMask {
   message_preview: string;
   response_preview: string;
   created_at: Date;
+  received_at: Date | null;
+  response_at: Date | null;
+  seen_at: Date | null;
+  /** Tiempo de respuesta en ms (response_at - received_at); null si falta algún timestamp */
+  response_time_ms: number | null;
 }
 
 /**
@@ -4202,7 +4242,15 @@ export async function getWhatsAppLogs(options: {
         development,
         LEFT(message, 100) as message_preview,
         LEFT(response, 100) as response_preview,
-        created_at
+        created_at,
+        received_at,
+        response_at,
+        seen_at,
+        CASE 
+          WHEN received_at IS NOT NULL AND response_at IS NOT NULL 
+          THEN EXTRACT(EPOCH FROM (response_at - received_at)) * 1000 
+          ELSE NULL 
+        END::integer as response_time_ms
       FROM whatsapp_logs
     `;
 
@@ -4225,6 +4273,10 @@ export async function getWhatsAppLogs(options: {
       message_preview: string;
       response_preview: string;
       created_at: Date;
+      received_at: Date | null;
+      response_at: Date | null;
+      seen_at: Date | null;
+      response_time_ms: number | null;
     }>(queryText, params);
 
     return result.rows.map(row => ({
@@ -4234,6 +4286,10 @@ export async function getWhatsAppLogs(options: {
       message_preview: row.message_preview,
       response_preview: row.response_preview,
       created_at: row.created_at,
+      received_at: row.received_at ?? null,
+      response_at: row.response_at ?? null,
+      seen_at: row.seen_at ?? null,
+      response_time_ms: row.response_time_ms ?? null,
     }));
   } catch (error) {
     if (error instanceof Error && (
@@ -4285,6 +4341,8 @@ export interface WhatsAppMetrics {
   by_development: Record<string, number>;
   last_24h: number;
   avg_response_length: number;
+  /** Tiempo medio de respuesta en ms (desde recibido hasta enviado); null si no hay datos */
+  avg_response_time_ms: number | null;
 }
 
 /**
@@ -4326,12 +4384,26 @@ export async function getWhatsAppMetrics(): Promise<WhatsAppMetrics> {
     );
     const avg_response_length = Math.round(parseFloat(avgLengthResult.rows[0]?.avg ?? '0'));
 
+    // Tiempo medio de respuesta en ms (solo filas con received_at y response_at)
+    let avg_response_time_ms: number | null = null;
+    try {
+      const avgTimeResult = await query<{ avg: string }>(
+        `SELECT AVG(EXTRACT(EPOCH FROM (response_at - received_at)) * 1000)::bigint as avg 
+         FROM whatsapp_logs WHERE response_at IS NOT NULL AND received_at IS NOT NULL`
+      );
+      const avgStr = avgTimeResult.rows[0]?.avg;
+      if (avgStr != null) avg_response_time_ms = parseInt(avgStr, 10);
+    } catch {
+      // Columnas pueden no existir si la migración 038 no se ha ejecutado
+    }
+
     return {
       total_messages,
       unique_users,
       by_development,
       last_24h,
       avg_response_length,
+      avg_response_time_ms,
     };
   } catch (error) {
     if (error instanceof Error && (
@@ -4344,6 +4416,7 @@ export async function getWhatsAppMetrics(): Promise<WhatsAppMetrics> {
         by_development: {},
         last_24h: 0,
         avg_response_length: 0,
+        avg_response_time_ms: null,
       };
     }
     throw error;

@@ -44,12 +44,35 @@ function hasMessages(change: any): boolean {
 }
 
 /**
- * Verifica si el mensaje es de tipo texto
- * @param message - Mensaje de WhatsApp
- * @returns true si es mensaje de texto
+ * Verifica si el cambio contiene actualizaciones de estado (sent, delivered, read)
  */
-function isTextMessage(message: WhatsAppMessage): boolean {
-    return message.type === 'text' && !!message.text?.body;
+function hasStatuses(change: any): boolean {
+    return (
+        change?.value?.statuses &&
+        Array.isArray(change.value.statuses) &&
+        change.value.statuses.length > 0
+    );
+}
+
+/**
+ * Obtiene el texto procesable de un mensaje (texto, botón o interactivo)
+ * Así no ignoramos respuestas al template "hello_world" o botones
+ */
+function getMessageText(message: WhatsAppMessage): string | null {
+    if (message.type === 'text' && message.text?.body) {
+        return message.text.body.trim();
+    }
+    if (message.type === 'button' && message.button) {
+        const t = message.button.text || message.button.payload;
+        return t ? String(t).trim() : null;
+    }
+    if (message.type === 'interactive' && message.interactive) {
+        const br = message.interactive.button_reply;
+        const lr = message.interactive.list_reply;
+        if (br?.title) return br.title.trim();
+        if (lr?.title) return lr.title.trim();
+    }
+    return null;
 }
 
 // =====================================================
@@ -65,6 +88,10 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
     phoneNumberId: string;
     userPhone: string;
     message: string;
+    /** ID del mensaje en Meta (para idempotencia y métricas) */
+    messageId: string;
+    /** Timestamp Unix en segundos del mensaje (Meta) */
+    messageTimestamp: string;
 } | null {
     try {
         // Iterar por las entradas del webhook
@@ -82,9 +109,9 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
 
                 // Procesar cada mensaje (normalmente solo hay uno)
                 for (const message of messages!) {
-                    // Solo procesar mensajes de texto
-                    if (!isTextMessage(message)) {
-                        logger.debug('Ignoring non-text message', {
+                    const messageText = getMessageText(message);
+                    if (!messageText) {
+                        logger.debug('Ignoring message (no text/button/interactive body)', {
                             messageType: message.type,
                             messageId: message.id
                         }, 'whatsapp-handler');
@@ -92,18 +119,20 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
                     }
 
                     const userPhone = message.from;
-                    const messageText = message.text!.body;
 
                     logger.debug('Message extracted', {
                         phoneNumberId,
                         userPhone: userPhone.substring(0, 5) + '***',
                         messageLength: messageText.length,
+                        messageId: message.id,
                     }, 'whatsapp-handler');
 
                     return {
                         phoneNumberId,
                         userPhone,
                         message: messageText,
+                        messageId: message.id,
+                        messageTimestamp: message.timestamp || String(Math.floor(Date.now() / 1000)),
                     };
                 }
             }
@@ -116,6 +145,32 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
         logger.error('Error extracting message data', error, {}, 'whatsapp-handler');
         return null;
     }
+}
+
+/**
+ * Extrae actualizaciones de estado (sent, delivered, read) del webhook para métricas
+ * @param payload - Payload del webhook
+ * @returns Lista de { messageId, status, timestamp } (timestamp en segundos Unix)
+ */
+export function extractStatusUpdates(payload: WhatsAppWebhookPayload): Array<{ messageId: string; status: string; timestamp: string }> {
+    const out: Array<{ messageId: string; status: string; timestamp: string }> = [];
+    try {
+        for (const entry of payload.entry) {
+            for (const change of entry.changes) {
+                if (!hasStatuses(change)) continue;
+                for (const st of change.value.statuses!) {
+                    out.push({
+                        messageId: st.id,
+                        status: st.status,
+                        timestamp: st.timestamp,
+                    });
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Error extracting status updates', error, {}, 'whatsapp-handler');
+    }
+    return out;
 }
 
 /**

@@ -17,6 +17,8 @@ Documentación extensa y detallada del flujo, arquitectura y comportamiento del 
 9. [Envío de mensajes (salida)](#9-envío-de-mensajes-salida)
 10. [Variables de entorno y configuración](#10-variables-de-entorno-y-configuración)
 11. [Limitaciones actuales y extensiones futuras](#11-limitaciones-actuales-y-extensiones-futuras)
+12. [Despliegue en Vercel (serverless)](#12-despliegue-en-vercel-serverless)
+13. [Solución de problemas](#13-solución-de-problemas)
 
 ---
 
@@ -383,7 +385,87 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 
 ---
 
-## 12. Solución de problemas
+## 12. Despliegue en Vercel (serverless)
+
+**¿Es correcto tener el bot en Vercel en serverless?** Sí, es una opción válida y el bot está preparado para ello (webhook sin rate limit, token y `phone_number_id` validados, timeouts y manejo de errores). Para que **conteste de forma consistente** conviene tener en cuenta lo siguiente.
+
+### Ventajas de serverless para el bot
+
+- Escala automáticamente con el tráfico.
+- No hay servidor que mantener.
+- Pago por uso; el webhook solo corre cuando Meta envía eventos.
+
+### Puntos a vigilar
+
+| Aspecto | Riesgo | Recomendación |
+|--------|--------|----------------|
+| **Cold start** | La primera petición tras un rato en frío puede tardar 1–5 s. Meta espera respuesta en unos segundos. | En la práctica suele ser aceptable. Si el tráfico es muy bajo, un cron que llame al webhook cada 5–10 min mantiene la función “caliente”. |
+| **Timeout** | Vercel Hobby: 10 s; Pro: 60 s. Si el flujo (DB + lógica + envío) supera el límite, la función se corta y no se devuelve 200. | Mantener el handler ligero: el flujo actual (consulta/upsert en Postgres, FSM, 1–3 mensajes) suele caber en 10 s. Evitar trabajo pesado antes de responder. |
+| **Variables de entorno** | Si `WHATSAPP_ACCESS_TOKEN` (o la DB) no está definida en el entorno de ejecución, el bot no puede enviar respuestas. | Configurar en Vercel todas las variables necesarias para Production/Preview y hacer redeploy tras cambiarlas. |
+| **Reintentos de Meta** | Si no respondemos 200 a tiempo, Meta reenvía el mismo webhook. Sin deduplicación podríamos procesar el mismo mensaje dos veces. | La deduplicación actual es en memoria (no compartida entre invocaciones). Para tráfico alto, convendría deduplicar por `message_id` en DB o Redis. |
+
+### Conclusión
+
+Sí es correcto tener el bot en Vercel en serverless. Para que **conteste correctamente de forma estable**:
+
+1. Configura bien las variables en Vercel (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, Postgres).
+2. Mantén el handler rápido (sin tareas pesadas antes de devolver 200).
+3. Acepta que la primera petición tras inactividad puede ser más lenta (cold start).
+4. Si esperas mucho volumen o necesitas garantía frente a reintentos de Meta, añade deduplicación por `message_id` en base de datos.
+
+---
+
+## 13. Solución de problemas
+
+### URL del webhook: qué poner en Meta y cómo comprobarla
+
+Si **no ves ningún log** cuando alguien escribe al bot, lo más probable es que la URL configurada en Meta no sea la correcta o no esté llegando a tu proyecto en Vercel.
+
+**URL que debes usar (exacta):**
+
+```
+https://<TU_DOMINIO>/api/webhooks/whatsapp
+```
+
+- Sustituye `<TU_DOMINIO>` por tu dominio en Vercel, por ejemplo:
+  - `tu-proyecto.vercel.app` (dominio por defecto de Vercel), o
+  - `www.tudominio.com` si tienes dominio propio enlazado.
+- **Sin** barra final: `/api/webhooks/whatsapp` (no `/api/webhooks/whatsapp/`).
+- **Siempre** `https://`, nunca `http://`.
+
+**Ejemplo:** si tu app en Vercel se llama `agente-capital` y usas el dominio por defecto:
+
+```
+https://agente-capital.vercel.app/api/webhooks/whatsapp
+```
+
+**Dónde configurarla en Meta:**
+
+1. Entra a [developers.facebook.com](https://developers.facebook.com) y abre tu app.
+2. Menú **WhatsApp** > **Configuración** (o **Configuration**).
+3. En **Webhook**, clic en **Configurar** o **Edit**.
+4. En **Callback URL** pega exactamente: `https://<TU_DOMINIO>/api/webhooks/whatsapp`.
+5. En **Token de verificación** escribe el mismo valor que tienes en la variable de entorno **WHATSAPP_VERIFY_TOKEN** en Vercel (ej. `Bot_rag`).
+6. Guarda y haz clic en **Verificar y guardar**. Meta enviará un GET a esa URL; si el token coincide, la verificación pasa.
+
+**Comprobar que la URL responde (antes de depender de los logs):**
+
+- Abre en el navegador: `https://<TU_DOMINIO>/api/webhooks/whatsapp`  
+  Deberías ver **403 Forbidden** o un mensaje de error (porque no llevas `hub.mode`, `hub.verify_token`, etc.). Eso confirma que la ruta existe y que el despliegue está activo.
+- Con curl (GET):  
+  `curl -i "https://<TU_DOMINIO>/api/webhooks/whatsapp"`  
+  Deberías recibir 403. Si recibes 404 o no hay respuesta, la URL o el despliegue están mal.
+
+**Errores frecuentes:**
+
+| Error | Solución |
+|-------|----------|
+| Puse `http://` | Meta exige HTTPS. Usa `https://`. |
+| Puse barra al final `/api/webhooks/whatsapp/` | Prueba sin barra: `/api/webhooks/whatsapp`. |
+| Usé la URL de Preview en vez de Production | En Meta usa la misma URL que abre tu app en producción (la que ves en Vercel en el deployment de Production). |
+| Dominio equivocado | En Vercel > proyecto > Settings > Domains revisa cuál es tu dominio de producción y usa ese. |
+
+---
 
 ### Webhook: "Webhook verification failed" con mode/token/challenge en null
 
