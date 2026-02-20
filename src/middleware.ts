@@ -36,6 +36,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Webhook de WhatsApp: no aplicar rate limit (Meta envía muchos eventos desde la misma IP)
+  if (pathname.startsWith('/api/webhooks/whatsapp')) {
+    return NextResponse.next();
+  }
+
   // Determinar qué tipo de rate limit aplicar según la ruta
   let rateLimitKey: RateLimitKey = 'api';
 

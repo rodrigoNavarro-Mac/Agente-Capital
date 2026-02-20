@@ -78,8 +78,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
     // Log inmediato para confirmar que Meta envía mensajes a esta URL
-    console.log('[WhatsApp Webhook] POST received - incoming message');
+    const hasToken = !!(process.env.WHATSAPP_ACCESS_TOKEN ?? '').trim();
+    console.log('[WhatsApp Webhook] POST received - incoming message', { hasToken });
     const startTime = Date.now();
+
+    if (!hasToken) {
+        logger.error('WHATSAPP_ACCESS_TOKEN is missing or empty in this environment. Replies will not be sent.', undefined, {}, 'whatsapp-webhook');
+    }
 
     try {
         // 1. Parsear payload
@@ -198,8 +203,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 }
             }
 
-            // 7. Guardar logs
-            // TODO: Actualizar saveWhatsAppLog para guardar múltiples mensajes
+            // 7. Guardar logs (no debe fallar el webhook si la DB falla; los mensajes ya se enviaron)
             if (flowResult.outboundMessages.length > 0) {
                 const firstMessage = flowResult.outboundMessages[0];
                 const responseText = firstMessage.type === 'text'
@@ -208,13 +212,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         ? (firstMessage.caption || '[documento enviado]')
                         : (firstMessage.caption || '[imagen enviada]');
 
-                await saveWhatsAppLog({
-                    user_phone: userPhone,
-                    development,
-                    message,
-                    response: responseText,
-                    phone_number_id: phoneNumberId,
-                });
+                try {
+                    await saveWhatsAppLog({
+                        user_phone: userPhone,
+                        development,
+                        message,
+                        response: responseText,
+                        phone_number_id: phoneNumberId,
+                    });
+                } catch (logError) {
+                    logger.error('Failed to save WhatsApp log (continuing)', logError, { userPhone: userPhone.substring(0, 5) + '***' }, 'whatsapp-webhook');
+                }
             }
         } catch (flowError) {
             logger.error('Error in conversation flow', flowError, { development, zone }, 'whatsapp-webhook');

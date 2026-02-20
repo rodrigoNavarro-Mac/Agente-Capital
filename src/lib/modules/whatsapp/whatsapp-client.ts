@@ -78,10 +78,20 @@ export async function sendTextMessage(
         );
 
         if (!response.ok) {
-            const errorData: WhatsAppApiError = await response.json();
+            const bodyText = await response.text();
+            let errorData: WhatsAppApiError | null = null;
+            try {
+                errorData = bodyText ? (JSON.parse(bodyText) as WhatsAppApiError) : null;
+            } catch {
+                logger.error('WhatsApp API error (body not JSON)', undefined, {
+                    status: response.status,
+                    bodyPreview: bodyText?.slice(0, 200),
+                }, 'whatsapp-client');
+                return null;
+            }
             logger.error('WhatsApp API error', undefined, {
                 status: response.status,
-                error: errorData.error,
+                error: errorData?.error ?? bodyText,
             }, 'whatsapp-client');
             return null;
         }

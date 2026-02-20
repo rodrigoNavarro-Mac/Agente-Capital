@@ -76,7 +76,9 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
                 }
 
                 const { metadata, messages } = change.value;
-                const phoneNumberId = metadata.phone_number_id;
+                // Normalizar a string (Meta a veces envía number en JSON; el router usa keys string)
+                const phoneNumberId = String(metadata?.phone_number_id ?? '').trim();
+                if (!phoneNumberId) continue;
 
                 // Procesar cada mensaje (normalmente solo hay uno)
                 for (const message of messages!) {

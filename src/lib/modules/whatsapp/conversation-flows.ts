@@ -121,7 +121,15 @@ export async function handleIncomingMessage(
             is_qualified: false,
         });
 
-        if (!conversation) return { outboundMessages: [] };
+        // Si la DB falla (ej. Vercel sin Postgres o timeout), upsert devuelve null.
+        // En vez de no responder, enviamos al menos la bienvenida para que el usuario reciba algo.
+        if (!conversation) {
+            logger.warn('Conversation upsert failed (DB unavailable?). Sending welcome without persisting state.', { userPhone, development }, 'conversation-flows');
+            const messages = getMessagesForDevelopment(development);
+            return {
+                outboundMessages: [{ type: 'text', text: messages.BIENVENIDA }],
+            };
+        }
 
         return await handleInicio(development, userPhone);
     }
