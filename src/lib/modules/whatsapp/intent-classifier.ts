@@ -11,6 +11,7 @@ import { logger } from '@/lib/utils/logger';
 
 /**
  * Clasifica la intención del usuario (comprar, invertir, solo_info)
+ * Se recomienda usar primero matchIntentByKeywords; el LLM es fallback para frases no listadas.
  */
 export async function classifyIntent(
     userMessage: string
@@ -19,12 +20,13 @@ export async function classifyIntent(
         const messages: LMStudioMessage[] = [
             {
                 role: 'system',
-                content: `Eres un clasificador de intenciones para un bot de bienes raíces.
+                content: `Eres un clasificador de intenciones para un bot de bienes raíces en México.
 
 Clasifica la respuesta del usuario en UNA de estas categorías:
-- comprar: quiere comprar un lote para construir su casa
-- invertir: quiere invertir en un lote como patrimonio/negocio
-- solo_info: solo quiere información, está explorando, no tiene intención de compra
+
+- comprar: quiere comprar un lote para construir su casa, vivir ahí, tener su hogar. Ejemplos: "quiero un lote", "para construir mi casa", "busco terreno para vivir", "casa propia", "para mi familia".
+- invertir: quiere invertir en un lote como patrimonio o negocio, no para vivir. Ejemplos: "invertir", "inversión", "para rentar", "plusvalía", "patrimonio", "lote para invertir".
+- solo_info: solo quiere información, precios, explorar, sin compromiso. Ejemplos: "solo información", "cuánto cuesta", "precios", "cotización", "ver opciones", "conocer", "datos".
 
 Responde SOLO con una palabra: "comprar", "invertir" o "solo_info".`,
             },
@@ -38,14 +40,14 @@ Clasificación:`,
 
         const response = await runLLM(messages, {
             temperature: 0,
-            max_tokens: 10,
+            max_tokens: 15,
         });
 
         const classification = response.toLowerCase().trim();
 
         if (classification.includes('comprar')) return 'comprar';
-        if (classification.includes('invertir')) return 'invertir';
-        if (classification.includes('solo')) return 'solo_info';
+        if (classification.includes('invertir') || classification.includes('inversion')) return 'invertir';
+        if (classification.includes('solo') || classification.includes('info')) return 'solo_info';
 
         logger.warn('Intent classification unclear', { userMessage, response }, 'intent-classifier');
         return null;
@@ -199,7 +201,7 @@ Clasificación:`,
 }
 
 /**
- * Clasifica la acción preferida del usuario
+ * Clasifica la acción preferida del usuario (cita, visita, cotización)
  */
 export async function classifyAccion(
     userMessage: string
@@ -208,12 +210,12 @@ export async function classifyAccion(
         const messages: LMStudioMessage[] = [
             {
                 role: 'system',
-                content: `Clasifica qué prefiere el usuario.
+                content: `Clasifica qué prefiere el usuario en bienes raíces.
 
 Opciones:
-- cita: quiere una llamada/cita telefónica
-- visita: quiere visitar el desarrollo presencialmente
-- cotizacion: quiere recibir cotización por WhatsApp
+- cita: quiere una llamada telefónica, que lo contacten, hablar con asesor, "que me llamen".
+- visita: quiere visitar el desarrollo, ir a ver, agendar visita, conocer las instalaciones.
+- cotizacion: quiere cotización, precio, información por WhatsApp, números.
 
 Responde SOLO: "cita", "visita" o "cotizacion".`,
             },
@@ -232,7 +234,7 @@ Clasificación:`,
 
         const classification = response.toLowerCase().trim();
 
-        if (classification.includes('cita') || classification.includes('llamada')) return 'cita';
+        if (classification.includes('cita') || classification.includes('llamada') || classification.includes('contact')) return 'cita';
         if (classification.includes('visita')) return 'visita';
         if (classification.includes('cotiz')) return 'cotizacion';
 

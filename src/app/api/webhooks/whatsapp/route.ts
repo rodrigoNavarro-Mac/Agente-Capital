@@ -18,6 +18,7 @@ import {
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage, sendImageMessage, sendDocumentMessage } from '@/lib/modules/whatsapp/whatsapp-client';
 import { handleIncomingMessage } from '@/lib/modules/whatsapp/conversation-flows';
+import { getConversation } from '@/lib/modules/whatsapp/conversation-state';
 import { logger } from '@/lib/utils/logger';
 import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId } from '@/lib/db/postgres';
 
@@ -134,12 +135,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await sendTextMessage(
                 phoneNumberId,
                 userPhone,
-                'Lo siento, este canal no está configurado. Contacta a soporte.'
+                'Lo siento, este canal no está configurado. Contacta a soporte.',
+                incomingMessageId
             );
             return NextResponse.json({ status: 'ok' }, { status: 200 });
         }
 
         const { development, zone } = routing;
+
+        // Diagnóstico: estado guardado en DB (si siempre es null, falta migración 037)
+        const conversationBefore = await getConversation(userPhone, development);
+        const stateLabel = conversationBefore?.state ?? 'NEW (sin fila en whatsapp_conversations)';
+        console.log('[WhatsApp Webhook] conversation state=', stateLabel, '| Si siempre NEW, ejecuta migracion 037 en Supabase');
 
         logger.info('Processing WhatsApp message', {
             development,
@@ -161,7 +168,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 messageText: message,
             });
 
-            console.log('[WhatsApp Webhook] flowResult', { outboundCount: flowResult.outboundMessages.length });
+            console.log('[WhatsApp Webhook] flowResult', {
+                outboundCount: flowResult.outboundMessages.length,
+                nextState: flowResult.nextState,
+                firstType: flowResult.outboundMessages[0]?.type,
+            });
 
             if (flowResult.outboundMessages.length === 0) {
                 console.log('[WhatsApp Webhook] No outbound messages to send (flow returned empty)');
@@ -179,7 +190,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         phoneNumberId,
                         userPhone,
                         outboundMessage.imageUrl,
-                        outboundMessage.caption
+                        outboundMessage.caption,
+                        incomingMessageId
                     );
 
                     if (!imageResult) {
@@ -197,7 +209,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     const textResult = await sendTextMessage(
                         phoneNumberId,
                         userPhone,
-                        outboundMessage.text
+                        outboundMessage.text,
+                        incomingMessageId
                     );
 
                     if (!textResult) {
@@ -217,7 +230,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         userPhone,
                         outboundMessage.documentUrl,
                         outboundMessage.filename,
-                        outboundMessage.caption
+                        outboundMessage.caption,
+                        incomingMessageId
                     );
 
                     if (!docResult) {
@@ -239,7 +253,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 const fallbackSent = await sendTextMessage(
                     phoneNumberId,
                     userPhone,
-                    'Escribe algo para comenzar o /reset para reiniciar la conversación.'
+                    'Escribe algo para comenzar o /reset para reiniciar la conversación.',
+                    incomingMessageId
                 );
                 messageSent = !!fallbackSent;
             }
@@ -279,7 +294,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             const fallbackResult = await sendTextMessage(
                 phoneNumberId,
                 userPhone,
-                'Disculpa, tuve un problema. Por favor intenta de nuevo en un momento.'
+                'Disculpa, tuve un problema. Por favor intenta de nuevo en un momento.',
+                incomingMessageId
             );
 
             messageSent = !!fallbackResult;

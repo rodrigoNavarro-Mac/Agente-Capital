@@ -26,12 +26,14 @@ const MAX_MESSAGE_LENGTH = 4096; // WhatsApp limita mensajes a 4096 caracteres
  * @param phoneNumberId - ID del número de WhatsApp Business
  * @param to - Número de teléfono del destinatario (formato internacional sin +)
  * @param message - Texto del mensaje
+ * @param contextMessageId - Opcional. WAMID del mensaje al que se responde (respuesta contextual)
  * @returns Response de la API o null si falla
  */
 export async function sendTextMessage(
     phoneNumberId: string,
     to: string,
-    message: string
+    message: string,
+    contextMessageId?: string
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         // Truncar mensaje si excede el límite
@@ -46,7 +48,7 @@ export async function sendTextMessage(
 
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
 
-        const body = {
+        const body: Record<string, unknown> = {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',
             to,
@@ -56,6 +58,9 @@ export async function sendTextMessage(
                 body: finalMessage,
             },
         };
+        if (contextMessageId) {
+            body.context = { message_id: contextMessageId };
+        }
 
         logger.debug('Sending WhatsApp message', {
             phoneNumberId,
@@ -118,18 +123,20 @@ export async function sendTextMessage(
  * @param to - Número de teléfono del destinatario (formato internacional sin +)
  * @param imageUrl - URL pública de la imagen
  * @param caption - Texto opcional que acompaña la imagen
+ * @param contextMessageId - Opcional. WAMID del mensaje al que se responde (respuesta contextual)
  * @returns Response de la API o null si falla
  */
 export async function sendImageMessage(
     phoneNumberId: string,
     to: string,
     imageUrl: string,
-    caption?: string
+    caption?: string,
+    contextMessageId?: string
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
 
-        const body = {
+        const body: Record<string, unknown> = {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',
             to,
@@ -139,6 +146,9 @@ export async function sendImageMessage(
                 ...(caption && { caption }),
             },
         };
+        if (contextMessageId) {
+            body.context = { message_id: contextMessageId };
+        }
 
         logger.debug('Sending WhatsApp image', {
             phoneNumberId,
@@ -192,6 +202,7 @@ export async function sendImageMessage(
  * @param documentUrl - URL pública del documento
  * @param filename - Nombre del archivo (con extensión)
  * @param caption - Texto opcional que acompaña el documento
+ * @param contextMessageId - Opcional. WAMID del mensaje al que se responde (respuesta contextual)
  * @returns Response de la API o null si falla
  */
 export async function sendDocumentMessage(
@@ -199,12 +210,13 @@ export async function sendDocumentMessage(
     to: string,
     documentUrl: string,
     filename: string,
-    caption?: string
+    caption?: string,
+    contextMessageId?: string
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
 
-        const body = {
+        const body: Record<string, unknown> = {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',
             to,
@@ -215,6 +227,9 @@ export async function sendDocumentMessage(
                 ...(caption && { caption }),
             },
         };
+        if (contextMessageId) {
+            body.context = { message_id: contextMessageId };
+        }
 
         logger.debug('Sending WhatsApp document', {
             phoneNumberId,

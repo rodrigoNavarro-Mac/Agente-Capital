@@ -127,6 +127,7 @@ export async function getConversation(
         const isMissingTable = msg.includes('whatsapp_conversations') && msg.includes('does not exist');
         logger.error('Error getting conversation', error, { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-state');
         if (isMissingTable) {
+            console.warn('[WhatsApp] TABLA whatsapp_conversations NO EXISTE. El bot siempre repetira la bienvenida. Ejecuta migracion 037 en Supabase SQL Editor.');
             logger.warn('Tabla whatsapp_conversations no existe. Ejecuta migración 037 en la base de datos (Supabase SQL Editor) para que el flujo avance.', {}, 'conversation-state');
         }
         return null;

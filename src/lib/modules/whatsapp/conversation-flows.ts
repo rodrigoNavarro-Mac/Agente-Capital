@@ -19,6 +19,7 @@ import {
     classifyIntent,
     classifyAccion,
 } from './intent-classifier';
+import { matchIntentByKeywords, matchAffirmativeByKeywords, matchNegativeByKeywords } from './conversation-keywords';
 import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
 import { logger } from '@/lib/utils/logger';
@@ -108,6 +109,8 @@ export async function handleIncomingMessage(
         isQualified: conversation?.is_qualified ?? false,
     }, 'conversation-flows');
 
+    console.log('[WhatsApp] state=', conversation?.state ?? 'NEW', '| Si siempre NEW, ejecuta migracion 037');
+
     // 3. CONTROL POR HORARIO
     if (isBusinessHours()) {
         if (conversation?.is_qualified || conversation?.state === 'CLIENT_ACCEPTA') {
@@ -133,6 +136,7 @@ export async function handleIncomingMessage(
         if (!conversation) {
             logger.warn('Conversation upsert failed (DB unavailable or table whatsapp_conversations missing?). Sending welcome without persisting state.', { userPhone, development }, 'conversation-flows');
             const messages = getMessagesForDevelopment(development);
+            console.warn('[WhatsApp] upsertConversation fallo (tabla whatsapp_conversations falta?). Ejecuta migracion 037.');
             return {
                 outboundMessages: [{ type: 'text', text: messages.BIENVENIDA }],
             };
@@ -220,11 +224,16 @@ async function handleFiltroIntencion(
     userPhone: string,
     userData: UserData
 ): Promise<FlowResult> {
-    const intent = await classifyIntent(messageText);
-    const text = messageText.toLowerCase();
+    const text = messageText.toLowerCase().trim();
     const messages = getMessagesForDevelopment(development);
 
-    // 1. Invertir / Comprar -> ALTA INTENCIÓN
+    // Primero intentar por palabras clave (más casos de uso, sin depender del LLM)
+    let intent = matchIntentByKeywords(messageText);
+    if (intent === null) {
+        intent = await classifyIntent(messageText);
+    }
+
+    // 1. Invertir / Comprar -> ALTA INTENCIÓN (incluye muchas formas de decirlo)
     if (intent === 'comprar' || intent === 'invertir' || text.includes('construir')) {
         await mergeUserData(userPhone, development, { intencion: intent || 'comprar' });
         await updateState(userPhone, development, 'CTA_PRIMARIO');
@@ -236,7 +245,6 @@ async function handleFiltroIntencion(
             },
         ];
 
-        // Opcional: enviar PDF brochure del desarrollo si está configurado
         const brochureUrl = getBrochure(development);
         if (brochureUrl) {
             outboundMessages.push({
@@ -256,7 +264,7 @@ async function handleFiltroIntencion(
     }
 
     // 2. Solo Info -> REINTENTO SUAVE
-    if (intent === 'solo_info' || text.includes('info') || text.includes('precio')) {
+    if (intent === 'solo_info' || text.includes('info') || text.includes('precio') || text.includes('informacion') || text.includes('información') || text.includes('cotiz') || text.includes('cuesta')) {
         if (userData.retry_count && userData.retry_count >= 1) {
             return await handleSalidaElegante(development, userPhone, 'info_loop');
         }
@@ -289,12 +297,21 @@ async function handleInfoReintento(
     userPhone: string,
     _userData: UserData
 ): Promise<FlowResult> {
-    const intent = await classifyIntent(messageText);
-    const text = messageText.toLowerCase();
+    const text = messageText.toLowerCase().trim();
     const messages = getMessagesForDevelopment(development);
 
-    // Recuperado -> Puente a CTA
-    if (intent === 'comprar' || intent === 'invertir' || text.includes('si') || text.includes('construir')) {
+    let intent = matchIntentByKeywords(messageText);
+    if (intent === null) {
+        intent = await classifyIntent(messageText);
+    }
+
+    // Recuperado -> Puente a CTA (muchas formas de decir que sí)
+    const textNorm = text.replace(/\s+/g, ' ');
+    const isAffirmativeIntent = intent === 'comprar' || intent === 'invertir' ||
+        textNorm.includes('si') || textNorm.includes('sí') || textNorm.includes('claro') ||
+        textNorm.includes('construir') || textNorm.includes('me interesa') || textNorm.includes('quiero');
+
+    if (isAffirmativeIntent) {
         await mergeUserData(userPhone, development, { intencion: 'recuperado_de_info' });
         await updateState(userPhone, development, 'CTA_PRIMARIO');
 
@@ -328,37 +345,16 @@ async function handleCtaPrimario(
     userPhone: string
 ): Promise<FlowResult> {
     const action = await classifyAccion(messageText);
-    const text = messageText.toLowerCase();
 
-    // DETECCIÓN DE NEGATIVOS (PRIORIDAD ALTA)
-    // Si contiene "no" seguido de palabras clave negativas O frases completas
-    const isNegative =
-        text.includes('no puedo') ||
-        text.includes('no gracias') ||
-        text.includes('no quiero') ||
-        text.includes('no me interesa') ||
-        text.includes('no tengo tiempo') || // CASO CRÍTICO
-        text.includes('ahora no') ||
-        text.includes('luego') ||
-        text.includes('ocupado') ||
-        text.includes('despues') ||
-        (text.startsWith('no') && text.length < 5);
+    // Negativos: primero por palabras clave ampliadas, luego reglas concretas
+    const isNegative = matchNegativeByKeywords(messageText);
 
     if (isNegative) {
         return await handleSalidaElegante(development, userPhone, 'rechazo_cta_explicito');
     }
 
-    // CRITERIO ESTRICTO DE ACEPTACIÓN
-    const isAffirmative =
-        text.includes('si') ||
-        text.includes('claro') ||
-        text.includes('agendar') ||
-        text.includes('visita') ||
-        text.includes('llama') ||
-        text.includes('ok') ||
-        text.includes('va') ||
-        text.includes('bueno') ||
-        (action !== null); // Solo si acción es clara
+    // Afirmativo: keywords ampliados o LLM (cita/visita/cotizacion)
+    const isAffirmative = matchAffirmativeByKeywords(messageText) || (action !== null);
 
     const messages = getMessagesForDevelopment(development);
     if (isAffirmative) {
