@@ -4141,6 +4141,8 @@ export interface WhatsAppLogData {
 
 /**
  * Guarda un log de mensaje/respuesta de WhatsApp con métricas de desempeño
+ * Si la migración 038 no está aplicada (columnas received_at, outbound_message_id, etc. no existen),
+ * hace fallback a INSERT con solo las columnas de la migración 036.
  */
 export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
   try {
@@ -4161,11 +4163,37 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
       ]
     );
   } catch (error) {
-    // Si la tabla no existe, loguear advertencia y continuar
-    if (error instanceof Error && (
-      error.message.includes('no existe la relación') ||
-      error.message.includes('does not exist')
+    const msg = error instanceof Error ? error.message : String(error);
+    // Migración 038 no aplicada: columnas de métricas no existen; insertar solo columnas base (036)
+    if (msg.includes('does not exist') && (
+      msg.includes('outbound_message_id') ||
+      msg.includes('incoming_message_id') ||
+      msg.includes('received_at') ||
+      msg.includes('response_at')
     )) {
+      try {
+        await query(
+          `INSERT INTO whatsapp_logs (user_phone, development, message, response, phone_number_id)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            log.user_phone,
+            log.development,
+            log.message,
+            log.response,
+            log.phone_number_id,
+          ]
+        );
+        return;
+      } catch (fallbackError) {
+        logger.warn('WhatsApp log fallback INSERT failed', {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          user_phone: log.user_phone?.substring(0, 6) + '***',
+        }, 'postgres');
+        return;
+      }
+    }
+    // Tabla no existe
+    if (msg.includes('no existe la relación') || msg.includes('does not exist')) {
       logger.warn('Table whatsapp_logs does not exist. Log was not saved. Run migration 036_whatsapp_logs.sql', undefined, 'postgres');
       return;
     }
@@ -4175,20 +4203,22 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
 
 /**
  * Actualiza la hora "visto" (leído) de un log por el ID del mensaje saliente (Meta envía status "read").
- * Si la columna outbound_message_id no existe (migración 038 no aplicada), no hace nada.
+ * Si la columna outbound_message_id no existe (migración 038 no aplicada), no hace nada y no loguea error.
+ * Usa getClient + client.query para no pasar por query() y así evitar "Error en query" cuando falta la columna.
  */
 export async function updateWhatsAppLogSeenByOutboundMessageId(
   outboundMessageId: string,
   seenAt: Date
 ): Promise<void> {
+  let client: PoolClient | undefined;
   try {
-    await query(
+    client = await getClient();
+    await client.query(
       `UPDATE whatsapp_logs SET seen_at = $1 WHERE outbound_message_id = $2 AND seen_at IS NULL`,
       [seenAt, outboundMessageId]
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    // Tabla o columna inexistente: migración 038 no aplicada; ignorar sin fallar
     if (
       msg.includes('no existe la relación') ||
       msg.includes('does not exist') ||
@@ -4197,6 +4227,8 @@ export async function updateWhatsAppLogSeenByOutboundMessageId(
       return;
     }
     logger.warn('Failed to update whatsapp_log seen_at', { outboundMessageId }, 'postgres');
+  } finally {
+    client?.release?.();
   }
 }
 

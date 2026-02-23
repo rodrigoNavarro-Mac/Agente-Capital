@@ -182,7 +182,7 @@ export async function updateState(
             [newState, userPhone, development]
         );
 
-        logger.debug('State updated', { userPhone, development, newState }, 'conversation-state');
+        logger.info('State updated', { userPhone: userPhone.substring(0, 5) + '***', development, newState }, 'conversation-state');
         return true;
     } catch (error) {
         logger.error('Error updating state', error, { userPhone, development, newState }, 'conversation-state');

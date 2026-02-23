@@ -147,7 +147,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             messageLength: message.length,
         }, 'whatsapp-webhook');
 
-        // 5. Procesar con flujo conversacional
+        // 5. Procesar con flujo conversacional (estado se persiste en whatsapp_conversations; requiere migración 037)
         let messageSent = false;
         let firstOutboundMessageId: string | undefined;
 

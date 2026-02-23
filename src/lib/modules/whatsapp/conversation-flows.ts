@@ -101,6 +101,13 @@ export async function handleIncomingMessage(
     // 2. Obtener conversación
     let conversation = await getConversation(userPhone, development);
 
+    logger.info('Conversation state loaded', {
+        userPhone: userPhone.substring(0, 5) + '***',
+        development,
+        state: conversation?.state ?? 'NEW',
+        isQualified: conversation?.is_qualified ?? false,
+    }, 'conversation-flows');
+
     // 3. CONTROL POR HORARIO
     if (isBusinessHours()) {
         if (conversation?.is_qualified || conversation?.state === 'CLIENT_ACCEPTA') {
@@ -122,15 +129,16 @@ export async function handleIncomingMessage(
         });
 
         // Si la DB falla (ej. Vercel sin Postgres o timeout), upsert devuelve null.
-        // En vez de no responder, enviamos al menos la bienvenida para que el usuario reciba algo.
+        // En ese caso la tabla whatsapp_conversations puede no existir (ejecutar migración 037).
         if (!conversation) {
-            logger.warn('Conversation upsert failed (DB unavailable?). Sending welcome without persisting state.', { userPhone, development }, 'conversation-flows');
+            logger.warn('Conversation upsert failed (DB unavailable or table whatsapp_conversations missing?). Sending welcome without persisting state.', { userPhone, development }, 'conversation-flows');
             const messages = getMessagesForDevelopment(development);
             return {
                 outboundMessages: [{ type: 'text', text: messages.BIENVENIDA }],
             };
         }
 
+        logger.info('New conversation created', { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-flows');
         return await handleInicio(development, userPhone);
     }
 
@@ -155,6 +163,8 @@ async function processState(
     userData: UserData
 ): Promise<FlowResult> {
     const { development, userPhone } = context;
+
+    logger.info('Processing state', { state, development, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
 
     switch (state) {
         case 'INICIO':
