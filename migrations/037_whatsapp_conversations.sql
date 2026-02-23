@@ -47,4 +47,4 @@ DROP TRIGGER IF EXISTS trigger_update_whatsapp_conversations_updated_at ON whats
 CREATE TRIGGER trigger_update_whatsapp_conversations_updated_at
     BEFORE UPDATE ON whatsapp_conversations
     FOR EACH ROW
-    EXECUTE FUNCTION update_whatsapp_conversations_updated_at();
+    EXECUTE PROCEDURE update_whatsapp_conversations_updated_at();

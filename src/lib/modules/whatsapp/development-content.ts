@@ -27,42 +27,80 @@ export interface DevelopmentMessages {
  * Mensajes FUEGO - Desarrollo Cancún (Huayacán)
  */
 const FUEGO_MESSAGES: DevelopmentMessages = {
-    BIENVENIDA: `Hola
-Soy el asistente de FUEGO, un desarrollo privado de lotes residenciales en Av. Huayacán, Cancún
+    BIENVENIDA: `Hola 👋🔥
 
-Contamos con lotes desde 159.57 m² y planes de pago de hasta 24 plazos.
+Soy el asistente oficial de *FUEGO*.
 
-Para ayudarte mejor, ¿te interesa invertir o construir?`,
-    CONFIRMACION_COMPRA: `Perfecto
-Entonces buscas construir tu patrimonio, eso encaja muy bien con lo que ofrece FUEGO.`,
-    CONFIRMACION_INVERSION: `Excelente
-FUEGO es una de las zonas con mayor plusvalía en Huayacán, ideal para inversión.`,
-    CTA_AYUDA: `Para orientarte mejor y darte la información correcta:
+FUEGO es un condominio privado de solo 63 lotes dentro de Terraquia, ubicado en 📍 Av. Huayacán, Cancún — la zona de mayor crecimiento.
 
-¿Te gustaría agendar una visita al desarrollo o prefieres una llamada breve con un asesor?`,
-    SOLICITUD_NOMBRE: `Perfecto, con gusto lo coordinamos
+✅ Entrega inmediata  
+✅ Desde 161 m²  
+✅ Crédito bancario disponible  
+✅ Plusvalía promedio 14% anual  
 
-Para decirle al asesor a quién debe dirigirse, ¿cuál es tu nombre completo?`,
-    INFO_REINTENTO: `Entiendo que quieras revisar detalles primero
+Para ayudarte mejor:
+¿Buscas invertir 💰 o construir tu hogar 🏡?`,
 
-FUEGO es una comunidad exclusiva y quiero darte el dato exacto.
+    CONFIRMACION_COMPRA: `Excelente 🏡✨
 
-¿Estás buscando esta oportunidad para invertir o para vivir?`,
-    HANDOVER_EXITOSO: `Gracias, {NOMBRE}
+Si buscas construir, FUEGO es ideal:
+✔ Infraestructura terminada  
+✔ Seguridad 24/7 🔐  
+✔ Servicios subterráneos  
+✔ Listo para empezar a construir  
 
-Te voy a conectar con un asesor experto de FUEGO para coordinar los detalles.
+Aquí puedes comenzar tu proyecto desde el primer día.`,
 
-Gracias por tu confianza.`,
-    CONFIRMACION_FINAL: `Entiendo
+    CONFIRMACION_INVERSION: `Gran decisión 💰📈
 
-¿Entonces confirmamos para coordinar una visita o una llamada?`,
-    SALIDA_ELEGANTE: `Entiendo perfectamente
+FUEGO está en Av. Huayacán, el corredor con mayor proyección en Cancún.
 
-Gracias por tu interés. Si más adelante decides avanzar, aquí estaré para ayudarte.
+📊 Zona proyectada a superar los $10,500/m² hacia 2028  
+📈 Plusvalía sostenida  
+📍 Ubicación estratégica  
 
-¡Que tengas un excelente día!`,
-    FUERA_HORARIO: `Gracias por escribir
-En un momento un asesor de FUEGO continúa contigo.`,
+Es una inversión sólida y con respaldo real.`,
+
+    CTA_AYUDA: `Para enviarte disponibilidad actual y opciones:
+
+¿Prefieres agendar una visita al desarrollo 🏡 o una llamada breve con un asesor 📞?`,
+
+    SOLICITUD_NOMBRE: `Perfecto 🙌
+
+Para asignarte con el asesor correcto:
+¿Me compartes tu nombre completo, por favor?`,
+
+    INFO_REINTENTO: `Claro 👌
+
+FUEGO tiene precios desde $1,283,925 MXN y contamos con entrega inmediata 🔑
+
+Los precios tienen incremento programado cada 2 meses ⏳
+
+Para enviarte la información correcta:
+¿Lo estás evaluando para invertir 💰 o para vivir 🏡?`,
+
+    HANDOVER_EXITOSO: `Gracias, {NOMBRE} 🙌🔥
+
+Te conecto ahora con un asesor especialista en FUEGO para revisar disponibilidad y siguientes pasos.
+
+En breve continúa contigo.`,
+
+    CONFIRMACION_FINAL: `Perfecto 👍
+
+Entonces confirmamos para coordinar {VISITA_O_LLAMADA} 📅
+
+Un asesor te contactará en breve para definir horario.`,
+
+    SALIDA_ELEGANTE: `Entiendo 😊
+
+Gracias por tu interés en FUEGO 🔥
+
+Cuando decidas avanzar o tengas alguna duda, aquí estaré para ayudarte.`,
+
+    FUERA_HORARIO: `Gracias por escribir 🙌
+
+Nuestro horario es de 8:30 a.m. a 8:30 p.m. ⏰  
+Un asesor continuará contigo a primera hora.`
 };
 
 /**
