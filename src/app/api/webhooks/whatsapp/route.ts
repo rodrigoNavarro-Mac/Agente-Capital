@@ -113,7 +113,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const messageData = extractMessageData(payload);
 
         if (!messageData) {
-            console.log('[WhatsApp Webhook] No messageData: payload has no valid text/button/interactive message');
+            // Común: Meta envía varios POST por evento (mensaje + sent/delivered/read). Solo uno trae messages con texto.
+            console.log('[WhatsApp Webhook] No messageData: payload has no valid text/button/interactive message (puede ser status sent/delivered/read o reacción)');
             logger.debug('No valid messages to process', undefined, 'whatsapp-webhook');
             return NextResponse.json({ status: 'ok' }, { status: 200 });
         }

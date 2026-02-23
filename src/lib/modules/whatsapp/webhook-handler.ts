@@ -56,11 +56,13 @@ function hasStatuses(change: any): boolean {
 
 /**
  * Obtiene el texto procesable de un mensaje (texto, botón o interactivo)
- * Así no ignoramos respuestas al template "hello_world" o botones
+ * Acepta texto en message.text.body (estándar) o message.body por compatibilidad.
  */
 function getMessageText(message: WhatsAppMessage): string | null {
-    if (message.type === 'text' && message.text?.body) {
-        return message.text.body.trim();
+    // Texto estándar: type "text" y message.text.body
+    if (message.type === 'text') {
+        const body = message.text?.body ?? (message as { body?: string }).body;
+        if (body && String(body).trim()) return String(body).trim();
     }
     if (message.type === 'button' && message.button) {
         const t = message.button.text || message.button.payload;
@@ -113,7 +115,9 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
                     if (!messageText) {
                         logger.debug('Ignoring message (no text/button/interactive body)', {
                             messageType: message.type,
-                            messageId: message.id
+                            messageId: message.id,
+                            hasText: !!message.text,
+                            keys: Object.keys(message),
                         }, 'whatsapp-handler');
                         continue;
                     }

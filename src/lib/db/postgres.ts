@@ -4142,46 +4142,52 @@ export interface WhatsAppLogData {
 /**
  * Guarda un log de mensaje/respuesta de WhatsApp con métricas de desempeño
  * Si la migración 038 no está aplicada (columnas received_at, outbound_message_id, etc. no existen),
- * hace fallback a INSERT con solo las columnas de la migración 036.
+ * hace fallback a INSERT con solo las columnas de la migración 036, sin disparar "Error en query".
  */
 export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
+  const fullParams = [
+    log.user_phone,
+    log.development,
+    log.message,
+    log.response,
+    log.phone_number_id,
+    log.received_at ?? null,
+    log.response_at ?? null,
+    log.incoming_message_id ?? null,
+    log.outbound_message_id ?? null,
+  ];
+  const baseParams = [
+    log.user_phone,
+    log.development,
+    log.message,
+    log.response,
+    log.phone_number_id,
+  ];
+
+  let client: PoolClient | undefined;
   try {
-    await query(
+    client = await getClient();
+    await client.query(
       `INSERT INTO whatsapp_logs 
        (user_phone, development, message, response, phone_number_id, received_at, response_at, incoming_message_id, outbound_message_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        log.user_phone,
-        log.development,
-        log.message,
-        log.response,
-        log.phone_number_id,
-        log.received_at ?? null,
-        log.response_at ?? null,
-        log.incoming_message_id ?? null,
-        log.outbound_message_id ?? null,
-      ]
+      fullParams
     );
+    return;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    // Migración 038 no aplicada: columnas de métricas no existen; insertar solo columnas base (036)
-    if (msg.includes('does not exist') && (
+    const isMissingMetricColumns = msg.includes('does not exist') && (
       msg.includes('outbound_message_id') ||
       msg.includes('incoming_message_id') ||
       msg.includes('received_at') ||
       msg.includes('response_at')
-    )) {
+    );
+    if (isMissingMetricColumns && client) {
       try {
-        await query(
+        await client.query(
           `INSERT INTO whatsapp_logs (user_phone, development, message, response, phone_number_id)
            VALUES ($1, $2, $3, $4, $5)`,
-          [
-            log.user_phone,
-            log.development,
-            log.message,
-            log.response,
-            log.phone_number_id,
-          ]
+          baseParams
         );
         return;
       } catch (fallbackError) {
@@ -4192,12 +4198,13 @@ export async function saveWhatsAppLog(log: WhatsAppLogData): Promise<void> {
         return;
       }
     }
-    // Tabla no existe
     if (msg.includes('no existe la relación') || msg.includes('does not exist')) {
-      logger.warn('Table whatsapp_logs does not exist. Log was not saved. Run migration 036_whatsapp_logs.sql', undefined, 'postgres');
+      logger.warn('Table whatsapp_logs does not exist. Log was not saved. Run migration 036_whatsapp_logs.sql', {}, 'postgres');
       return;
     }
     throw error;
+  } finally {
+    client?.release?.();
   }
 }
 
