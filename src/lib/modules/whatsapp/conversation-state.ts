@@ -104,7 +104,7 @@ async function initConversationsTable(): Promise<void> {
         logger.debug('Conversations table initialized', {}, 'conversation-state');
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        const stack = error instanceof Error ? error.stack : '';
+        const stack = (error instanceof Error ? error.stack : undefined) ?? '';
         const isConnectionRefused = msg.includes('ECONNREFUSED') || stack.includes('ECONNREFUSED');
         if (isConnectionRefused) {
             logger.debug('DB not available during init (e.g. build time)', {}, 'conversation-state');
