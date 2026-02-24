@@ -40,7 +40,9 @@ function maskPhone(phone: string): string {
     return phone.substring(0, 4) + '***' + phone.slice(-3);
 }
 
-function RetryHandoverButton({
+const retryButtonClass = 'text-xs px-2 py-1 rounded disabled:opacity-50';
+
+function RetryLeadCrmButton({
     userPhone,
     development,
     onDone,
@@ -67,12 +69,12 @@ function RetryHandoverButton({
             });
             const data = await res.json();
             if (!res.ok) {
-                onError(data.error || 'Error al reintentar');
+                onError(data.error || 'Error al reintentar lead CRM');
                 return;
             }
             onDone();
         } catch {
-            onError('Error de red al reintentar');
+            onError('Error de red al reintentar lead CRM');
         } finally {
             setLoading(false);
         }
@@ -83,9 +85,59 @@ function RetryHandoverButton({
             type="button"
             onClick={handleClick}
             disabled={loading}
-            className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+            className={`${retryButtonClass} bg-blue-100 text-blue-800 hover:bg-blue-200`}
         >
-            {loading ? '...' : 'Reintentar handover'}
+            {loading ? '...' : 'Reintentar lead CRM'}
+        </button>
+    );
+}
+
+function RetryCliqButton({
+    userPhone,
+    development,
+    onDone,
+    onError,
+}: {
+    userPhone: string;
+    development: string;
+    onDone: () => void;
+    onError: (message: string) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        setLoading(true);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch('/api/whatsapp/conversations/retry-cliq', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ user_phone: userPhone, development }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                onError(data.error || 'Error al reintentar Cliq');
+                return;
+            }
+            onDone();
+        } catch {
+            onError('Error de red al reintentar Cliq');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className={`${retryButtonClass} bg-amber-100 text-amber-800 hover:bg-amber-200`}
+        >
+            {loading ? '...' : 'Reintentar Cliq'}
         </button>
     );
 }
@@ -238,13 +290,21 @@ export default function ConversacionesPage() {
                                             : ''}
                                     </td>
                                     <td className="py-2 px-3">
-                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified && (!c.cliq_channel_id || c.zoho_lead_id === 'pending' || !c.zoho_lead_id) ? (
-                                            <RetryHandoverButton
-                                                userPhone={c.user_phone}
-                                                development={c.development}
-                                                onDone={fetchConversations}
-                                                onError={(msg) => setError(msg)}
-                                            />
+                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified ? (
+                                            <span className="flex flex-wrap gap-1">
+                                                <RetryLeadCrmButton
+                                                    userPhone={c.user_phone}
+                                                    development={c.development}
+                                                    onDone={fetchConversations}
+                                                    onError={(msg) => setError(msg)}
+                                                />
+                                                <RetryCliqButton
+                                                    userPhone={c.user_phone}
+                                                    development={c.development}
+                                                    onDone={fetchConversations}
+                                                    onError={(msg) => setError(msg)}
+                                                />
+                                            </span>
                                         ) : (
                                             '-'
                                         )}

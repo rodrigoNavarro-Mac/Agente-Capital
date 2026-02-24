@@ -107,9 +107,9 @@ function isValidEmail(value: string): boolean {
 }
 
 /** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). Solo incluye emails válidos. */
-function buildCliqChannelInviteEmails(assignedAgentEmail: string): string[] {
+function buildCliqChannelInviteEmails(assignedAgentEmail: string | null): string[] {
     const always = getCliqAlwaysInviteEmails();
-    const combined = Array.from(new Set([assignedAgentEmail, ...always])).filter(Boolean);
+    const combined = Array.from(new Set([assignedAgentEmail, ...always].filter(Boolean) as string[]));
     return combined.filter((e) => isValidEmail(e));
 }
 
@@ -676,8 +676,94 @@ async function handleClientAccepta(
 }
 
 /**
- * Reintenta el handover (crear lead en Zoho + canal Cliq) para una conversación ya calificada
- * con Lead Zoho "pending" (p. ej. tras corregir duplicado en Zoho o cambiar número del lead).
+ * Reintenta solo la parte Cliq: crea el canal Cliq y el hilo bidireccional WA–Cliq.
+ * No crea lead en Zoho; usa el lead existente (conversación o búsqueda por teléfono).
+ * Solo aplica a conversaciones en estado CLIENT_ACCEPTA y calificadas.
+ */
+export async function retryCliqOnly(
+    userPhone: string,
+    development: string
+): Promise<{ success: boolean; zoho_lead_id?: string; error?: string }> {
+    const conversation = await getConversation(userPhone, development);
+    if (!conversation) {
+        return { success: false, error: 'Conversación no encontrada' };
+    }
+    if (conversation.state !== 'CLIENT_ACCEPTA' || !conversation.is_qualified) {
+        return { success: false, error: 'Solo se puede reintentar en conversaciones calificadas (CLIENT_ACCEPTA)' };
+    }
+
+    const userName = conversation.user_data?.name || conversation.user_data?.nombre;
+    const phoneNumberId = getPhoneNumberIdByDevelopment(development);
+
+    let zoho_lead_id: string | null =
+        conversation.zoho_lead_id && conversation.zoho_lead_id !== 'pending'
+            ? conversation.zoho_lead_id
+            : null;
+    if (!zoho_lead_id) {
+        const existingLead = await searchZohoLeadsByPhone(userPhone);
+        if (existingLead?.id) {
+            zoho_lead_id = existingLead.id;
+            logger.info('retryCliqOnly: reusing existing lead from search', { zoho_lead_id: existingLead.id, development }, 'conversation-flows');
+        }
+    }
+
+    let owner_email: string | null = null;
+    if (zoho_lead_id) {
+        const fullLead = await getZohoLeadById(zoho_lead_id);
+        const owner = fullLead?.Owner;
+        owner_email = (owner as { email?: string })?.email ?? null;
+    }
+    const assigned_agent_email = getAssignedAgentEmail(owner_email, development);
+    const inviteEmails = buildCliqChannelInviteEmails(assigned_agent_email);
+    if (!phoneNumberId) {
+        return { success: false, error: 'No hay phone_number_id para este desarrollo' };
+    }
+    if (inviteEmails.length === 0) {
+        return { success: false, error: 'No hay emails válidos para invitar al canal Cliq (revisa CLIQ_ALWAYS_INVITE_EMAILS o asignación del lead)' };
+    }
+    try {
+        const firstName = userName ? String(userName).split(' ')[0] : 'Cliente';
+        const channelName = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+        const { channel_id, unique_name } = await createCliqChannel({
+            name: channelName,
+            level: 'organization',
+            email_ids: inviteEmails,
+        });
+        await upsertWhatsAppCliqThread({
+            user_phone: userPhone,
+            development,
+            phone_number_id: phoneNumberId,
+            zoho_lead_id: zoho_lead_id || undefined,
+            assigned_agent_email: assigned_agent_email ?? undefined,
+            cliq_channel_id: channel_id,
+            cliq_channel_unique_name: unique_name,
+            status: 'open',
+        });
+        const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
+            ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
+            : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
+        await postMessageToCliqViaWebhook({
+            channel_id,
+            channel_unique_name: unique_name,
+            development,
+            user_phone: userPhone,
+            user_name: userName || 'Cliente',
+            text: `Lead calificado desde WhatsApp (reintento Cliq). Acción preferida: visita/llamada.${crm_lead_url ? ` ${crm_lead_url}` : ''}`,
+            crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
+        });
+    } catch (cliErr) {
+        logger.error('retryCliqOnly: Cliq channel/thread/post failed', cliErr, { development }, 'conversation-flows');
+        return { success: false, error: cliErr instanceof Error ? cliErr.message : String(cliErr) };
+    }
+
+    await markQualified(userPhone, development, zoho_lead_id ?? undefined);
+    logger.info('retryCliqOnly ok', { userPhone: userPhone.substring(0, 6) + '***', development, zoho_lead_id }, 'conversation-flows');
+    return { success: true, zoho_lead_id: zoho_lead_id || undefined };
+}
+
+/**
+ * Reintenta el handover completo: crear/obtener lead en Zoho CRM y luego crear canal Cliq.
+ * Si el lead ya existe (duplicate), lo reutiliza y continúa con Cliq.
  * Solo aplica a conversaciones en estado CLIENT_ACCEPTA y calificadas.
  */
 export async function retryHandover(
@@ -695,10 +781,9 @@ export async function retryHandover(
     const userName = conversation.user_data?.name || conversation.user_data?.nombre;
     const userData = conversation.user_data || {};
     const datos = buildDatosFromUserData(userData);
-    const phoneNumberId = getPhoneNumberIdByDevelopment(development);
-
     let zoho_lead_id: string | null = null;
     let owner_email: string | null = null;
+
     try {
         const createResult = await createZohoLeadRecord({
             userPhone,
@@ -728,46 +813,8 @@ export async function retryHandover(
         }
     }
 
-    const assigned_agent_email = getAssignedAgentEmail(owner_email, development);
-    if (phoneNumberId && assigned_agent_email) {
-        try {
-            const firstName = userName ? String(userName).split(' ')[0] : 'Cliente';
-            const channelName = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
-            const { channel_id, unique_name } = await createCliqChannel({
-                name: channelName,
-                level: 'organization',
-                email_ids: buildCliqChannelInviteEmails(assigned_agent_email),
-            });
-            await upsertWhatsAppCliqThread({
-                user_phone: userPhone,
-                development,
-                phone_number_id: phoneNumberId,
-                zoho_lead_id: zoho_lead_id || undefined,
-                assigned_agent_email,
-                cliq_channel_id: channel_id,
-                cliq_channel_unique_name: unique_name,
-                status: 'open',
-            });
-            const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
-                ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
-                : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
-            await postMessageToCliqViaWebhook({
-                channel_id,
-                channel_unique_name: unique_name,
-                development,
-                user_phone: userPhone,
-                user_name: userName || 'Cliente',
-                text: `Lead calificado desde WhatsApp (reintento). Acción preferida: visita/llamada.${crm_lead_url ? ` ${crm_lead_url}` : ''}`,
-                crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
-            });
-        } catch (cliErr) {
-            logger.error('retryHandover: Cliq channel/thread/post failed', cliErr, { development }, 'conversation-flows');
-        }
-    }
-
-    await markQualified(userPhone, development, zoho_lead_id);
-    logger.info('retryHandover ok', { userPhone: userPhone.substring(0, 6) + '***', development, zoho_lead_id }, 'conversation-flows');
-    return { success: true, zoho_lead_id: zoho_lead_id || undefined };
+    await markQualified(userPhone, development, zoho_lead_id ?? undefined);
+    return retryCliqOnly(userPhone, development);
 }
 
 async function handleSalidaElegante(
