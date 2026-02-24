@@ -114,7 +114,12 @@ export interface CliqWebhookPayload {
 /**
  * Create a Cliq channel and optionally invite users by email.
  * POST /api/v2/channels
+ * Zoho Cliq only accepts valid email addresses in email_ids; invalid values cause 400 input_pattern_mismatch.
  */
+function isValidEmailForCliq(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
 export async function createCliqChannel(options: CreateCliqChannelOptions): Promise<CreateCliqChannelResult> {
   const { name, description, level = 'organization', email_ids } = options;
   const token = await getCliqAccessToken();
@@ -124,7 +129,8 @@ export async function createCliqChannel(options: CreateCliqChannelOptions): Prom
     level,
   };
   if (description) body.description = description;
-  if (email_ids && email_ids.length > 0) body.email_ids = email_ids;
+  const validEmails = email_ids && email_ids.length > 0 ? email_ids.filter(isValidEmailForCliq) : [];
+  if (validEmails.length > 0) body.email_ids = validEmails;
 
   const response = await fetchWithTimeout(
     `${ZOHO_CLIQ_API_URL}/channels`,

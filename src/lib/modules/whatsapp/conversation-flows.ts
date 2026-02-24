@@ -101,10 +101,16 @@ function getCliqAlwaysInviteEmails(): string[] {
     return raw.split(',').map((e) => e.trim()).filter((e) => e.length > 0);
 }
 
-/** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). */
+/** Comprueba que un string parezca un email válido (Cliq solo acepta emails en email_ids). */
+function isValidEmail(value: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
+/** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). Solo incluye emails válidos. */
 function buildCliqChannelInviteEmails(assignedAgentEmail: string): string[] {
     const always = getCliqAlwaysInviteEmails();
-    return Array.from(new Set([assignedAgentEmail, ...always])).filter(Boolean);
+    const combined = Array.from(new Set([assignedAgentEmail, ...always])).filter(Boolean);
+    return combined.filter((e) => isValidEmail(e));
 }
 
 // =====================================================
