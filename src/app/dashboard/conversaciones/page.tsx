@@ -37,35 +37,86 @@ function maskPhone(phone: string): string {
     return phone.substring(0, 4) + '***' + phone.slice(-3);
 }
 
+function RetryHandoverButton({
+    userPhone,
+    development,
+    onDone,
+    onError,
+}: {
+    userPhone: string;
+    development: string;
+    onDone: () => void;
+    onError: (message: string) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        setLoading(true);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch('/api/whatsapp/conversations/retry-handover', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ user_phone: userPhone, development }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                onError(data.error || 'Error al reintentar');
+                return;
+            }
+            onDone();
+        } catch {
+            onError('Error de red al reintentar');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+        >
+            {loading ? '...' : 'Reintentar handover'}
+        </button>
+    );
+}
+
 export default function ConversacionesPage() {
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [development, setDevelopment] = useState<string>('');
 
+    const fetchConversations = async () => {
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const params = new URLSearchParams({ limit: '100' });
+            if (development) params.set('development', development);
+            const res = await fetch(`/api/whatsapp/conversations?${params}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) throw new Error('Error al cargar conversaciones');
+            const data = await res.json();
+            setConversations(data.conversations || []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error desconocido');
+            setConversations([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-                const params = new URLSearchParams({ limit: '100' });
-                if (development) params.set('development', development);
-                const res = await fetch(`/api/whatsapp/conversations?${params}`, {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                });
-                if (!res.ok) throw new Error('Error al cargar conversaciones');
-                const data = await res.json();
-                setConversations(data.conversations || []);
-                setError(null);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Error desconocido');
-                setConversations([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-        const interval = setInterval(fetchData, 15000);
+        setLoading(true);
+        fetchConversations();
+        const interval = setInterval(fetchConversations, 15000);
         return () => clearInterval(interval);
     }, [development]);
 
@@ -117,6 +168,7 @@ export default function ConversacionesPage() {
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Lead Zoho</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Última interacción</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Datos (nombre / horario)</th>
+                                <th className="text-left py-2 px-3 font-medium text-gray-700">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -162,6 +214,18 @@ export default function ConversacionesPage() {
                                         {!c.user_data?.name && !c.user_data?.nombre && !c.user_data?.horario_preferido
                                             ? '-'
                                             : ''}
+                                    </td>
+                                    <td className="py-2 px-3">
+                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified && (c.zoho_lead_id === 'pending' || !c.zoho_lead_id) ? (
+                                            <RetryHandoverButton
+                                                userPhone={c.user_phone}
+                                                development={c.development}
+                                                onDone={fetchConversations}
+                                                onError={(msg) => setError(msg)}
+                                            />
+                                        ) : (
+                                            '-'
+                                        )}
                                     </td>
                                 </tr>
                             ))}
