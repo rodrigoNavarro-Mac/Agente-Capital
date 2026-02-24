@@ -159,6 +159,9 @@ export interface RecentConversationRow {
     user_data: UserData;
     created_at: Date;
     updated_at: Date;
+    /** Canal Cliq creado para esta conversación (si existe thread) */
+    cliq_channel_id?: string | null;
+    cliq_channel_unique_name?: string | null;
 }
 
 /**
@@ -170,14 +173,18 @@ export async function getRecentConversations(
 ): Promise<RecentConversationRow[]> {
     try {
         const sql = development
-            ? `SELECT id, user_phone, development, state, last_interaction, is_qualified, zoho_lead_id, user_data, created_at, updated_at
-               FROM whatsapp_conversations
-               WHERE development = $1
-               ORDER BY last_interaction DESC
+            ? `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
+                      t.cliq_channel_id, t.cliq_channel_unique_name
+               FROM whatsapp_conversations c
+               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
+               WHERE c.development = $1
+               ORDER BY c.last_interaction DESC
                LIMIT $2`
-            : `SELECT id, user_phone, development, state, last_interaction, is_qualified, zoho_lead_id, user_data, created_at, updated_at
-               FROM whatsapp_conversations
-               ORDER BY last_interaction DESC
+            : `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
+                      t.cliq_channel_id, t.cliq_channel_unique_name
+               FROM whatsapp_conversations c
+               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
+               ORDER BY c.last_interaction DESC
                LIMIT $1`;
         const result = await query<RecentConversationRow>(
             sql,

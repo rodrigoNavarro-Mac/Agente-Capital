@@ -30,6 +30,8 @@ interface ConversationRow {
     user_data: UserDataPreview;
     created_at: string;
     updated_at: string;
+    cliq_channel_id?: string | null;
+    cliq_channel_unique_name?: string | null;
 }
 
 function maskPhone(phone: string): string {
@@ -138,6 +140,9 @@ export default function ConversacionesPage() {
                 <p className="text-gray-600 text-sm mt-1">
                     Vista de estados por conversación para depuración. Se actualiza cada 15 s.
                 </p>
+                <p className="text-gray-500 text-xs mt-1">
+                    Cliq: el canal en Zoho Cliq se crea al calificar el lead. Para configurar el bot y probar comunicación bidireccional WA - Cliq, ve a <strong>Dashboard de WhatsApp</strong> (sección Bridge WhatsApp - Cliq).
+                </p>
             </div>
 
             <div className="flex gap-2 items-center">
@@ -166,6 +171,7 @@ export default function ConversacionesPage() {
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Estado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Calificado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Lead Zoho</th>
+                                <th className="text-left py-2 px-3 font-medium text-gray-700">Canal Cliq</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Última interacción</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Datos (nombre / horario)</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Acciones</th>
@@ -198,6 +204,17 @@ export default function ConversacionesPage() {
                                     </td>
                                     <td className="py-2 px-3 font-mono text-xs">
                                         {c.zoho_lead_id || '-'}
+                                    </td>
+                                    <td className="py-2 px-3 text-sm">
+                                        {c.cliq_channel_id ? (
+                                            <span className="text-green-700" title={c.cliq_channel_id}>
+                                                Creado{c.cliq_channel_unique_name ? ` (${c.cliq_channel_unique_name})` : ''}
+                                            </span>
+                                        ) : c.is_qualified ? (
+                                            <span className="text-amber-600">Sin canal</span>
+                                        ) : (
+                                            '-'
+                                        )}
                                     </td>
                                     <td className="py-2 px-3 text-gray-600">
                                         {c.last_interaction
