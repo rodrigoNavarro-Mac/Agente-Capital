@@ -142,6 +142,14 @@ export async function handleIncomingMessage(
             };
         }
 
+        // Si el primer mensaje ya expresa intención (invertir/comprar/info), responder a eso en vez de solo bienvenida
+        const firstMessageIntent = matchIntentByKeywords(messageText);
+        const firstIntent = firstMessageIntent ?? await classifyIntent(messageText);
+        if (firstIntent === 'comprar' || firstIntent === 'invertir' || firstIntent === 'solo_info') {
+            await updateState(userPhone, development, 'FILTRO_INTENCION');
+            return await processState('FILTRO_INTENCION', messageText, context, conversation.user_data || {});
+        }
+
         logger.info('New conversation created', { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-flows');
         return await handleInicio(development, userPhone);
     }

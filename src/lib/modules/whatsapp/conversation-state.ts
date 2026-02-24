@@ -72,9 +72,13 @@ export interface Conversation {
 
 /**
  * Inicializa la tabla whatsapp_conversations si no existe
- * Se ejecuta automáticamente al importar el módulo
+ * Se ejecuta automáticamente al importar el módulo (solo si hay URL de DB; en build suele no haber).
  */
 async function initConversationsTable(): Promise<void> {
+    const hasDb = (process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '').trim().length > 0;
+    if (!hasDb) {
+        return;
+    }
     try {
         await query(`
       CREATE TABLE IF NOT EXISTS whatsapp_conversations (
@@ -99,7 +103,14 @@ async function initConversationsTable(): Promise<void> {
 
         logger.debug('Conversations table initialized', {}, 'conversation-state');
     } catch (error) {
-        logger.error('Error initializing conversations table', error, {}, 'conversation-state');
+        const msg = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : '';
+        const isConnectionRefused = msg.includes('ECONNREFUSED') || stack.includes('ECONNREFUSED');
+        if (isConnectionRefused) {
+            logger.debug('DB not available during init (e.g. build time)', {}, 'conversation-state');
+        } else {
+            logger.error('Error initializing conversations table', error, {}, 'conversation-state');
+        }
     }
 }
 
