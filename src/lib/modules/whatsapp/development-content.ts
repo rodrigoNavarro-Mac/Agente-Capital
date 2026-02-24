@@ -31,10 +31,9 @@ const FUEGO_MESSAGES: DevelopmentMessages = {
 
 Soy el asistente oficial de *FUEGO*.
 
-FUEGO es un condominio privado de solo 63 lotes dentro de Terraquia, ubicado en 📍 Av. Huayacán, Cancún — la zona de mayor crecimiento.
+FUEGO es un condominio privado dentro de Terraquia, ubicado en 📍 Av. Huayacán, Cancún — la zona de mayor crecimiento.
 
 ✅ Entrega inmediata  
-✅ Desde 161 m²  
 ✅ Crédito bancario disponible  
 ✅ Plusvalía promedio 14% anual  
 
@@ -55,13 +54,13 @@ Aquí puedes comenzar tu proyecto desde el primer día.`,
 
 FUEGO está en Av. Huayacán, el corredor con mayor proyección en Cancún.
 
-📊 Zona proyectada a superar los $10,500/m² hacia 2028  
+📊 Zona con gran proyección de plusvalía  
 📈 Plusvalía sostenida  
 📍 Ubicación estratégica  
 
 Es una inversión sólida y con respaldo real.`,
 
-    CTA_AYUDA: `Para enviarte disponibilidad actual y opciones:
+    CTA_AYUDA: `Para orientarte mejor:
 
 ¿Prefieres agendar una visita al desarrollo 🏡 o una llamada breve con un asesor 📞?`,
 
@@ -81,7 +80,7 @@ Para enviarte la información correcta:
 
     HANDOVER_EXITOSO: `Gracias, {NOMBRE} 🙌🔥
 
-Te conecto ahora con un asesor especialista en FUEGO para revisar disponibilidad y siguientes pasos.
+Te conecto ahora con un asesor especialista en FUEGO para coordinar siguientes pasos.
 
 En breve continúa contigo.`,
 

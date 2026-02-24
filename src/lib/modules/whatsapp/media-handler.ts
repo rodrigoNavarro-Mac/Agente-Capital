@@ -32,7 +32,7 @@ export const DEVELOPMENT_BROCHURE_FILENAME: Record<string, string> = {
 export const DEVELOPMENT_MEDIA: Record<string, DevelopmentMedia> = {
     FUEGO: {
         heroImageUrl: 'https://via.placeholder.com/1200x800/1a472a/ffffff?text=FUEGO+Cancun',
-        brochureUrl: undefined, // Agregar URL pública del PDF cuando esté disponible
+        brochureUrl:"https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Presentacio%CC%81n%20FUEGO%20-%20FINAL25.pdf", // Agregar URL pública del PDF cuando esté disponible
         amenitiesImageUrl: undefined,
         locationImageUrl: undefined,
     },

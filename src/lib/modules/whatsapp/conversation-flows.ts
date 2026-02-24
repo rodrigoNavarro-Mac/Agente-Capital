@@ -22,6 +22,7 @@ import {
 import { matchIntentByKeywords, matchAffirmativeByKeywords, matchNegativeByKeywords } from './conversation-keywords';
 import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
+import { selectResponseAndState, getResponseText, type ResponseKey } from './response-selector';
 import { logger } from '@/lib/utils/logger';
 
 // Imports Legacy (reservados para uso futuro)
@@ -145,7 +146,8 @@ export async function handleIncomingMessage(
         // Si el primer mensaje ya expresa intención (invertir/comprar/info), responder a eso en vez de solo bienvenida
         const firstMessageIntent = matchIntentByKeywords(messageText);
         const firstIntent = firstMessageIntent ?? await classifyIntent(messageText);
-        if (firstIntent === 'comprar' || firstIntent === 'invertir' || firstIntent === 'solo_info') {
+        const firstIsAlta = firstIntent === 'comprar' || firstIntent === 'invertir' || firstIntent === 'mixto';
+        if (firstIsAlta || firstIntent === 'solo_info') {
             await updateState(userPhone, development, 'FILTRO_INTENCION');
             return await processState('FILTRO_INTENCION', messageText, context, conversation.user_data || {});
         }
@@ -168,6 +170,43 @@ export async function handleIncomingMessage(
     return await processState(conversation.state, messageText, context, conversation.user_data);
 }
 
+/**
+ * Construye la lista de mensajes salientes a partir de la selección del LLM (banco por desarrollo).
+ * Incluye hero image para BIENVENIDA y brochure + CTA para CONFIRMACION_* cuando aplique.
+ */
+function buildOutboundFromSelection(
+    development: string,
+    responseKey: ResponseKey,
+    _nextState: ConversationState,
+    userName?: string
+): OutboundMessage[] {
+    const messages = getMessagesForDevelopment(development);
+    const outbound: OutboundMessage[] = [];
+
+    const text = getResponseText(development, responseKey, userName);
+    outbound.push({ type: 'text', text });
+
+    if (responseKey === 'BIENVENIDA') {
+        const heroUrl = getHeroImage(development);
+        if (heroUrl) outbound.push({ type: 'image', imageUrl: heroUrl, caption: undefined });
+    }
+
+    if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
+        const brochureUrl = getBrochure(development);
+        if (brochureUrl) {
+            outbound.push({
+                type: 'document',
+                documentUrl: brochureUrl,
+                filename: getBrochureFilename(development),
+                caption: 'Aquí está la información del desarrollo.',
+            });
+        }
+        outbound.push({ type: 'text', text: messages.CTA_AYUDA });
+    }
+
+    return outbound;
+}
+
 async function processState(
     state: ConversationState,
     messageText: string,
@@ -177,6 +216,55 @@ async function processState(
     const { development, userPhone } = context;
 
     logger.info('Processing state', { state, development, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
+
+    // Opción: usar LLM para elegir respuesta del banco y siguiente estado (con contexto de mensajes si se agrega después)
+    const useLLMSelector = ['FILTRO_INTENCION', 'INFO_REINTENTO', 'CTA_PRIMARIO', 'SOLICITUD_NOMBRE'].includes(state);
+    if (useLLMSelector) {
+        try {
+            const selection = await selectResponseAndState({
+                development,
+                currentState: state,
+                userMessage: messageText,
+                userData: userData as Record<string, unknown>,
+            });
+            if (selection) {
+                const { responseKey, nextState } = selection;
+                await updateState(userPhone, development, nextState);
+                if (state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3 && nextState === 'CLIENT_ACCEPTA') {
+                    await mergeUserData(userPhone, development, { name: messageText.trim() });
+                }
+                const outboundMessages = buildOutboundFromSelection(
+                    development,
+                    responseKey,
+                    nextState,
+                    state === 'SOLICITUD_NOMBRE' ? messageText.trim() : userData?.nombre
+                );
+                if (responseKey === 'HANDOVER_EXITOSO' && nextState === 'CLIENT_ACCEPTA') {
+                    const effectiveUserData =
+                        state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3
+                            ? { ...userData, name: messageText.trim() }
+                            : userData;
+                    await createZohoLead(userPhone, development, effectiveUserData);
+                    await markQualified(userPhone, development, 'pending');
+                    await mergeUserData(userPhone, development, {
+                        lead_quality: 'ALTO',
+                        preferred_action: 'visita_o_llamada',
+                        qualified_at: new Date().toISOString(),
+                    });
+                }
+                if (responseKey === 'SALIDA_ELEGANTE') {
+                    await mergeUserData(userPhone, development, {
+                        lead_quality: 'BAJO',
+                        disqualified_reason: 'llm_selection',
+                    });
+                }
+                logger.info('Flow driven by LLM response selector', { responseKey, nextState }, 'conversation-flows');
+                return { outboundMessages, nextState };
+            }
+        } catch (err) {
+            logger.warn('LLM response selector failed, using keyword/FSM fallback', { err }, 'conversation-flows');
+        }
+    }
 
     switch (state) {
         case 'INICIO':
@@ -240,16 +328,21 @@ async function handleFiltroIntencion(
     if (intent === null) {
         intent = await classifyIntent(messageText);
     }
+    // Tratar "mixto" como alta intención (invertir o comprar)
+    const isAltaIntencion = intent === 'comprar' || intent === 'invertir' || intent === 'mixto' || text.includes('construir');
 
-    // 1. Invertir / Comprar -> ALTA INTENCIÓN (incluye muchas formas de decirlo)
-    if (intent === 'comprar' || intent === 'invertir' || text.includes('construir')) {
-        await mergeUserData(userPhone, development, { intencion: intent || 'comprar' });
+    console.log('[WhatsApp] handleFiltroIntencion', { intent, isAltaIntencion, messageLen: messageText.length }, 'messageText=', JSON.stringify(messageText.substring(0, 50)));
+
+    // 1. Invertir / Comprar / Mixto -> ALTA INTENCIÓN
+    if (isAltaIntencion) {
+        const effectiveIntent = intent === 'invertir' || intent === 'mixto' ? 'invertir' : (intent || 'comprar');
+        await mergeUserData(userPhone, development, { intencion: effectiveIntent });
         await updateState(userPhone, development, 'CTA_PRIMARIO');
 
         const outboundMessages: OutboundMessage[] = [
             {
                 type: 'text',
-                text: (intent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA
+                text: (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA
             },
         ];
 
@@ -315,7 +408,7 @@ async function handleInfoReintento(
 
     // Recuperado -> Puente a CTA (muchas formas de decir que sí)
     const textNorm = text.replace(/\s+/g, ' ');
-    const isAffirmativeIntent = intent === 'comprar' || intent === 'invertir' ||
+    const isAffirmativeIntent = intent === 'comprar' || intent === 'invertir' || intent === 'mixto' ||
         textNorm.includes('si') || textNorm.includes('sí') || textNorm.includes('claro') ||
         textNorm.includes('construir') || textNorm.includes('me interesa') || textNorm.includes('quiero');
 
