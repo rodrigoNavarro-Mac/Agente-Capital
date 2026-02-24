@@ -96,3 +96,15 @@ export function isConfigured(phoneNumberId: string): boolean {
 export function getConfiguredPhoneNumbers(): string[] {
     return Object.keys(CHANNEL_CONFIG);
 }
+
+/**
+ * Obtiene el primer phone_number_id asociado a un desarrollo (fallback cuando el thread no tiene phone_number_id)
+ * @param development - Nombre del desarrollo
+ * @returns phone_number_id o null si no hay mapeo
+ */
+export function getPhoneNumberIdByDevelopment(development: string): string | null {
+    const norm = (development || '').trim();
+    if (!norm) return null;
+    const entry = Object.entries(CHANNEL_CONFIG).find(([, dev]) => (dev || '').trim() === norm);
+    return entry ? entry[0] : null;
+}

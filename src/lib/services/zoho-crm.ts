@@ -93,6 +93,22 @@ export interface ZohoLeadsResponse {
   };
 }
 
+/** Params to create a lead via API (e.g. from WhatsApp handover) */
+export interface CreateZohoLeadParams {
+  userPhone: string;
+  development: string;
+  fullName?: string;
+  leadSource?: string;
+}
+
+/** Result of createZohoLeadRecord; owner_* from GET Lead after insert */
+export interface CreateZohoLeadResult {
+  zoho_lead_id: string;
+  owner_id?: string;
+  owner_name?: string;
+  owner_email?: string;
+}
+
 export interface ZohoDealsResponse {
   data: ZohoDeal[];
   info?: {
@@ -445,6 +461,93 @@ export async function getZohoLeads(page: number = 1, perPage: number = 200): Pro
     console.error('❌ Error obteniendo leads de ZOHO:', error);
     throw error;
   }
+}
+
+/**
+ * Obtiene un lead por ID (para leer Owner/email tras crear el lead)
+ * GET /Leads/{id}
+ */
+export async function getZohoLeadById(leadId: string): Promise<ZohoLead | null> {
+  const cleanId = (leadId || '').replace(/^zcrm_/, '').trim();
+  if (!cleanId) return null;
+  try {
+    const response = await zohoRequest<{ data: ZohoLead[] }>(
+      `/Leads/${cleanId}`,
+      {},
+      true
+    );
+    const lead = response?.data?.[0];
+    return lead || null;
+  } catch (error) {
+    logger.warn('getZohoLeadById failed', { leadId: cleanId, error: error instanceof Error ? error.message : String(error) }, 'zoho-crm');
+    return null;
+  }
+}
+
+/**
+ * Crea un lead en Zoho CRM (Insert Record) y devuelve id + Owner desde GET Lead.
+ * Last_Name es obligatorio; si solo hay fullName se parte o se usa "WhatsApp".
+ */
+export async function createZohoLeadRecord(params: CreateZohoLeadParams): Promise<CreateZohoLeadResult> {
+  const { userPhone, development, fullName, leadSource = 'WhatsApp' } = params;
+
+  let firstName: string | undefined;
+  let lastName: string;
+  if (fullName && fullName.trim().length > 0) {
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      firstName = parts[0];
+      lastName = parts.slice(1).join(' ');
+    } else {
+      firstName = fullName.trim();
+      lastName = 'WhatsApp';
+    }
+  } else {
+    lastName = 'WhatsApp';
+  }
+
+  const record: Record<string, unknown> = {
+    Last_Name: lastName,
+    Phone: userPhone,
+    Lead_Source: leadSource,
+  };
+  if (firstName) record.First_Name = firstName;
+  // Campo custom Desarrollo si existe en el modulo
+  if (development) record.Desarrollo = development;
+
+  const response = await zohoRequest<{
+    data: Array<{
+      code: string;
+      details: { id: string; Created_By?: { id: string; name: string; email?: string } };
+      message?: string;
+      status?: string;
+    }>;
+  }>('/Leads', {
+    method: 'POST',
+    body: JSON.stringify({ data: [record] }),
+  });
+
+  const first = response?.data?.[0];
+  if (!first || first.code !== 'SUCCESS' || !first.details?.id) {
+    const msg = (first as any)?.message || 'No id in response';
+    logger.error('createZohoLeadRecord failed', undefined, { response, params: { userPhone: userPhone.substring(0, 6) + '***', development } }, 'zoho-crm');
+    throw new Error(`Zoho CRM: ${msg}`);
+  }
+
+  const zoho_lead_id = first.details.id;
+
+  // GET Lead to obtain Owner (and email if available) for Cliq invite
+  const lead = await getZohoLeadById(zoho_lead_id);
+  const owner = lead?.Owner;
+  const result: CreateZohoLeadResult = {
+    zoho_lead_id,
+    owner_id: owner?.id,
+    owner_name: owner?.name,
+    owner_email: (owner as { email?: string })?.email,
+  };
+
+  logger.info('createZohoLeadRecord ok', { zoho_lead_id, owner_name: result.owner_name }, 'zoho-crm');
+  return result;
 }
 
 /**

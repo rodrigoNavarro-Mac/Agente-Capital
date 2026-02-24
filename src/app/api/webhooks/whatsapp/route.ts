@@ -21,6 +21,8 @@ import { handleIncomingMessage } from '@/lib/modules/whatsapp/conversation-flows
 import { getConversation } from '@/lib/modules/whatsapp/conversation-state';
 import { logger } from '@/lib/utils/logger';
 import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId } from '@/lib/db/postgres';
+import { getCliqThreadByUserAndDev } from '@/lib/db/whatsapp-cliq';
+import { postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 
 // =====================================================
 // CONFIGURACIÓN
@@ -299,6 +301,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             );
 
             messageSent = !!fallbackResult;
+        }
+
+        // WA -> Cliq: only when thread exists (lead already qualified), not during FSM
+        try {
+            const thread = await getCliqThreadByUserAndDev(userPhone, development);
+            if (thread?.cliq_channel_id && thread?.cliq_channel_unique_name) {
+                const conversation = await getConversation(userPhone, development);
+                const user_name = (conversation?.user_data as { name?: string } | undefined)?.name || 'Cliente';
+                const crm_lead_url = thread.zoho_lead_id && process.env.ZOHO_CRM_BASE_URL
+                    ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${thread.zoho_lead_id}`
+                    : undefined;
+                await postMessageToCliqViaWebhook({
+                    channel_id: thread.cliq_channel_id,
+                    channel_unique_name: thread.cliq_channel_unique_name,
+                    conversation_id: `wa:${userPhone}|${development}`,
+                    wa_message_id: incomingMessageId,
+                    development,
+                    user_phone: userPhone,
+                    user_name,
+                    text: message,
+                    crm_lead_url,
+                });
+            }
+        } catch (cliBridgeErr) {
+            logger.error('WA->Cliq bridge failed (continuing)', cliBridgeErr, { userPhone: userPhone.substring(0, 6) + '***', development }, 'whatsapp-webhook');
         }
 
         const processingTime = Date.now() - startTime;

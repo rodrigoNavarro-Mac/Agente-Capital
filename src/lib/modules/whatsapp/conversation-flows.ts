@@ -24,6 +24,9 @@ import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
 import { selectResponseAndState, getResponseText, type ResponseKey } from './response-selector';
 import { logger } from '@/lib/utils/logger';
+import { createZohoLeadRecord } from '@/lib/services/zoho-crm';
+import { createCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
+import { upsertWhatsAppCliqThread } from '@/lib/db/whatsapp-cliq';
 
 // Imports Legacy (reservados para uso futuro)
 // import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
@@ -77,10 +80,17 @@ function isBusinessHours(): boolean {
     return false;
 }
 
-// Stub para crear lead en Zoho
-async function createZohoLead(userPhone: string, development: string, userData: UserData): Promise<string | null> {
-    logger.info('Creating Zoho Lead stub', { userPhone, development, userData }, 'zoho-integration');
-    return `stub_lead_${Date.now()}`;
+/** Resolves assigned agent email for Cliq invite: from Zoho Owner or env fallback by development */
+function getAssignedAgentEmail(ownerEmail?: string | null, development?: string): string | null {
+    if (ownerEmail && ownerEmail.trim()) return ownerEmail.trim();
+    try {
+        const raw = process.env.CLIQ_AGENT_BY_DEVELOPMENT;
+        if (!raw) return null;
+        const map = JSON.parse(raw) as Record<string, string>;
+        return map[development || ''] || null;
+    } catch {
+        return null;
+    }
 }
 
 // =====================================================
@@ -229,6 +239,22 @@ async function processState(
             });
             if (selection) {
                 const { responseKey, nextState } = selection;
+                if (responseKey === 'HANDOVER_EXITOSO' && nextState === 'CLIENT_ACCEPTA') {
+                    const userName =
+                        state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3
+                            ? messageText.trim()
+                            : userData?.nombre;
+                    if (state === 'SOLICITUD_NOMBRE' && userName) {
+                        await mergeUserData(userPhone, development, { name: userName });
+                    }
+                    return await handleClientAccepta(
+                        development,
+                        userPhone,
+                        'llm_handover',
+                        userName,
+                        context.phoneNumberId
+                    );
+                }
                 await updateState(userPhone, development, nextState);
                 if (state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3 && nextState === 'CLIENT_ACCEPTA') {
                     await mergeUserData(userPhone, development, { name: messageText.trim() });
@@ -239,19 +265,6 @@ async function processState(
                     nextState,
                     state === 'SOLICITUD_NOMBRE' ? messageText.trim() : userData?.nombre
                 );
-                if (responseKey === 'HANDOVER_EXITOSO' && nextState === 'CLIENT_ACCEPTA') {
-                    const effectiveUserData =
-                        state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3
-                            ? { ...userData, name: messageText.trim() }
-                            : userData;
-                    await createZohoLead(userPhone, development, effectiveUserData);
-                    await markQualified(userPhone, development, 'pending');
-                    await mergeUserData(userPhone, development, {
-                        lead_quality: 'ALTO',
-                        preferred_action: 'visita_o_llamada',
-                        qualified_at: new Date().toISOString(),
-                    });
-                }
                 if (responseKey === 'SALIDA_ELEGANTE') {
                     await mergeUserData(userPhone, development, {
                         lead_quality: 'BAJO',
@@ -280,7 +293,7 @@ async function processState(
             return await handleCtaPrimario(messageText, development, userPhone);
 
         case 'SOLICITUD_NOMBRE':
-            return await handleSolicitudNombre(messageText, development, userPhone, userData);
+            return await handleSolicitudNombre(messageText, development, userPhone, userData, context.phoneNumberId);
 
         // Legacy redirige a Inicio
         default:
@@ -473,7 +486,8 @@ async function handleSolicitudNombre(
     messageText: string,
     development: string,
     userPhone: string,
-    _userData: UserData
+    _userData: UserData,
+    phoneNumberId?: string
 ): Promise<FlowResult> {
     const name = messageText.trim();
 
@@ -488,41 +502,90 @@ async function handleSolicitudNombre(
     // Guardar nombre
     await mergeUserData(userPhone, development, { name: name });
 
-    // HANDOVER FINAL
-    return await handleClientAccepta(development, userPhone, 'nombre_proporcionado', name);
+    // HANDOVER FINAL (CRM + Cliq + markQualified)
+    return await handleClientAccepta(development, userPhone, 'nombre_proporcionado', name, phoneNumberId);
 }
 
 async function handleClientAccepta(
     development: string,
     userPhone: string,
     triggerText: string,
-    userName?: string
+    userName?: string,
+    phoneNumberId?: string
 ): Promise<FlowResult> {
     const messages = getMessagesForDevelopment(development);
 
-    // 1. Crear Lead
-    const zohoId = await createZohoLead(userPhone, development, { preferred_action: 'visita', name: userName });
+    // 1. Create lead in Zoho CRM (includes GET Lead for Owner/email)
+    let zoho_lead_id: string | null = null;
+    let owner_email: string | null = null;
+    try {
+        const createResult = await createZohoLeadRecord({
+            userPhone,
+            development,
+            fullName: userName,
+            leadSource: 'WhatsApp',
+        });
+        zoho_lead_id = createResult.zoho_lead_id;
+        owner_email = createResult.owner_email || null;
+    } catch (err) {
+        logger.error('createZohoLeadRecord failed in handleClientAccepta', err, { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+    }
 
-    // 2. Marcar Calificado
-    await markQualified(userPhone, development, zohoId || 'pending');
+    // 2. Assigned agent: from Zoho Owner or env CLIQ_AGENT_BY_DEVELOPMENT
+    const assigned_agent_email = getAssignedAgentEmail(owner_email, development);
 
-    // 3. Guardar datos
+    // 3. Cliq channel + thread only if we have phone_number_id and Cliq is configured
+    if (phoneNumberId && assigned_agent_email) {
+        try {
+            const firstName = userName ? userName.split(' ')[0] : 'Cliente';
+            const channelName = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+            const { channel_id, unique_name } = await createCliqChannel({
+                name: channelName,
+                level: 'organization',
+                email_ids: [assigned_agent_email],
+            });
+            await upsertWhatsAppCliqThread({
+                user_phone: userPhone,
+                development,
+                phone_number_id: phoneNumberId,
+                zoho_lead_id: zoho_lead_id || undefined,
+                assigned_agent_email,
+                cliq_channel_id: channel_id,
+                cliq_channel_unique_name: unique_name,
+                status: 'open',
+            });
+            const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
+                ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
+                : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
+            await postMessageToCliqViaWebhook({
+                channel_id,
+                channel_unique_name: unique_name,
+                development,
+                user_phone: userPhone,
+                user_name: userName || 'Cliente',
+                text: `Lead calificado desde WhatsApp. Acción preferida: visita/llamada.${crm_lead_url ? ` ${crm_lead_url}` : ''}`,
+                crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
+            });
+        } catch (cliErr) {
+            logger.error('Cliq channel/thread/post failed in handleClientAccepta', cliErr, { development }, 'conversation-flows');
+        }
+    }
+
+    // 4. Mark qualified and persist
+    await markQualified(userPhone, development, zoho_lead_id || 'pending');
     await mergeUserData(userPhone, development, {
         lead_quality: 'ALTO',
         preferred_action: 'visita_o_llamada',
         trigger_text: triggerText,
-        qualified_at: new Date().toISOString()
+        qualified_at: new Date().toISOString(),
+        ...(assigned_agent_email ? { assigned_owner_email: assigned_agent_email } : {}),
     });
-
-    // 4. Finalizar
     await updateState(userPhone, development, 'CLIENT_ACCEPTA');
 
-    // Personalizar mensaje con nombre (según desarrollo)
+    // 5. Final message to user
     let mensajeFinal = messages.HANDOVER_EXITOSO;
     if (userName) {
-        // Extraer primer nombre
         const firstName = userName.split(' ')[0];
-        // Capitalizar primera letra
         const prettyName = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
         mensajeFinal = mensajeFinal.replace('{NOMBRE}', prettyName);
     } else {
@@ -532,7 +595,7 @@ async function handleClientAccepta(
     return {
         outboundMessages: [{ type: 'text', text: mensajeFinal }],
         nextState: 'CLIENT_ACCEPTA',
-        shouldCreateLead: true
+        shouldCreateLead: true,
     };
 }
 

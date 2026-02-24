@@ -6,7 +6,9 @@ Esta guía explica cómo configurar la integración con ZOHO CRM para que funcio
 
 **La integración con ZOHO CRM NO funciona en local** debido a las limitaciones de autenticación de ZOHO. Solo funcionará cuando la aplicación esté desplegada en producción.
 
-**💡 No necesitas crear ninguna ruta `/oauth/callback` en tu aplicación**: Para obtener el Refresh Token, puedes usar `https://accounts.zoho.com/oauth/v2/auth` como redirect URI, que es el que Zoho acepta por defecto. Una vez que tengas el Refresh Token, tu aplicación usará ese token directamente sin necesidad de un callback.
+**Opcion con callback en tu app**: La aplicacion incluye la ruta `/oauth/callback`. Si configuras en Zoho el Redirect URI `https://agente-capital.vercel.app/oauth/callback`, tras autorizar te redirigira a esa pagina y podras copiar el Refresh Token directamente. Configura tambien `ZOHO_REDIRECT_URI=https://agente-capital.vercel.app/oauth/callback` en Vercel.
+
+**Alternativa**: Puedes usar `https://accounts.zoho.com/oauth/v2/auth` como redirect URI (sin crear ruta en tu app) y obtener el codigo manualmente para intercambiarlo por el Refresh Token.
 
 ## 📋 Requisitos Previos
 
@@ -26,8 +28,8 @@ Esta guía explica cómo configurar la integración con ZOHO CRM para que funcio
    - **Client Name**: Nombre de tu aplicación (ej: "Capital Plus AI Agent")
    - **Homepage URL**: URL de tu aplicación en producción (ej: `https://agente-capital.vercel.app`)
    - **Authorized Redirect URIs**: 
-     - `https://accounts.zoho.com/oauth/v2/auth` ⭐ **USA ESTE** (no necesitas crear ninguna ruta en tu app)
-     - (Opcional) `https://agente-capital.vercel.app/oauth/callback` (solo si planeas crear esa ruta después)
+     - `https://accounts.zoho.com/oauth/v2/auth` (obtener codigo manualmente)
+     - `https://agente-capital.vercel.app/oauth/callback` (la app ya tiene esta ruta; tras autorizar veras el Refresh Token en la pagina)
    - **Scopes**: Selecciona los siguientes:
      - `ZohoCRM.modules.ALL`
      - `ZohoCRM.settings.ALL`

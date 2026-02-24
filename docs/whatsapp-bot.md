@@ -16,9 +16,10 @@ Documentación extensa y detallada del flujo, arquitectura y comportamiento del 
 8. [Contenido y medios por desarrollo](#8-contenido-y-medios-por-desarrollo)
 9. [Envío de mensajes (salida)](#9-envío-de-mensajes-salida)
 10. [Variables de entorno y configuración](#10-variables-de-entorno-y-configuración)
-11. [Limitaciones actuales y extensiones futuras](#11-limitaciones-actuales-y-extensiones-futuras)
-12. [Despliegue en Vercel (serverless)](#12-despliegue-en-vercel-serverless)
-13. [Solución de problemas](#13-solución-de-problemas)
+11. [Bridge WhatsApp-Cliq (Zoho Cliq)](#11-bridge-whatsapp-cliq-zoho-cliq)
+12. [Limitaciones actuales y extensiones futuras](#12-limitaciones-actuales-y-extensiones-futuras)
+13. [Despliegue en Vercel (serverless)](#13-despliegue-en-vercel-serverless)
+14. [Solución de problemas](#14-solución-de-problemas)
 
 ---
 
@@ -361,7 +362,92 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 
 ---
 
-## 11. Limitaciones actuales y extensiones futuras
+## 11. Bridge WhatsApp-Cliq (Zoho Cliq)
+
+Cuando un lead se califica (usuario acepta handover y da su nombre), el backend crea un lead real en Zoho CRM, un canal en Zoho Cliq por lead y un bridge: los mensajes entrantes de WhatsApp se reenvían al canal Cliq y las respuestas del asesor en Cliq se reenvían a WhatsApp.
+
+### Variables de entorno (Cliq y bridge)
+
+- **ZOHO_CLIQ_CLIENT_ID**, **ZOHO_CLIQ_CLIENT_SECRET**, **ZOHO_CLIQ_REFRESH_TOKEN**: OAuth2 para Zoho Cliq API v2 (crear canales, invitar por email). Si usas la misma cuenta que CRM, **ZOHO_CLIQ_ACCOUNTS_URL** puede omitirse (se usa **ZOHO_ACCOUNTS_URL**).
+- **ZOHO_CLIQ_API_URL**: base de la API Cliq (por defecto `https://cliq.zoho.com/api/v2`).
+- **CLIQ_BRIDGE_SECRET**: secreto compartido para validar peticiones entre backend y Deluge (header `X-Bridge-Token` o query/body `secret`).
+- **CLIQ_BOT_INCOMING_WEBHOOK_URL**: URL del Incoming Webhook del bot en Cliq (Deluge recibe aquí el payload del backend y publica en el canal).
+- **CLIQ_AGENT_BY_DEVELOPMENT**: (opcional) JSON con mapeo desarrollo -> email del asesor, ej. `{"FUEGO":"asesor@empresa.com"}`. Se usa si Zoho no devuelve Owner/email en el GET Lead.
+- **ZOHO_CRM_BASE_URL**: (opcional) URL base del CRM para enlazar el lead en mensajes a Cliq, ej. `https://crm.zoho.com/crm/org123456`.
+
+### Contrato Backend -> Cliq (Incoming Webhook Deluge)
+
+El backend envía POST a **CLIQ_BOT_INCOMING_WEBHOOK_URL** con:
+
+- **Headers:** `Content-Type: application/json`, `X-Bridge-Token: <CLIQ_BRIDGE_SECRET>`.
+- **Body JSON:**
+  - `channel_id`, `channel_unique_name`: identificadores del canal (Deluge usa `channel_unique_name` para `zoho.cliq.postToChannel`).
+  - `conversation_id`, `wa_message_id`, `development`, `user_phone`, `user_name`, `text`, `crm_lead_url`.
+
+Ejemplo de cuerpo:
+
+```json
+{
+  "channel_id": "T4000000040005",
+  "channel_unique_name": "wa_fuego_123",
+  "conversation_id": "wa:+521234567890|FUEGO",
+  "wa_message_id": "wamid.xxx",
+  "development": "FUEGO",
+  "user_phone": "+521234567890",
+  "user_name": "Juan Perez",
+  "text": "Hola, quiero invertir",
+  "crm_lead_url": "https://crm.zoho.com/crm/orgXXX/tab/Leads/123..."
+}
+```
+
+El handler Deluge debe validar `X-Bridge-Token` (o `body.secret` si no puede leer headers), formatear el texto con prefijo `[WA-IN]` y publicar en el canal con `zoho.cliq.postToChannel(channel_unique_name, formatted_text)`.
+
+Ejemplo de lógica Deluge (Incoming Webhook Handler):
+
+```
+// 1. Validar token (si Deluge no expone headers, usar body.secret)
+token = body.get("secret")  // o leer header X-Bridge-Token si está disponible
+if token != CLIQ_BRIDGE_SECRET then
+  return { "ok": false, "reason": "invalid_token" }
+
+// 2. Extraer campos
+channel_id = body.get("channel_id")
+channel_unique_name = body.get("channel_unique_name")
+user_name = body.get("user_name", "Cliente")
+user_phone = body.get("user_phone", "")
+text = body.get("text", "")
+development = body.get("development", "")
+crm_lead_url = body.get("crm_lead_url", "")
+
+// 3. Formatear mensaje para el canal
+formatted = "[WA-IN] " + user_name + " (" + user_phone + ")\n" + text + "\nDEV:" + development + "\nCRM:" + crm_lead_url
+
+// 4. Publicar en el canal (por unique_name)
+zoho.cliq.postToChannel(channel_unique_name, formatted)
+
+return { "ok": true, "channel_id": channel_id, "wa_message_id": body.get("wa_message_id", "") }
+```
+
+### Cliq -> WhatsApp (Outgoing Webhook)
+
+- **POST** `.../api/webhooks/cliq`: recibe el payload del Channel Outgoing Webhook de Cliq.
+- Validación: header `X-Bridge-Token` o query `secret` o body `secret` igual a **CLIQ_BRIDGE_SECRET**.
+- Body esperado: `channel_id`, `message` (o `text`), `sender` (opcional). Se ignora si el mensaje contiene `[WA-IN]` (anti-loop).
+- El backend busca el thread por `cliq_channel_id`, obtiene `phone_number_id` y `user_phone`, y envía el mensaje por WhatsApp.
+
+### Configuración Zoho Cliq (paso a paso)
+
+1. **Crear Bot**: Admin -> Bots -> Add Bot; activar **Incoming Webhook Handler** y copiar la URL del webhook -> **CLIQ_BOT_INCOMING_WEBHOOK_URL**.
+2. **OAuth Cliq API v2**: en Zoho API Console registrar cliente con scopes `ZohoCliq.Channels.CREATE`, `ZohoCliq.Channels.READ`; obtener refresh token y configurar **ZOHO_CLIQ_CLIENT_ID**, **ZOHO_CLIQ_CLIENT_SECRET**, **ZOHO_CLIQ_REFRESH_TOKEN**.
+3. **Channel Outgoing Webhook**: en el canal (o global) configurar un Outgoing Webhook que apunte a `https://<tu-dominio>/api/webhooks/cliq`. Si Cliq no permite headers personalizados, usar query `?secret=<CLIQ_BRIDGE_SECRET>` y validar en el backend.
+
+### Tabla whatsapp_cliq_threads (migración 039)
+
+Almacena el mapeo (user_phone, development) -> canal Cliq y `phone_number_id` para ruteo Cliq -> WA: `id`, `user_phone`, `development`, `phone_number_id`, `zoho_lead_id`, `assigned_agent_email`, `cliq_channel_id`, `cliq_channel_unique_name`, `status`, `created_at`, `updated_at`. Índice único (user_phone, development) e índice por cliq_channel_id.
+
+---
+
+## 12. Limitaciones actuales y extensiones futuras
 
 ### Limitaciones
 
@@ -369,14 +455,14 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 - **Un solo mensaje por webhook**: si el payload trae varios mensajes de texto, solo se procesa el primero.
 - **Deduplicación en memoria**: `webhook-handler` tiene un Set de IDs de mensajes procesados con límite de tamaño; no hay deduplicación persistente (p. ej. Redis), por lo que en reinicios o múltiples instancias podría procesarse dos veces el mismo mensaje.
 - **Log de respuesta**: solo se persiste el primer mensaje de la respuesta en saveWhatsAppLog.
-- **Zoho**: createZohoLead es un stub; no hay integración real con Zoho CRM.
+- **Zoho**: createZohoLead está implementado (createZohoLeadRecord + GET Lead); el bridge con Cliq requiere configurar Cliq (bot, OAuth, webhooks) y las variables de entorno correspondientes.
 - **Horario laboral**: isBusinessHours() está desactivado (siempre false).
 - **Estados legacy**: existen en el tipo y en la tabla pero no tienen handlers (redirigen a inicio).
 
 ### Posibles extensiones
 
 - Soportar mensajes entrantes de tipo imagen/audio (transcripción o análisis) y reutilizar el mismo flujo.
-- Integración real con Zoho (o otro CRM) en handleClientAccepta.
+- Bridge opcional con Zoho Cliq (canal por lead, mensajes WA <-> Cliq) ya implementado; ver sección 11.
 - Activar y afinar horario laboral (mensaje fuera de horario, posible handover diferido).
 - Deduplicación por message_id en base de datos o Redis.
 - Guardar en log todos los mensajes enviados en una misma respuesta.
@@ -385,7 +471,7 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 
 ---
 
-## 12. Despliegue en Vercel (serverless)
+## 13. Despliegue en Vercel (serverless)
 
 **¿Es correcto tener el bot en Vercel en serverless?** Sí, es una opción válida y el bot está preparado para ello (webhook sin rate limit, token y `phone_number_id` validados, timeouts y manejo de errores). Para que **conteste de forma consistente** conviene tener en cuenta lo siguiente.
 
@@ -415,7 +501,7 @@ Sí es correcto tener el bot en Vercel en serverless. Para que **conteste correc
 
 ---
 
-## 13. Solución de problemas
+## 14. Solución de problemas
 
 ### URL del webhook: qué poner en Meta y cómo comprobarla
 
