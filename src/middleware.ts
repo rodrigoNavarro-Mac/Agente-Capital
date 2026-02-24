@@ -36,8 +36,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Webhook de WhatsApp: no aplicar rate limit (Meta envía muchos eventos desde la misma IP)
+  // Webhooks externos: no aplicar rate limit ni auth (validan con su propio token/secret)
   if (pathname.startsWith('/api/webhooks/whatsapp')) {
+    return NextResponse.next();
+  }
+  if (pathname.startsWith('/api/webhooks/cliq')) {
     return NextResponse.next();
   }
 
@@ -56,6 +59,7 @@ export async function middleware(request: NextRequest) {
     '/api/auth/login',
     '/api/auth/refresh',
     '/api/webhooks/whatsapp',  // Webhook de WhatsApp (verifica con hub.verify_token)
+    '/api/webhooks/cliq',      // Webhook Cliq -> WA (verifica con CLIQ_BRIDGE_SECRET)
   ];
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 

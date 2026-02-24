@@ -35,9 +35,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         const secret = getSecretFromRequest(request, body);
-        if (!CLIQ_BRIDGE_SECRET || secret !== CLIQ_BRIDGE_SECRET) {
-            logger.warn('Cliq webhook: invalid or missing secret', {}, 'webhooks-cliq');
-            return NextResponse.json({ ok: false, reason: 'unauthorized' }, { status: 200 });
+        if (CLIQ_BRIDGE_SECRET) {
+            if (secret !== CLIQ_BRIDGE_SECRET) {
+                logger.warn('Cliq webhook: invalid or missing secret', {}, 'webhooks-cliq');
+                return NextResponse.json({ ok: false, reason: 'unauthorized' }, { status: 200 });
+            }
+        } else {
+            logger.warn('Cliq webhook: CLIQ_BRIDGE_SECRET not set, accepting all requests (solo para pruebas)', {}, 'webhooks-cliq');
         }
 
         const channel_id = typeof body.channel_id === 'string' ? body.channel_id.trim() : '';

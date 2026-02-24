@@ -84,3 +84,46 @@ return response;
 3. Reinicia o redespliega el backend para que cargue la variable.
 
 Guardar el handler en Cliq y listo.
+
+---
+
+## Donde probar (con el backend ya conectado)
+
+**Requisito:** En tu `.env` (o en el entorno donde corre el backend) debe estar la URL del bot de Cliq:
+- `CLIQ_BOT_INCOMING_WEBHOOK_URL=https://...` (la URL que te da Cliq en el Incoming Webhook del WA|BOT).
+
+Opcional para que se invite un asesor al canal: `CLIQ_AGENT_BY_DEVELOPMENT={"FUEGO":"email@ejemplo.com"}`.
+
+### 1. Crear lead + canal (WhatsApp)
+
+1. Desde el numero de WhatsApp que tengas vinculado al `phone_number_id` de tu desarrollo (ej. FUEGO), escribe al bot.
+2. Sigue el flujo: responde que quieres comprar/invertir, acepta visita o llamada, y cuando pida el nombre escribe uno de al menos 3 letras (ej. "Juan").
+3. El backend crea el lead en Zoho CRM, el canal en Cliq y el mensaje inicial en el canal.
+4. Donde ver:
+   - **Zoho CRM:** nuevo lead con telefono, nombre, Lead_Source WhatsApp.
+   - **Zoho Cliq:** nuevo canal tipo "WA | FUEGO | Juan | +52...", con el mensaje inicial del lead.
+
+### 2. WA hacia Cliq (mensajes del cliente)
+
+1. Con el mismo chat de WhatsApp (ya calificado), envia otro mensaje (ej. "Hola, cuando me contactan?").
+2. Donde ver: en el **canal de Cliq** de ese lead debe aparecer un mensaje con prefijo `[WA-IN]`, nombre, telefono y el texto.
+
+### 3. Cliq hacia WA (respuesta del asesor)
+
+1. En Cliq, configura el **Channel Outgoing Webhook** del canal (o uno global) apuntando a:
+   `https://TU_DOMINIO/api/webhooks/cliq`
+   (reemplaza TU_DOMINIO por tu dominio de producción, ej. `tu-app.vercel.app`).
+2. Escribe un mensaje en ese canal (como usuario, no como bot).
+3. Donde ver: en **WhatsApp** le debe llegar ese mensaje al numero del cliente.
+
+### 4. Probar solo el Incoming Webhook (sin pasar por WhatsApp)
+
+Desde tu maquina, con la URL del bot y un canal que ya exista (necesitas el `channel_unique_name` del canal):
+
+```bash
+curl -X POST "TU_CLIQ_BOT_INCOMING_WEBHOOK_URL" \
+  -H "Content-Type: application/json" \
+  -d "{\"channel_id\":\"T123\",\"channel_unique_name\":\"NOMBRE_UNICO_DEL_CANAL\",\"development\":\"FUEGO\",\"user_phone\":\"+521234567890\",\"user_name\":\"Prueba\",\"text\":\"Mensaje de prueba\",\"crm_lead_url\":\"\"}"
+```
+
+Si el mensaje aparece en ese canal con formato `[WA-IN] Prueba (+521234567890)...`, el handler y la URL estan bien.
