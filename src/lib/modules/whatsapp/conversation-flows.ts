@@ -782,7 +782,6 @@ export async function retryHandover(
     const userData = conversation.user_data || {};
     const datos = buildDatosFromUserData(userData);
     let zoho_lead_id: string | null = null;
-    let owner_email: string | null = null;
 
     try {
         const createResult = await createZohoLeadRecord({
@@ -793,7 +792,6 @@ export async function retryHandover(
             datos,
         });
         zoho_lead_id = createResult.zoho_lead_id;
-        owner_email = createResult.owner_email || null;
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         const isDuplicate = /duplicate|duplicat/i.test(errMsg);
@@ -801,9 +799,6 @@ export async function retryHandover(
             const existingLead = await searchZohoLeadsByPhone(userPhone);
             if (existingLead?.id) {
                 zoho_lead_id = existingLead.id;
-                const fullLead = await getZohoLeadById(existingLead.id);
-                const owner = fullLead?.Owner ?? existingLead?.Owner;
-                owner_email = (owner as { email?: string })?.email ?? null;
                 logger.info('retryHandover: duplicate lead, reusing existing', { zoho_lead_id: existingLead.id, development }, 'conversation-flows');
             }
         }
