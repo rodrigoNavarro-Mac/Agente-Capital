@@ -32,6 +32,7 @@ interface ConversationRow {
     updated_at: string;
     cliq_channel_id?: string | null;
     cliq_channel_unique_name?: string | null;
+    assigned_agent_email?: string | null;
 }
 
 function maskPhone(phone: string): string {
@@ -172,6 +173,7 @@ export default function ConversacionesPage() {
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Calificado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Lead Zoho</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Canal Cliq</th>
+                                <th className="text-left py-2 px-3 font-medium text-gray-700">Asignado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Última interacción</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Datos (nombre / horario)</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Acciones</th>
@@ -216,6 +218,9 @@ export default function ConversacionesPage() {
                                             '-'
                                         )}
                                     </td>
+                                    <td className="py-2 px-3 text-gray-600 text-xs max-w-[180px] truncate" title={c.assigned_agent_email || ''}>
+                                        {c.assigned_agent_email || '-'}
+                                    </td>
                                     <td className="py-2 px-3 text-gray-600">
                                         {c.last_interaction
                                             ? format(new Date(c.last_interaction), 'dd/MM/yy HH:mm', { locale: es })
@@ -233,7 +238,7 @@ export default function ConversacionesPage() {
                                             : ''}
                                     </td>
                                     <td className="py-2 px-3">
-                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified && (c.zoho_lead_id === 'pending' || !c.zoho_lead_id) ? (
+                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified && (!c.cliq_channel_id || c.zoho_lead_id === 'pending' || !c.zoho_lead_id) ? (
                                             <RetryHandoverButton
                                                 userPhone={c.user_phone}
                                                 development={c.development}

@@ -162,6 +162,8 @@ export interface RecentConversationRow {
     /** Canal Cliq creado para esta conversación (si existe thread) */
     cliq_channel_id?: string | null;
     cliq_channel_unique_name?: string | null;
+    /** Email del asesor asignado (desde thread o Zoho Owner) */
+    assigned_agent_email?: string | null;
 }
 
 /**
@@ -174,14 +176,14 @@ export async function getRecentConversations(
     try {
         const sql = development
             ? `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
-                      t.cliq_channel_id, t.cliq_channel_unique_name
+                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email
                FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
                WHERE c.development = $1
                ORDER BY c.last_interaction DESC
                LIMIT $2`
             : `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
-                      t.cliq_channel_id, t.cliq_channel_unique_name
+                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email
                FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
                ORDER BY c.last_interaction DESC
