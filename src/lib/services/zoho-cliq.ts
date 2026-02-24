@@ -147,7 +147,7 @@ export async function createCliqChannel(options: CreateCliqChannelOptions): Prom
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    logger.error('createCliqChannel failed', undefined, { status: response.status, data }, 'zoho-cliq');
+    logger.error('createCliqChannel failed', undefined, { status: response.status, data, bodySent: body }, 'zoho-cliq');
     throw new Error(`Zoho Cliq createChannel: ${response.status} - ${JSON.stringify(data)}`);
   }
 

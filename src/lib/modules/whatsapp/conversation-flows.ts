@@ -106,6 +106,13 @@ function isValidEmail(value: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
 }
 
+/** Builds a unique channel name to avoid Cliq 400 operation_failed (duplicate name). */
+function buildUniqueCliqChannelName(development: string, firstName: string, userPhone: string): string {
+    const base = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+    const suffix = Date.now().toString(36);
+    return `${base}_${suffix}`;
+}
+
 /** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). Solo incluye emails válidos. */
 function buildCliqChannelInviteEmails(assignedAgentEmail: string | null): string[] {
     const always = getCliqAlwaysInviteEmails();
@@ -614,7 +621,7 @@ async function handleClientAccepta(
     if (phoneNumberId && assigned_agent_email) {
         try {
             const firstName = userName ? userName.split(' ')[0] : 'Cliente';
-            const channelName = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+            const channelName = buildUniqueCliqChannelName(development, firstName, userPhone);
             const { channel_id, unique_name } = await createCliqChannel({
                 name: channelName,
                 level: 'organization',
@@ -723,7 +730,7 @@ export async function retryCliqOnly(
     }
     try {
         const firstName = userName ? String(userName).split(' ')[0] : 'Cliente';
-        const channelName = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+        const channelName = buildUniqueCliqChannelName(development, firstName, userPhone);
         const { channel_id, unique_name } = await createCliqChannel({
             name: channelName,
             level: 'organization',
