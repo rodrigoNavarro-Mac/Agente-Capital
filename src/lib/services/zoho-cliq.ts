@@ -12,12 +12,14 @@ import { fetchWithTimeout, TIMEOUTS } from '@/lib/utils/timeout';
 // =====================================================
 // CONFIG
 // =====================================================
+// Cliq puede usar las mismas credenciales OAuth que CRM (mismo .env).
+// Si no existen ZOHO_CLIQ_*, se usan ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ACCOUNTS_URL.
 
 const ZOHO_CLIQ_ACCOUNTS_URL = process.env.ZOHO_CLIQ_ACCOUNTS_URL || process.env.ZOHO_ACCOUNTS_URL || 'https://accounts.zoho.com';
 const ZOHO_CLIQ_API_URL = (process.env.ZOHO_CLIQ_API_URL || 'https://cliq.zoho.com/api/v2').replace(/\/$/, '');
-const ZOHO_CLIQ_CLIENT_ID = process.env.ZOHO_CLIQ_CLIENT_ID || '';
-const ZOHO_CLIQ_CLIENT_SECRET = process.env.ZOHO_CLIQ_CLIENT_SECRET || '';
-const ZOHO_CLIQ_REFRESH_TOKEN = process.env.ZOHO_CLIQ_REFRESH_TOKEN || '';
+const ZOHO_CLIQ_CLIENT_ID = process.env.ZOHO_CLIQ_CLIENT_ID || process.env.ZOHO_CLIENT_ID || '';
+const ZOHO_CLIQ_CLIENT_SECRET = process.env.ZOHO_CLIQ_CLIENT_SECRET || process.env.ZOHO_CLIENT_SECRET || '';
+const ZOHO_CLIQ_REFRESH_TOKEN = process.env.ZOHO_CLIQ_REFRESH_TOKEN || process.env.ZOHO_REFRESH_TOKEN || '';
 const CLIQ_BRIDGE_SECRET = process.env.CLIQ_BRIDGE_SECRET || '';
 const CLIQ_BOT_INCOMING_WEBHOOK_URL = (process.env.CLIQ_BOT_INCOMING_WEBHOOK_URL || '').trim();
 
@@ -41,7 +43,7 @@ async function getCliqAccessToken(): Promise<string> {
     return cliqCachedToken;
   }
   if (!ZOHO_CLIQ_REFRESH_TOKEN || !ZOHO_CLIQ_CLIENT_ID || !ZOHO_CLIQ_CLIENT_SECRET) {
-    throw new Error('ZOHO_CLIQ_REFRESH_TOKEN, ZOHO_CLIQ_CLIENT_ID, ZOHO_CLIQ_CLIENT_SECRET must be set');
+    throw new Error('OAuth for Cliq missing: set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN (or ZOHO_CLIQ_* if different)');
   }
   let baseUrl = ZOHO_CLIQ_ACCOUNTS_URL.trim().replace(/\/$/, '');
   const idx = baseUrl.indexOf('/oauth');
