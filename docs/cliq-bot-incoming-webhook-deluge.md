@@ -4,6 +4,35 @@ En Zoho Cliq: **Bots** → bot **WA|BOT** → **Incoming Webhook Handler** → b
 
 ---
 
+## Donde conseguir las variables
+
+### CLIQ_BOT_INCOMING_WEBHOOK_URL
+
+La URL la da **Zoho Cliq** cuando configuras el bot:
+
+1. Entra a **Zoho Cliq** (cliq.zoho.com).
+2. Menu o engranaje → **Bots** → **Add Bot** (o edita el bot, ej. **WA|BOT**).
+3. Activa **Incoming Webhook Handler** (o **Incoming Webhook**).
+4. Cliq muestra la **URL del webhook** (algo como `https://cliq.zoho.com/...` o la URL que use tu dominio de Cliq). **Copia esa URL**.
+5. En tu `.env` (o en Vercel) pon:  
+   `CLIQ_BOT_INCOMING_WEBHOOK_URL=https://la-url-que-copiaste`
+
+Si no ves la URL, suele estar en la misma pantalla del Incoming Webhook del bot, a veces como “Webhook URL” o “Endpoint URL”.
+
+### CLIQ_BRIDGE_SECRET
+
+**No se obtiene de ningun lado:** tu eliges una frase o string secreto (ej. una contraseña larga) y la usas en dos sitios:
+
+1. **En tu `.env`:**  
+   `CLIQ_BRIDGE_SECRET=la_frase_secreta_que_elijas`
+2. **En el script Deluge** (abajo), en la primera linea:  
+   `bridge_secret = "la_frase_secreta_que_elijas";`  
+   (la misma frase que en el .env)
+
+Si dejas `bridge_secret = "";` en el script y no defines `CLIQ_BRIDGE_SECRET` en el .env, el bot acepta todas las llamadas (sirve para probar; en producción conviene usar secreto).
+
+---
+
 ## Código a pegar (completo)
 
 ```

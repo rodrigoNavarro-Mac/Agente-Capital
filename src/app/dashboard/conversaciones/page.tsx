@@ -7,7 +7,7 @@
  * Lista conversaciones recientes con estado actual para depurar el flujo.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -93,7 +93,7 @@ export default function ConversacionesPage() {
     const [error, setError] = useState<string | null>(null);
     const [development, setDevelopment] = useState<string>('');
 
-    const fetchConversations = async () => {
+    const fetchConversations = useCallback(async () => {
         try {
             const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
             const params = new URLSearchParams({ limit: '100' });
@@ -111,14 +111,14 @@ export default function ConversacionesPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [development]);
 
     useEffect(() => {
         setLoading(true);
         fetchConversations();
         const interval = setInterval(fetchConversations, 15000);
         return () => clearInterval(interval);
-    }, [development]);
+    }, [fetchConversations]);
 
     if (error) {
         return (

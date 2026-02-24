@@ -104,7 +104,7 @@ function getCliqAlwaysInviteEmails(): string[] {
 /** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). */
 function buildCliqChannelInviteEmails(assignedAgentEmail: string): string[] {
     const always = getCliqAlwaysInviteEmails();
-    return [...new Set([assignedAgentEmail, ...always])].filter(Boolean);
+    return Array.from(new Set([assignedAgentEmail, ...always])).filter(Boolean);
 }
 
 // =====================================================
