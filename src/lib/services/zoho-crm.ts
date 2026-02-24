@@ -466,6 +466,31 @@ export async function getZohoLeads(page: number = 1, perPage: number = 200): Pro
 }
 
 /**
+ * Busca leads por teléfono (para recuperar lead existente cuando Zoho devuelve "duplicate data")
+ * GET /Leads/search?criteria=((Phone:equals:xxx))
+ */
+export async function searchZohoLeadsByPhone(phone: string): Promise<ZohoLead | null> {
+  const normalized = (phone || '').replace(/\s/g, '').trim();
+  if (!normalized) return null;
+  try {
+    const criteria = `(Phone:equals:${normalized})`;
+    const response = await zohoRequest<{ data: ZohoLead[] }>(
+      `/Leads/search?criteria=${encodeURIComponent(criteria)}`,
+      {},
+      true
+    );
+    const first = response?.data?.[0];
+    return first || null;
+  } catch (error) {
+    logger.warn('searchZohoLeadsByPhone failed', {
+      phonePrefix: normalized.substring(0, 6) + '***',
+      error: error instanceof Error ? error.message : String(error),
+    }, 'zoho-crm');
+    return null;
+  }
+}
+
+/**
  * Obtiene un lead por ID (para leer Owner/email tras crear el lead)
  * GET /Leads/{id}
  */

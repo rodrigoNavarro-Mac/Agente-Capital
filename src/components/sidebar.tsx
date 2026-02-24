@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Upload,
   MessageSquare,
+  MessageCircle,
   FileText,
   Settings,
   Activity,
@@ -66,6 +67,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/zoho',
     icon: Building2,
     allowedRoles: ['admin', 'ceo', 'sales_manager', 'post_sales', 'legal_manager', 'marketing_manager'] as UserRole[]
+  },
+  {
+    title: 'Conversaciones WhatsApp',
+    href: '/dashboard/conversaciones',
+    icon: MessageCircle,
+    allowedRoles: ['admin', 'ceo', 'sales_manager'] as UserRole[]
   },
   {
     title: 'Comisiones',

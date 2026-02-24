@@ -24,7 +24,7 @@ import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
 import { selectResponseAndState, getResponseText, type ResponseKey } from './response-selector';
 import { logger } from '@/lib/utils/logger';
-import { createZohoLeadRecord } from '@/lib/services/zoho-crm';
+import { createZohoLeadRecord, searchZohoLeadsByPhone, getZohoLeadById } from '@/lib/services/zoho-crm';
 import { createCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 import { upsertWhatsAppCliqThread } from '@/lib/db/whatsapp-cliq';
 
@@ -166,10 +166,13 @@ export async function handleIncomingMessage(
         return await handleInicio(development, userPhone);
     }
 
-    // Si el usuario ya estaba en handover pero escribe de nuevo, re-entrar al flujo (bienvenida)
+    // Si el usuario ya estaba calificado / en handover, no reiniciar flujo; responder breve y mantener estado
     if (conversation.state === 'CLIENT_ACCEPTA' || conversation.is_qualified) {
-        await updateState(userPhone, development, 'INICIO');
-        return await handleInicio(development, userPhone);
+        const postHandoverReply = 'Ya estás en contacto con un asesor. Cualquier duda puedes escribir aquí.';
+        return {
+            outboundMessages: [{ type: 'text', text: postHandoverReply }],
+            nextState: 'CLIENT_ACCEPTA',
+        };
     }
 
     if (conversation.state === 'SALIDA_ELEGANTE') {
@@ -564,7 +567,24 @@ async function handleClientAccepta(
         zoho_lead_id = createResult.zoho_lead_id;
         owner_email = createResult.owner_email || null;
     } catch (err) {
-        logger.error('createZohoLeadRecord failed in handleClientAccepta', err, { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const isDuplicate = /duplicate|duplicat/i.test(errMsg);
+        if (isDuplicate) {
+            const existingLead = await searchZohoLeadsByPhone(userPhone);
+            if (existingLead?.id) {
+                zoho_lead_id = existingLead.id;
+                const fullLead = await getZohoLeadById(existingLead.id);
+                const owner = fullLead?.Owner ?? existingLead?.Owner;
+                owner_email = (owner as { email?: string })?.email ?? null;
+                logger.info('handleClientAccepta: duplicate lead, reusing existing', {
+                    zoho_lead_id: existingLead.id,
+                    development,
+                }, 'conversation-flows');
+            }
+        }
+        if (!zoho_lead_id) {
+            logger.error('createZohoLeadRecord failed in handleClientAccepta', err, { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+        }
     }
 
     // 2. Assigned agent: from Zoho Owner or env CLIQ_AGENT_BY_DEVELOPMENT

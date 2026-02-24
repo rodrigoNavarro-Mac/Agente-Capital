@@ -147,6 +147,49 @@ export async function getConversation(
     }
 }
 
+/** Parámetros para listar conversaciones recientes (depuración / vista de estados) */
+export interface RecentConversationRow {
+    id: number;
+    user_phone: string;
+    development: string;
+    state: ConversationState;
+    last_interaction: Date;
+    is_qualified: boolean;
+    zoho_lead_id: string | null;
+    user_data: UserData;
+    created_at: Date;
+    updated_at: Date;
+}
+
+/**
+ * Lista conversaciones recientes ordenadas por última interacción (para depuración / UI de estados)
+ */
+export async function getRecentConversations(
+    limit: number = 50,
+    development?: string
+): Promise<RecentConversationRow[]> {
+    try {
+        const sql = development
+            ? `SELECT id, user_phone, development, state, last_interaction, is_qualified, zoho_lead_id, user_data, created_at, updated_at
+               FROM whatsapp_conversations
+               WHERE development = $1
+               ORDER BY last_interaction DESC
+               LIMIT $2`
+            : `SELECT id, user_phone, development, state, last_interaction, is_qualified, zoho_lead_id, user_data, created_at, updated_at
+               FROM whatsapp_conversations
+               ORDER BY last_interaction DESC
+               LIMIT $1`;
+        const result = await query<RecentConversationRow>(
+            sql,
+            development ? [development, limit] : [limit]
+        );
+        return result.rows || [];
+    } catch (error) {
+        logger.error('Error getting recent conversations', error, { limit, development }, 'conversation-state');
+        return [];
+    }
+}
+
 /**
  * Crea o actualiza una conversación
  */
