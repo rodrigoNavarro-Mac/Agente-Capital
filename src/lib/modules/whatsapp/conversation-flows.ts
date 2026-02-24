@@ -94,6 +94,19 @@ function getAssignedAgentEmail(ownerEmail?: string | null, development?: string)
     }
 }
 
+/** Emails to add to every Cliq channel (monitoreo). Env: CLIQ_ALWAYS_INVITE_EMAILS, comma-separated. */
+function getCliqAlwaysInviteEmails(): string[] {
+    const raw = (process.env.CLIQ_ALWAYS_INVITE_EMAILS || '').trim();
+    if (!raw) return [];
+    return raw.split(',').map((e) => e.trim()).filter((e) => e.length > 0);
+}
+
+/** Builds the full list of email_ids for createCliqChannel: assigned agent + always-invite (monitor). */
+function buildCliqChannelInviteEmails(assignedAgentEmail: string): string[] {
+    const always = getCliqAlwaysInviteEmails();
+    return [...new Set([assignedAgentEmail, ...always])].filter(Boolean);
+}
+
 // =====================================================
 // FLUJO PRINCIPAL
 // =====================================================
@@ -599,7 +612,7 @@ async function handleClientAccepta(
             const { channel_id, unique_name } = await createCliqChannel({
                 name: channelName,
                 level: 'organization',
-                email_ids: [assigned_agent_email],
+                email_ids: buildCliqChannelInviteEmails(assigned_agent_email),
             });
             await upsertWhatsAppCliqThread({
                 user_phone: userPhone,
@@ -717,7 +730,7 @@ export async function retryHandover(
             const { channel_id, unique_name } = await createCliqChannel({
                 name: channelName,
                 level: 'organization',
-                email_ids: [assigned_agent_email],
+                email_ids: buildCliqChannelInviteEmails(assigned_agent_email),
             });
             await upsertWhatsAppCliqThread({
                 user_phone: userPhone,

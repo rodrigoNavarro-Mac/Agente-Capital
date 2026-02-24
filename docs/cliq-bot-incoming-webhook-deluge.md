@@ -92,7 +92,8 @@ Guardar el handler en Cliq y listo.
 **Requisito:** En tu `.env` (o en el entorno donde corre el backend) debe estar la URL del bot de Cliq:
 - `CLIQ_BOT_INCOMING_WEBHOOK_URL=https://...` (la URL que te da Cliq en el Incoming Webhook del WA|BOT).
 
-Opcional para que se invite un asesor al canal: `CLIQ_AGENT_BY_DEVELOPMENT={"FUEGO":"email@ejemplo.com"}`.
+Opcional para que se invite un asesor al canal: `CLIQ_AGENT_BY_DEVELOPMENT={"FUEGO":"email@ejemplo.com"}`.  
+Para que un usuario (monitor) esté en **todos** los canales: `CLIQ_ALWAYS_INVITE_EMAILS=email-del-monitor@empresa.com` (varios: separados por coma). La API de Cliq usa emails; si el usuario es 895282745, usa el email de ese usuario en Zoho.
 
 ### 1. Crear lead + canal (WhatsApp)
 

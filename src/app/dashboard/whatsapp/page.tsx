@@ -199,6 +199,37 @@ export default function WhatsAppDashboard() {
                 </div>
             </div>
 
+            {/* Bridge WhatsApp - Cliq */}
+            <div className="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-500">
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Bridge WhatsApp - Cliq</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                    Cuando un lead se califica, se crea un canal en Zoho Cliq por conversación. Los mensajes del cliente en WhatsApp se reenvían al canal y las respuestas en Cliq se envían al WhatsApp del cliente.
+                </p>
+                <div className="space-y-4 text-sm">
+                    <div>
+                        <h3 className="font-medium text-gray-800 mb-1">Handler del bot (crear canal)</h3>
+                        <ul className="list-disc list-inside text-gray-600 space-y-0.5">
+                            <li>En Cliq: crear bot (ej. WA|BOT) con <strong>Incoming Webhook Handler</strong>.</li>
+                            <li>En el handler (Deluge), pegar el código que recibe el payload del backend y publica en el canal con <code className="bg-gray-100 px-1 rounded">zoho.cliq.postToChannel</code>.</li>
+                            <li>Configurar en el backend: <code className="bg-gray-100 px-1 rounded">CLIQ_BOT_INCOMING_WEBHOOK_URL</code> (URL del webhook del bot) y <code className="bg-gray-100 px-1 rounded">CLIQ_BRIDGE_SECRET</code> para validación.</li>
+                        </ul>
+                        <p className="mt-2 text-gray-500">
+                            Código Deluge y contrato: <code className="bg-gray-100 px-1 rounded text-xs">docs/cliq-bot-incoming-webhook-deluge.md</code>
+                        </p>
+                    </div>
+                    <div>
+                        <h3 className="font-medium text-gray-800 mb-1">Probar comunicación bidireccional</h3>
+                        <ol className="list-decimal list-inside text-gray-600 space-y-1">
+                            <li><strong>WA -&gt; Canal Cliq:</strong> Calificar un lead desde WhatsApp (flujo completo hasta nombre). Ver en Cliq el nuevo canal y el mensaje inicial; enviar otro mensaje desde WA y verlo en el canal con prefijo [WA-IN].</li>
+                            <li><strong>Cliq -&gt; WA:</strong> En el canal de Cliq, configurar el <strong>Channel Outgoing Webhook</strong> apuntando a <code className="bg-gray-100 px-1 rounded">https://TU_DOMINIO/api/webhooks/cliq</code>. Escribir un mensaje en el canal (como usuario, no como bot); debe llegar al WhatsApp del cliente.</li>
+                        </ol>
+                    </div>
+                    <p className="text-xs text-gray-500 pt-2 border-t border-gray-100">
+                        Variables opcionales: CLIQ_AGENT_BY_DEVELOPMENT (asesor por desarrollo), CLIQ_ALWAYS_INVITE_EMAILS (monitor en todos los canales). Ver <code className="bg-gray-100 px-0.5">docs/whatsapp-bot.md</code> sección 11.
+                    </p>
+                </div>
+            </div>
+
             {/* Gráfico de mensajes por desarrollo */}
             {metrics?.by_development && Object.keys(metrics.by_development).length > 0 && (
                 <div className="bg-white rounded-lg shadow p-6">

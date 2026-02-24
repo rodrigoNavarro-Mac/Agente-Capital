@@ -536,7 +536,9 @@ export async function createZohoLeadRecord(params: CreateZohoLeadParams): Promis
   const record: Record<string, unknown> = {
     Last_Name: lastName,
     Phone: userPhone,
+    Mobile: userPhone,
     Lead_Source: leadSource,
+    Lead_Status: 'Nuevo contacto',
   };
   if (firstName) record.First_Name = firstName;
   // Campo custom Desarrollo si existe en el modulo

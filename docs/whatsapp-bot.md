@@ -373,6 +373,7 @@ Cuando un lead se califica (usuario acepta handover y da su nombre), el backend 
 - **CLIQ_BRIDGE_SECRET**: secreto compartido para validar peticiones entre backend y Deluge (header `X-Bridge-Token` o query/body `secret`).
 - **CLIQ_BOT_INCOMING_WEBHOOK_URL**: URL del Incoming Webhook del bot en Cliq (Deluge recibe aquí el payload del backend y publica en el canal).
 - **CLIQ_AGENT_BY_DEVELOPMENT**: (opcional) JSON con mapeo desarrollo -> email del asesor, ej. `{"FUEGO":"asesor@empresa.com"}`. Se usa si Zoho no devuelve Owner/email en el GET Lead.
+- **CLIQ_ALWAYS_INVITE_EMAILS**: (opcional) Emails que se invitan a **todos** los canales de Cliq (monitoreo). Separados por coma. Ej. `supervisor@empresa.com` o `user1@empresa.com,user2@empresa.com`. La API de Cliq usa emails, no IDs numéricos; si tienes un usuario por ID (ej. 895282745), usa el email de ese usuario en Zoho.
 - **ZOHO_CRM_BASE_URL**: (opcional) URL base del CRM para enlazar el lead en mensajes a Cliq, ej. `https://crm.zoho.com/crm/org123456`.
 
 ### Contrato Backend -> Cliq (Incoming Webhook Deluge)
