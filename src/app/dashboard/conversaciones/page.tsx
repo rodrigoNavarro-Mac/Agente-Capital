@@ -47,9 +47,12 @@ export default function ConversacionesPage() {
         const fetchData = async () => {
             setLoading(true);
             try {
+                const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
                 const params = new URLSearchParams({ limit: '100' });
                 if (development) params.set('development', development);
-                const res = await fetch(`/api/whatsapp/conversations?${params}`);
+                const res = await fetch(`/api/whatsapp/conversations?${params}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
                 if (!res.ok) throw new Error('Error al cargar conversaciones');
                 const data = await res.json();
                 setConversations(data.conversations || []);
