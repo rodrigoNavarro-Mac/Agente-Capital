@@ -99,6 +99,8 @@ export interface CreateZohoLeadParams {
   development: string;
   fullName?: string;
   leadSource?: string;
+  /** Texto para el campo Datos del lead (ej. horario preferido de contacto) */
+  datos?: string;
 }
 
 /** Result of createZohoLeadRecord; owner_* from GET Lead after insert */
@@ -489,7 +491,7 @@ export async function getZohoLeadById(leadId: string): Promise<ZohoLead | null> 
  * Last_Name es obligatorio; si solo hay fullName se parte o se usa "WhatsApp".
  */
 export async function createZohoLeadRecord(params: CreateZohoLeadParams): Promise<CreateZohoLeadResult> {
-  const { userPhone, development, fullName, leadSource = 'WhatsApp' } = params;
+  const { userPhone, development, fullName, leadSource = 'WhatsApp', datos } = params;
 
   let firstName: string | undefined;
   let lastName: string;
@@ -514,6 +516,8 @@ export async function createZohoLeadRecord(params: CreateZohoLeadParams): Promis
   if (firstName) record.First_Name = firstName;
   // Campo custom Desarrollo si existe en el modulo
   if (development) record.Desarrollo = development;
+  // Campo Datos (variable del lead): horario preferido y otras respuestas del flujo
+  if (datos && datos.trim()) record.Datos = datos.trim();
 
   const response = await zohoRequest<{
     data: Array<{

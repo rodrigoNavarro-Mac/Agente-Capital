@@ -15,6 +15,7 @@ export interface DevelopmentMessages {
     CONFIRMACION_COMPRA: string;
     CONFIRMACION_INVERSION: string;
     CTA_AYUDA: string;
+    SOLICITUD_HORARIO: string;
     SOLICITUD_NOMBRE: string;
     INFO_REINTENTO: string;
     HANDOVER_EXITOSO: string;
@@ -63,6 +64,10 @@ Es una inversión sólida y con respaldo real.`,
     CTA_AYUDA: `Para orientarte mejor:
 
 ¿Prefieres agendar una visita al desarrollo 🏡 o una llamada breve con un asesor 📞?`,
+
+    SOLICITUD_HORARIO: `Perfecto 🙌
+
+¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
 
     SOLICITUD_NOMBRE: `Perfecto 🙌
 
@@ -117,6 +122,7 @@ AMURA es una opción sólida para inversión.`,
     CTA_AYUDA: `Para orientarte mejor:
 
 ¿Te gustaría agendar una visita al desarrollo o prefieres una llamada breve con un asesor?`,
+    SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
     SOLICITUD_NOMBRE: `Perfecto, con gusto lo coordinamos
 
 ¿Cuál es tu nombre completo para decirle al asesor?`,
@@ -142,6 +148,7 @@ Soy el asistente de Punto Tierra.
     CONFIRMACION_COMPRA: `Perfecto. Punto Tierra puede ser una buena opción para ti.`,
     CONFIRMACION_INVERSION: `Excelente. Punto Tierra ofrece oportunidades de inversión.`,
     CTA_AYUDA: `¿Te gustaría agendar una visita o una llamada con un asesor?`,
+    SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
     SOLICITUD_NOMBRE: `¿Cuál es tu nombre completo para el asesor?`,
     INFO_REINTENTO: `¿Estás buscando esta oportunidad para invertir o para vivir?`,
     HANDOVER_EXITOSO: `Gracias, {NOMBRE}. Un asesor de Punto Tierra te contactará.`,

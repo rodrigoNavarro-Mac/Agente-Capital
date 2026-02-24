@@ -17,6 +17,7 @@ export type ConversationState =
     | 'FILTRO_INTENCION'         // ¿Qué te interesa? (Comprar/Invertir/Solo ver)
     | 'INFO_REINTENTO'           // Segunda oportunidad para curiosos
     | 'CTA_PRIMARIO'             // Micro-decisión: Visita o Llamada
+    | 'SOLICITUD_HORARIO'        // Pedir horario preferido de contacto antes del nombre
     | 'SOLICITUD_NOMBRE'         // Pedir nombre antes de handover
     | 'CLIENT_ACCEPTA'           // Handover, Lead en Zoho
     | 'ENVIO_BROCHURE'           // (Legacy) Enviar PDF brochure
@@ -46,6 +47,7 @@ export interface UserData {
     presupuesto?: string;         // Rango o monto
     urgencia?: string;            // '0-3m' | '3-6m' | '6-12m' | 'explorando'
     preferred_action?: string;    // 'cita' | 'cotizacion'
+    horario_preferido?: string;   // Respuesta libre: a qué hora le gustaría ser contactado
     lead_quality?: LeadQuality;   // Scoring automático
     disqualified_reason?: string; // Razón de descalificación
     [key: string]: any;

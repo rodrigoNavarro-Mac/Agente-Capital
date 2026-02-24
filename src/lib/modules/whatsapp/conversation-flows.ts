@@ -202,15 +202,7 @@ function buildOutboundFromSelection(
     }
 
     if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
-        const brochureUrl = getBrochure(development);
-        if (brochureUrl) {
-            outbound.push({
-                type: 'document',
-                documentUrl: brochureUrl,
-                filename: getBrochureFilename(development),
-                caption: 'Aquí está la información del desarrollo.',
-            });
-        }
+        // Brochure se envía casi al final del flujo (en SOLICITUD_NOMBRE)
         outbound.push({ type: 'text', text: messages.CTA_AYUDA });
     }
 
@@ -228,7 +220,7 @@ async function processState(
     logger.info('Processing state', { state, development, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
 
     // Opción: usar LLM para elegir respuesta del banco y siguiente estado (con contexto de mensajes si se agrega después)
-    const useLLMSelector = ['FILTRO_INTENCION', 'INFO_REINTENTO', 'CTA_PRIMARIO', 'SOLICITUD_NOMBRE'].includes(state);
+    const useLLMSelector = ['FILTRO_INTENCION', 'INFO_REINTENTO', 'CTA_PRIMARIO', 'SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE'].includes(state);
     if (useLLMSelector) {
         try {
             const selection = await selectResponseAndState({
@@ -247,13 +239,28 @@ async function processState(
                     if (state === 'SOLICITUD_NOMBRE' && userName) {
                         await mergeUserData(userPhone, development, { name: userName });
                     }
-                    return await handleClientAccepta(
+                    const brochureUrl = getBrochure(development);
+                    const brochureMessages: OutboundMessage[] = brochureUrl
+                        ? [{
+                            type: 'document',
+                            documentUrl: brochureUrl,
+                            filename: getBrochureFilename(development),
+                            caption: 'Aquí está la información del desarrollo.',
+                        }]
+                        : [];
+                    const handoverResult = await handleClientAccepta(
                         development,
                         userPhone,
                         'llm_handover',
                         userName,
-                        context.phoneNumberId
+                        context.phoneNumberId,
+                        userData
                     );
+                    handoverResult.outboundMessages = [...brochureMessages, ...handoverResult.outboundMessages];
+                    return handoverResult;
+                }
+                if (state === 'SOLICITUD_HORARIO' && nextState === 'SOLICITUD_NOMBRE') {
+                    await mergeUserData(userPhone, development, { horario_preferido: messageText.trim() || 'No indicado' });
                 }
                 await updateState(userPhone, development, nextState);
                 if (state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3 && nextState === 'CLIENT_ACCEPTA') {
@@ -291,6 +298,9 @@ async function processState(
 
         case 'CTA_PRIMARIO':
             return await handleCtaPrimario(messageText, development, userPhone);
+
+        case 'SOLICITUD_HORARIO':
+            return await handleSolicitudHorario(messageText, development, userPhone);
 
         case 'SOLICITUD_NOMBRE':
             return await handleSolicitudNombre(messageText, development, userPhone, userData, context.phoneNumberId);
@@ -358,17 +368,7 @@ async function handleFiltroIntencion(
                 text: (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA
             },
         ];
-
-        const brochureUrl = getBrochure(development);
-        if (brochureUrl) {
-            outboundMessages.push({
-                type: 'document',
-                documentUrl: brochureUrl,
-                filename: getBrochureFilename(development),
-                caption: 'Aquí está la información del desarrollo.',
-            });
-        }
-
+        // Brochure se envía casi al final, una vez agendada cita/llamada (en SOLICITUD_NOMBRE)
         outboundMessages.push({ type: 'text', text: messages.CTA_AYUDA });
 
         return {
@@ -431,17 +431,9 @@ async function handleInfoReintento(
 
         const outboundMessages: OutboundMessage[] = [
             { type: 'text', text: messages.CONFIRMACION_COMPRA },
+            { type: 'text', text: messages.CTA_AYUDA },
         ];
-        const brochureUrl = getBrochure(development);
-        if (brochureUrl) {
-            outboundMessages.push({
-                type: 'document',
-                documentUrl: brochureUrl,
-                filename: getBrochureFilename(development),
-                caption: 'Aquí está la información del desarrollo.',
-            });
-        }
-        outboundMessages.push({ type: 'text', text: messages.CTA_AYUDA });
+        // Brochure se envía casi al final (en SOLICITUD_NOMBRE)
 
         return {
             outboundMessages,
@@ -472,14 +464,32 @@ async function handleCtaPrimario(
 
     const messages = getMessagesForDevelopment(development);
     if (isAffirmative) {
-        await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
         return {
-            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
-            nextState: 'SOLICITUD_NOMBRE'
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            nextState: 'SOLICITUD_HORARIO'
         };
     } else {
         return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
     }
+}
+
+async function handleSolicitudHorario(
+    messageText: string,
+    development: string,
+    userPhone: string
+): Promise<FlowResult> {
+    const horario = messageText.trim();
+    const messages = getMessagesForDevelopment(development);
+
+    // Aceptamos cualquier respuesta como horario preferido (texto libre)
+    await mergeUserData(userPhone, development, { horario_preferido: horario || 'No indicado' });
+    await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
+
+    return {
+        outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
+        nextState: 'SOLICITUD_NOMBRE'
+    };
 }
 
 async function handleSolicitudNombre(
@@ -499,11 +509,34 @@ async function handleSolicitudNombre(
         };
     }
 
-    // Guardar nombre
+    // Guardar nombre (userData puede tener horario_preferido ya guardado)
     await mergeUserData(userPhone, development, { name: name });
 
-    // HANDOVER FINAL (CRM + Cliq + markQualified)
-    return await handleClientAccepta(development, userPhone, 'nombre_proporcionado', name, phoneNumberId);
+    // Enviar brochure casi al final, una vez agendada cita/llamada
+    const brochureUrl = getBrochure(development);
+    const outboundBeforeHandover: OutboundMessage[] = [];
+    if (brochureUrl) {
+        outboundBeforeHandover.push({
+            type: 'document',
+            documentUrl: brochureUrl,
+            filename: getBrochureFilename(development),
+            caption: 'Aquí está la información del desarrollo.',
+        });
+    }
+
+    // HANDOVER FINAL (CRM + Cliq + markQualified); userData incluye horario_preferido para campo Datos
+    const result = await handleClientAccepta(development, userPhone, 'nombre_proporcionado', name, phoneNumberId, _userData);
+    result.outboundMessages = [...outboundBeforeHandover, ...result.outboundMessages];
+    return result;
+}
+
+/** Construye el texto para el campo Datos del lead (horario preferido y otras respuestas) */
+function buildDatosFromUserData(userData: UserData): string | undefined {
+    const parts: string[] = [];
+    if (userData.horario_preferido && userData.horario_preferido.trim() && userData.horario_preferido !== 'No indicado') {
+        parts.push(`Horario preferido de contacto: ${userData.horario_preferido.trim()}`);
+    }
+    return parts.length > 0 ? parts.join('. ') : undefined;
 }
 
 async function handleClientAccepta(
@@ -511,11 +544,13 @@ async function handleClientAccepta(
     userPhone: string,
     triggerText: string,
     userName?: string,
-    phoneNumberId?: string
+    phoneNumberId?: string,
+    userData?: UserData
 ): Promise<FlowResult> {
     const messages = getMessagesForDevelopment(development);
+    const datos = userData ? buildDatosFromUserData(userData) : undefined;
 
-    // 1. Create lead in Zoho CRM (includes GET Lead for Owner/email)
+    // 1. Create lead in Zoho CRM (includes GET Lead for Owner/email); campo Datos con horario preferido
     let zoho_lead_id: string | null = null;
     let owner_email: string | null = null;
     try {
@@ -524,6 +559,7 @@ async function handleClientAccepta(
             development,
             fullName: userName,
             leadSource: 'WhatsApp',
+            datos,
         });
         zoho_lead_id = createResult.zoho_lead_id;
         owner_email = createResult.owner_email || null;
