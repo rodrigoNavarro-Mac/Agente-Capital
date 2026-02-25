@@ -60,6 +60,7 @@ export async function middleware(request: NextRequest) {
     '/api/auth/refresh',
     '/api/webhooks/whatsapp',  // Webhook de WhatsApp (verifica con hub.verify_token)
     '/api/webhooks/cliq',      // Webhook Cliq -> WA (verifica con CLIQ_BRIDGE_SECRET)
+    '/api/debug/cliq-token-check',  // Diagnóstico de token Cliq (solo devuelve estado, sin datos sensibles)
   ];
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
