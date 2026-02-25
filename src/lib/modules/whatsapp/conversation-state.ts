@@ -268,18 +268,6 @@ export async function updateState(
     }
 }
 
-/** Update last_interaction only (e.g. when a message is sent from Cliq to WA so dashboard shows recent activity). */
-export async function touchLastInteraction(userPhone: string, development: string): Promise<void> {
-    try {
-        await query(
-            `UPDATE whatsapp_conversations SET last_interaction = CURRENT_TIMESTAMP WHERE user_phone = $1 AND development = $2`,
-            [userPhone, development]
-        );
-    } catch (error) {
-        logger.error('touchLastInteraction', error, { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-state');
-    }
-}
-
 /**
  * Fusiona datos de usuario con los existentes
  */
@@ -306,7 +294,7 @@ export async function mergeUserData(
 }
 
 /**
- * Actualiza la marca de tiempo de última interacción
+ * Actualiza la marca de tiempo de última interacción (p. ej. cuando se envía mensaje Cliq -> WA).
  */
 export async function touchLastInteraction(
     userPhone: string,
@@ -316,10 +304,9 @@ export async function touchLastInteraction(
         await query(
             `UPDATE whatsapp_conversations 
        SET last_interaction = CURRENT_TIMESTAMP 
-       WHERE user_phone = $2 AND development = $3`,
+       WHERE user_phone = $1 AND development = $2`,
             [userPhone, development]
         );
-
         return true;
     } catch (error) {
         logger.error('Error touching last interaction', error, { userPhone, development }, 'conversation-state');

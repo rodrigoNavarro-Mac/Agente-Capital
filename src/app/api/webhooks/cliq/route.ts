@@ -99,8 +99,8 @@ function getChannelUniqueName(body: Record<string, unknown>): string {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    let body: Record<string, unknown> = {};
     try {
-        let body: Record<string, unknown> = {};
         try {
             body = await request.json();
         } catch {
