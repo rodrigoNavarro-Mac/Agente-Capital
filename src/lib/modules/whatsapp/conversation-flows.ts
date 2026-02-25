@@ -281,7 +281,7 @@ async function processState(
                     const handoverResult = await handleClientAccepta(
                         development,
                         userPhone,
-                        'llm_handover',
+                        messageText.trim() || 'nombre_proporcionado',
                         userName,
                         context.phoneNumberId,
                         userData
