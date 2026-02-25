@@ -26,7 +26,7 @@ import { selectResponseAndState, getResponseText, type ResponseKey } from './res
 import { logger } from '@/lib/utils/logger';
 import { createZohoLeadRecord, searchZohoLeadsByPhone, getZohoLeadById } from '@/lib/services/zoho-crm';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
-import { upsertWhatsAppCliqThread } from '@/lib/db/whatsapp-cliq';
+import { upsertWhatsAppCliqThread, getCliqThreadByUserAndDev } from '@/lib/db/whatsapp-cliq';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 
 // Imports Legacy (reservados para uso futuro)
@@ -569,7 +569,26 @@ function buildDatosFromUserData(userData: UserData): string | undefined {
     return parts.length > 0 ? parts.join('. ') : undefined;
 }
 
-/** Builds the first message to Cliq with context (user_data) so agents see lead info and preferred action. */
+/** Human-readable label for intencion (inversión / construir / comprar). */
+function formatIntencionForCliq(intencion: string | undefined): string {
+    if (!intencion) return '';
+    const t = String(intencion).toLowerCase();
+    if (t === 'invertir') return 'Inversión';
+    if (t === 'comprar') return 'Comprar / Construir';
+    if (t === 'solo_info') return 'Solo información';
+    return intencion;
+}
+
+/** Human-readable label for perfil_compra (construir casa vs inversión). */
+function formatPerfilCompraForCliq(perfil: string | undefined): string {
+    if (!perfil) return '';
+    const t = String(perfil).toLowerCase();
+    if (t === 'construir_casa' || t.includes('construir')) return 'Construir casa';
+    if (t === 'inversion' || t.includes('inver')) return 'Inversión';
+    return perfil;
+}
+
+/** Builds the first message to Cliq with context: nombre, intención (inversión/construir), horario de contacto, cita/visita. */
 function buildHandoverMessageForCliq(
     userData: UserData | undefined,
     userPhone: string,
@@ -579,14 +598,19 @@ function buildHandoverMessageForCliq(
 ): string {
     const lines: string[] = [];
     lines.push(isRetry ? 'Lead calificado desde WhatsApp (reintento Cliq).' : 'Lead calificado desde WhatsApp.');
-    lines.push('Acción preferida: visita/llamada.');
-    const name = userName || (userData?.name as string) || userData?.nombre;
-    if (name) lines.push(`Nombre: ${String(name).trim()}`);
-    if (userData?.intencion) lines.push(`Intención: ${String(userData.intencion)}`);
-    if (userData?.horario_preferido) lines.push(`Horario preferido: ${String(userData.horario_preferido).slice(0, 80)}`);
-    if (userData?.preferred_action) lines.push(`Acción elegida: ${String(userData.preferred_action)}`);
-    if (userData?.lead_quality) lines.push(`Calidad lead: ${userData.lead_quality}`);
+    lines.push('---');
+    lines.push('CONTEXTO');
+    const name = (userName || (userData?.name as string) || userData?.nombre || '').trim();
+    lines.push(`Nombre: ${name || '(no indicado)'}`);
+    const intencion = userData?.intencion ? formatIntencionForCliq(userData.intencion) : '';
+    const perfil = userData?.perfil_compra ? formatPerfilCompraForCliq(userData.perfil_compra) : '';
+    if (intencion) lines.push(`Intención: ${intencion}`);
+    if (perfil && perfil !== intencion) lines.push(`Uso: ${perfil}`);
+    const horario = (userData?.horario_preferido || '').trim();
+    lines.push(`Horario de contacto / cita: ${horario || '(no indicado)'}`);
+    lines.push('Acción preferida: visita o llamada');
     lines.push(`Tel: ${userPhone.replace(/\s/g, '')}`);
+    lines.push('---');
     if (crmLeadUrl) lines.push(crmLeadUrl);
     return lines.join('\n');
 }
@@ -663,7 +687,9 @@ async function handleClientAccepta(
             const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
                 ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
                 : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
-            const handoverText = buildHandoverMessageForCliq(userData, userPhone, userName, crm_lead_url, false);
+            const conv = await getConversation(userPhone, development);
+            const dataForCliq = { ...(conv?.user_data || {}), name: userName || (conv?.user_data as { name?: string })?.name, nombre: userName || (conv?.user_data as { nombre?: string })?.nombre };
+            const handoverText = buildHandoverMessageForCliq(dataForCliq as UserData, userPhone, userName, crm_lead_url, false);
             await postMessageToCliqViaWebhook({
                 channel_id,
                 channel_unique_name: unique_name,
@@ -792,6 +818,63 @@ export async function retryCliqOnly(
     await markQualified(userPhone, development, zoho_lead_id ?? undefined);
     logger.info('retryCliqOnly ok', { userPhone: userPhone.substring(0, 6) + '***', development, zoho_lead_id }, 'conversation-flows');
     return { success: true, zoho_lead_id: zoho_lead_id || undefined };
+}
+
+/**
+ * Reenvia el mensaje de contexto (nombre, intención, horario, etc.) al canal Cliq ya existente.
+ * Sirve para debug o cuando el contexto no se envio al crear el canal.
+ */
+export async function resendCliqContext(
+    userPhone: string,
+    development: string
+): Promise<{ success: boolean; error?: string; debug?: { hasThread: boolean; hasChannel: boolean; user_data_keys: string[] } }> {
+    const conversation = await getConversation(userPhone, development);
+    if (!conversation) {
+        return { success: false, error: 'Conversación no encontrada', debug: { hasThread: false, hasChannel: false, user_data_keys: [] } };
+    }
+    const thread = await getCliqThreadByUserAndDev(userPhone, development);
+    const hasThread = !!thread;
+    const hasChannel = !!(thread?.cliq_channel_id && thread?.cliq_channel_unique_name);
+    const user_data_keys = conversation.user_data ? Object.keys(conversation.user_data) : [];
+
+    if (!thread?.cliq_channel_id || !thread?.cliq_channel_unique_name) {
+        return {
+            success: false,
+            error: 'No hay canal Cliq vinculado. Usa "Reintentar Cliq" para crear el canal.',
+            debug: { hasThread, hasChannel, user_data_keys },
+        };
+    }
+
+    const userName = conversation.user_data?.name || conversation.user_data?.nombre;
+    const crm_lead_url = thread.zoho_lead_id && process.env.ZOHO_CRM_BASE_URL
+        ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${thread.zoho_lead_id}`
+        : (thread.zoho_lead_id ? `Lead ID: ${thread.zoho_lead_id}` : '');
+    const handoverText = buildHandoverMessageForCliq(
+        conversation.user_data as UserData,
+        userPhone,
+        userName,
+        crm_lead_url,
+        true
+    );
+
+    try {
+        await postMessageToCliqViaWebhook({
+            channel_id: thread.cliq_channel_id,
+            channel_unique_name: thread.cliq_channel_unique_name,
+            development,
+            user_phone: userPhone,
+            user_name: userName || 'Cliente',
+            text: handoverText,
+            crm_lead_url: crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error('resendCliqContext: post failed', err, { development }, 'conversation-flows');
+        return { success: false, error: msg, debug: { hasThread, hasChannel, user_data_keys } };
+    }
+
+    logger.info('resendCliqContext ok', { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+    return { success: true, debug: { hasThread, hasChannel, user_data_keys } };
 }
 
 /**

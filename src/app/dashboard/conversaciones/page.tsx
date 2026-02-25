@@ -142,11 +142,102 @@ function RetryCliqButton({
     );
 }
 
+function ResendContextButton({
+    userPhone,
+    development,
+    onDone,
+    onError,
+}: {
+    userPhone: string;
+    development: string;
+    onDone: () => void;
+    onError: (message: string) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        setLoading(true);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch('/api/whatsapp/conversations/resend-cliq-context', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ user_phone: userPhone, development }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                onError(data.error || 'Error al reenviar contexto');
+                return;
+            }
+            onDone();
+        } catch {
+            onError('Error de red al reenviar contexto');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className={`${retryButtonClass} bg-green-100 text-green-800 hover:bg-green-200`}
+        >
+            {loading ? '...' : 'Reenviar contexto'}
+        </button>
+    );
+}
+
+function DebugCliqButton({
+    userPhone,
+    development,
+    onShowDebug,
+}: {
+    userPhone: string;
+    development: string;
+    onShowDebug: (data: unknown) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        setLoading(true);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch(
+                `/api/debug/cliq-conversation?user_phone=${encodeURIComponent(userPhone)}&development=${encodeURIComponent(development)}`,
+                { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+            );
+            const data = await res.json();
+            onShowDebug(data);
+        } catch (e) {
+            onShowDebug({ ok: false, error: String(e) });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className={`${retryButtonClass} bg-gray-100 text-gray-700 hover:bg-gray-200`}
+        >
+            {loading ? '...' : 'Debug'}
+        </button>
+    );
+}
+
 export default function ConversacionesPage() {
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [development, setDevelopment] = useState<string>('');
+    const [debugPanel, setDebugPanel] = useState<unknown>(null);
 
     const fetchConversations = useCallback(async () => {
         try {
@@ -211,6 +302,24 @@ export default function ConversacionesPage() {
                     <option value="PUNTO_TIERRA">PUNTO TIERRA</option>
                 </select>
             </div>
+
+            {debugPanel !== null && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <h2 className="text-sm font-semibold text-gray-800">Debug Cliq - Conversación</h2>
+                        <button
+                            type="button"
+                            onClick={() => setDebugPanel(null)}
+                            className="text-xs px-2 py-1 rounded bg-gray-200 hover:bg-gray-300"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                    <pre className="text-xs overflow-auto max-h-64 p-2 bg-white border border-gray-100 rounded">
+                        {JSON.stringify(debugPanel, null, 2)}
+                    </pre>
+                </div>
+            )}
 
             {loading && conversations.length === 0 ? (
                 <p className="text-gray-500">Cargando...</p>
@@ -290,24 +399,37 @@ export default function ConversacionesPage() {
                                             : ''}
                                     </td>
                                     <td className="py-2 px-3">
-                                        {c.state === 'CLIENT_ACCEPTA' && c.is_qualified ? (
-                                            <span className="flex flex-wrap gap-1">
-                                                <RetryLeadCrmButton
+                                        <span className="flex flex-wrap gap-1">
+                                            {c.state === 'CLIENT_ACCEPTA' && c.is_qualified && (
+                                                <>
+                                                    <RetryLeadCrmButton
+                                                        userPhone={c.user_phone}
+                                                        development={c.development}
+                                                        onDone={fetchConversations}
+                                                        onError={(msg) => setError(msg)}
+                                                    />
+                                                    <RetryCliqButton
+                                                        userPhone={c.user_phone}
+                                                        development={c.development}
+                                                        onDone={fetchConversations}
+                                                        onError={(msg) => setError(msg)}
+                                                    />
+                                                </>
+                                            )}
+                                            {c.cliq_channel_id && (
+                                                <ResendContextButton
                                                     userPhone={c.user_phone}
                                                     development={c.development}
                                                     onDone={fetchConversations}
                                                     onError={(msg) => setError(msg)}
                                                 />
-                                                <RetryCliqButton
-                                                    userPhone={c.user_phone}
-                                                    development={c.development}
-                                                    onDone={fetchConversations}
-                                                    onError={(msg) => setError(msg)}
-                                                />
-                                            </span>
-                                        ) : (
-                                            '-'
-                                        )}
+                                            )}
+                                            <DebugCliqButton
+                                                userPhone={c.user_phone}
+                                                development={c.development}
+                                                onShowDebug={(data) => setDebugPanel(data)}
+                                            />
+                                        </span>
                                     </td>
                                 </tr>
                             ))}
