@@ -314,6 +314,11 @@ async function processState(
                     const perfil_compra = responseKey === 'CONFIRMACION_INVERSION' ? 'inversion' : 'construir_casa';
                     await mergeUserData(userPhone, development, { intencion, perfil_compra });
                 }
+                // When LLM moves from CTA_PRIMARIO to SOLICITUD_HORARIO, persist preferred_action (llamada/visita/cotizacion)
+                if (state === 'CTA_PRIMARIO' && nextState === 'SOLICITUD_HORARIO') {
+                    const action = await classifyAccion(messageText);
+                    await mergeUserData(userPhone, development, { preferred_action: action || 'visita_o_llamada' });
+                }
                 logger.info('Flow driven by LLM response selector', { responseKey, nextState }, 'conversation-flows');
                 return { outboundMessages, nextState };
             }
@@ -501,6 +506,8 @@ async function handleCtaPrimario(
 
     const messages = getMessagesForDevelopment(development);
     if (isAffirmative) {
+        const accionGuardar = action || 'visita_o_llamada';
+        await mergeUserData(userPhone, development, { preferred_action: accionGuardar });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
         return {
             outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
@@ -595,11 +602,10 @@ function formatPerfilCompraForCliq(perfil: string | undefined): string {
     return perfil;
 }
 
-/** Derives intencion label from user_data; falls back to perfil_compra or preferred_action when intencion is missing. */
+/** Intención de compra: solo invertir o comprar/construir (nunca "visita o llamada"). */
 function getIntencionForCliq(userData: UserData | undefined): string {
     if (userData?.intencion) return formatIntencionForCliq(userData.intencion);
     if (userData?.perfil_compra) return formatPerfilCompraForCliq(userData.perfil_compra);
-    if (userData?.preferred_action) return 'Visita o llamada';
     return '';
 }
 
@@ -610,30 +616,89 @@ function getPerfilForCliq(userData: UserData | undefined): string {
     return '';
 }
 
-/** Builds the first message to Cliq with context: nombre, intención (inversión/construir), horario de contacto, cita/visita. */
+/** Human-readable label for preferred_action (cita/visita/cotizacion). */
+function formatAccionPreferidaForCliq(preferred_action: string | undefined): string {
+    if (!preferred_action) return 'Visita o llamada';
+    const t = String(preferred_action).toLowerCase();
+    if (t === 'cita' || t.includes('llamada')) return 'Llamada';
+    if (t === 'visita') return 'Visita';
+    if (t === 'cotizacion' || t.includes('cotiz')) return 'Cotización';
+    if (t === 'visita_o_llamada') return 'Visita o llamada';
+    return preferred_action;
+}
+
+/** Format phone for display (e.g. +52 1 222 844 2014 for Mexico 12-digit). */
+function formatPhoneForDisplay(phone: string): string {
+    const digits = (phone || '').replace(/\D/g, '');
+    if (digits.length === 0) return phone || '';
+    const withPlus = digits.startsWith('52') ? digits : `52${digits}`;
+    if (withPlus.length === 12) {
+        return `+${withPlus.slice(0, 2)} ${withPlus.slice(2, 3)} ${withPlus.slice(3, 6)} ${withPlus.slice(6, 9)} ${withPlus.slice(9, 12)}`.trim();
+    }
+    return `+${withPlus}`;
+}
+
+/** Format ISO date for "Recibido: 25 Feb 2026 - 09:43". */
+function formatReceivedAtForCliq(isoOrDate: string | Date | undefined): string {
+    if (!isoOrDate) return '';
+    try {
+        const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' -');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Builds the handover message to Cliq (formato operativo: cliente, desarrollo, intención, acción, mensaje gatillo, propietario, CRM, ID).
+ */
 function buildHandoverMessageForCliq(
     userData: UserData | undefined,
     userPhone: string,
     userName: string | undefined,
     crmLeadUrl: string,
-    isRetry: boolean
+    isRetry: boolean,
+    assignedAgentEmail?: string | null,
+    development?: string,
+    triggerTextOverride?: string,
+    receivedAtOverride?: string | Date
 ): string {
     const lines: string[] = [];
     lines.push(isRetry ? 'Lead calificado desde WhatsApp (reintento Cliq).' : 'Lead calificado desde WhatsApp.');
-    lines.push('---');
-    lines.push('CONTEXTO');
+    lines.push('');
     const name = (userName || (userData?.name as string) || userData?.nombre || '').trim();
-    lines.push(`Nombre: ${name || '(no indicado)'}`);
+    lines.push(`Cliente: ${name || '(no indicado)'}`);
+    lines.push(`Tel: ${formatPhoneForDisplay(userPhone.replace(/\s/g, ''))}`);
+    if (development) lines.push(`Desarrollo: ${development}`);
     const intencion = getIntencionForCliq(userData);
-    const perfil = getPerfilForCliq(userData);
-    if (intencion) lines.push(`Intención: ${intencion}`);
-    if (perfil && perfil !== intencion) lines.push(`Uso: ${perfil}`);
+    lines.push(`Intención: ${intencion || '(no indicada)'}`);
+    const accion = formatAccionPreferidaForCliq(userData?.preferred_action);
+    lines.push(`Acción preferida: ${accion}`);
     const horario = (userData?.horario_preferido || '').trim();
-    lines.push(`Horario de contacto / cita: ${horario || '(no indicado)'}`);
-    lines.push('Acción preferida: visita o llamada');
-    lines.push(`Tel: ${userPhone.replace(/\s/g, '')}`);
-    lines.push('---');
-    if (crmLeadUrl) lines.push(crmLeadUrl);
+    lines.push(`Horario sugerido: ${horario || '(no indicado)'}`);
+    lines.push('');
+    const triggerText = (triggerTextOverride ?? (userData as { trigger_text?: string })?.trigger_text ?? '').trim();
+    if (triggerText) {
+        lines.push('Mensaje del cliente:');
+        lines.push(`"${triggerText}"`);
+        lines.push('');
+    }
+    lines.push(`Asignado a: ${assignedAgentEmail && assignedAgentEmail.trim() ? assignedAgentEmail.trim() : '(sin asignar)'}`);
+    lines.push('');
+    lines.push('CRM:');
+    lines.push(crmLeadUrl && crmLeadUrl.trim() ? crmLeadUrl.trim() : '(pendiente)');
+    const receivedAt = formatReceivedAtForCliq(receivedAtOverride ?? (userData as { qualified_at?: string })?.qualified_at);
+    if (receivedAt) {
+        lines.push('');
+        lines.push(`Recibido: ${receivedAt}`);
+    }
+    const conversationId = `wa:${userPhone.replace(/\s/g, '')}|${development || ''}`;
+    if (conversationId !== 'wa:|') {
+        lines.push('');
+        lines.push('Conversación ID:');
+        lines.push(conversationId);
+    }
     return lines.join('\n');
 }
 
@@ -712,7 +777,18 @@ async function handleClientAccepta(
                 : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
             const conv = await getConversation(userPhone, development);
             const dataForCliq = { ...(conv?.user_data || {}), name: userName || (conv?.user_data as { name?: string })?.name, nombre: userName || (conv?.user_data as { nombre?: string })?.nombre };
-            const handoverText = buildHandoverMessageForCliq(dataForCliq as UserData, userPhone, userName, crm_lead_url, false);
+            const receivedAt = new Date();
+            const handoverText = buildHandoverMessageForCliq(
+                dataForCliq as UserData,
+                userPhone,
+                userName,
+                crm_lead_url,
+                false,
+                assigned_agent_email,
+                development,
+                triggerText,
+                receivedAt
+            );
             await postMessageToCliqViaWebhook({
                 channel_id,
                 channel_unique_name: unique_name,
@@ -732,7 +808,7 @@ async function handleClientAccepta(
     await markQualified(userPhone, development, zoho_lead_id || 'pending');
     await mergeUserData(userPhone, development, {
         lead_quality: 'ALTO',
-        preferred_action: 'visita_o_llamada',
+        preferred_action: userData?.preferred_action || 'visita_o_llamada',
         trigger_text: triggerText,
         qualified_at: new Date().toISOString(),
         ...(assigned_agent_email ? { assigned_owner_email: assigned_agent_email } : {}),
@@ -824,7 +900,15 @@ export async function retryCliqOnly(
         const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
             ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
             : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
-        const handoverText = buildHandoverMessageForCliq(conversation.user_data, userPhone, userName, crm_lead_url, true);
+        const handoverText = buildHandoverMessageForCliq(
+            conversation.user_data,
+            userPhone,
+            userName,
+            crm_lead_url,
+            true,
+            assigned_agent_email,
+            development
+        );
         await postMessageToCliqViaWebhook({
             channel_id,
             channel_unique_name: unique_name,
@@ -879,7 +963,9 @@ export async function resendCliqContext(
         userPhone,
         userName,
         crm_lead_url,
-        true
+        true,
+        thread.assigned_agent_email ?? undefined,
+        development
     );
 
     try {
@@ -923,7 +1009,9 @@ export async function sendInitialContextIfNeeded(userPhone: string, development:
         userPhone,
         userName,
         crm_lead_url,
-        true
+        true,
+        thread.assigned_agent_email ?? undefined,
+        development
     );
     try {
         await postMessageToCliqViaWebhook({

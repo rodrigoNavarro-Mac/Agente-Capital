@@ -194,11 +194,28 @@ Para que un usuario (monitor) esté en **todos** los canales: `CLIQ_ALWAYS_INVIT
 
 ### 3. Cliq hacia WA (respuesta del asesor)
 
-1. En Cliq, configura el **Channel Outgoing Webhook** del canal (o uno global) apuntando a:
-   `https://TU_DOMINIO/api/webhooks/cliq`
-   (reemplaza TU_DOMINIO por tu dominio de producción, ej. `tu-app.vercel.app`).
-2. Escribe un mensaje en ese canal (como usuario, no como bot).
-3. Donde ver: en **WhatsApp** le debe llegar ese mensaje al numero del cliente.
+Cuando alguien escribe en el canal de Cliq **que no sea el bot**, ese mensaje se reenvía al WhatsApp del cliente. El backend ignora mensajes del bot (por `sender`) y los que contienen `[WA-IN]` para evitar bucles.
+
+**Opción A – Channel Outgoing Webhook (Deluge que llama a nuestra API)**
+
+1. En el canal de Cliq: **Connectors** → **Edit Code** (Outgoing Webhook).
+2. El handler recibe `user`, `data`, `operation`. Cuando `operation == "message"` (o el que envíe Cliq), extrae el texto del mensaje y el `channel_id` (o el id del chat).
+3. En Deluge, si el remitente no es el bot, llama a nuestra API con `invokeUrl`:
+   - URL: `https://TU_DOMINIO/api/webhooks/cliq`
+   - Método: POST
+   - Body (JSON): `channel_id`, `message` (o `text`), `sender` (id o nombre del usuario, o objeto con `id`/`name`/`type` para que el backend filtre al bot), y `secret` = CLIQ_BRIDGE_SECRET.
+
+**Opción B – Bot Participation Handler que llama a nuestra API**
+
+Si usas Participation Handler en el bot, cuando `operation == "message_sent"` y el remitente no es el bot, en Deluge haz `invokeUrl` a `https://TU_DOMINIO/api/webhooks/cliq` con el mismo body (channel_id desde `chat.id`, mensaje desde `data.message.text`, sender desde `user`).
+
+**Comportamiento del backend**
+
+- Solo reenvía a WA si el mensaje **no** es del bot (detecta por `sender.id` tipo `b-`, `sender.type == "bot"`, o nombre/id del bot según `CLIQ_BOT_UNIQUE_NAME`).
+- Ignora mensajes que contienen `[WA-IN]`.
+- Acepta payload plano (`channel_id`, `message` o `text`, `sender`) o anidado (`chat.id`, `data.message.text`, `user`).
+
+4. Escribe en el canal como **usuario** (no como bot): ese mensaje debe llegar al WhatsApp del cliente.
 
 ### 4. Probar solo el Incoming Webhook (sin pasar por WhatsApp)
 
