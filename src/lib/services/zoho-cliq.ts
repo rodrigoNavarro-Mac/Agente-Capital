@@ -78,6 +78,60 @@ async function getCliqAccessToken(): Promise<string> {
   return cliqCachedToken;
 }
 
+/**
+ * Comprueba si el token Cliq funciona: obtiene access_token y llama a GET /channels.
+ * Si listChannelsStatus === 200, el token tiene al menos permiso de lectura en Cliq.
+ * Si listChannelsStatus === 401/403, el token no tiene acceso Cliq (revisa scopes al generar el refresh_token).
+ * Crear canal requiere scope ZohoCliq.Channels.CREATE; este test solo verifica que el token sirva para Cliq.
+ */
+export async function checkCliqToken(): Promise<{
+  tokenObtained: boolean;
+  listChannelsStatus?: number;
+  listChannelsError?: string;
+  apiUrl: string;
+  hint?: string;
+}> {
+  const apiUrl = ZOHO_CLIQ_API_URL;
+  try {
+    const token = await getCliqAccessToken();
+    if (!token) {
+      return { tokenObtained: false, apiUrl, hint: 'No se obtuvo access_token' };
+    }
+    const listRes = await fetchWithTimeout(
+      `${ZOHO_CLIQ_API_URL}/channels`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      },
+      CLIQ_REQUEST_TIMEOUT
+    );
+    const status = listRes.status;
+    if (!listRes.ok) {
+      const text = await listRes.text();
+      let hint = '';
+      if (status === 401 || status === 403) {
+        hint = 'Token sin permisos Cliq. Al generar el refresh_token debes incluir scope ZohoCliq.Channels.CREATE (y en la API Console el cliente debe tener ese scope).';
+      }
+      return {
+        tokenObtained: true,
+        listChannelsStatus: status,
+        listChannelsError: text.slice(0, 200),
+        apiUrl,
+        hint: hint || undefined,
+      };
+    }
+    return { tokenObtained: true, listChannelsStatus: status, apiUrl };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      tokenObtained: false,
+      listChannelsError: message,
+      apiUrl,
+      hint: 'Revisa ZOHO_CLIQ_REFRESH_TOKEN, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET y ZOHO_CLIQ_API_URL (region: cliq.zoho.com, cliq.zoho.eu, etc.).',
+    };
+  }
+}
+
 // =====================================================
 // TYPES
 // =====================================================
@@ -123,8 +177,13 @@ function isValidEmailForCliq(value: string): boolean {
 
 const MAX_CHANNEL_NAME_LENGTH = 80;
 
+/** Sanitize for Cliq: control chars, pipe -> hyphen, trim length. */
 function sanitizeChannelName(name: string): string {
-  const s = (name || '').replace(/[\x00-\x1f]/g, '').trim();
+  let s = (name || '')
+    .replace(/[\x00-\x1f]/g, '')
+    .replace(/\|/g, '-')
+    .trim();
+  s = s.replace(/\s*-\s*-\s*/g, ' - ').trim();
   return s.length > MAX_CHANNEL_NAME_LENGTH ? s.slice(0, MAX_CHANNEL_NAME_LENGTH) : s;
 }
 
@@ -157,8 +216,12 @@ export async function createCliqChannel(options: CreateCliqChannelOptions): Prom
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    const code = (data && typeof data.code === 'string') ? data.code : '';
+    const hint = code === 'operation_failed'
+      ? ' Verifica: 1) Token con scope ZohoCliq.Channels.CREATE 2) ZOHO_CLIQ_API_URL correcto para tu region (cliq.zoho.com / cliq.zoho.eu) 3) Emails pertenecen a la misma org Cliq.'
+      : '';
     logger.error('createCliqChannel failed', undefined, { status: response.status, data, bodySent: body }, 'zoho-cliq');
-    throw new Error(`Zoho Cliq createChannel: ${response.status} - ${JSON.stringify(data)}`);
+    throw new Error(`Zoho Cliq createChannel: ${response.status} - ${JSON.stringify(data)}${hint}`);
   }
 
   const channel_id = data.channel_id || data.id;

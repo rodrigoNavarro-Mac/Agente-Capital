@@ -106,9 +106,9 @@ function isValidEmail(value: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
 }
 
-/** Builds a unique channel name to avoid Cliq 400 operation_failed (duplicate name). */
+/** Builds a unique channel name for Cliq (guiones; evita "operation_failed" por caracteres no permitidos). */
 function buildUniqueCliqChannelName(development: string, firstName: string, userPhone: string): string {
-    const base = `WA | ${development} | ${firstName} | ${userPhone.replace(/\s/g, '')}`;
+    const base = `WA - ${development} - ${firstName} - ${userPhone.replace(/\s/g, '')}`;
     const suffix = Date.now().toString(36);
     return `${base}_${suffix}`;
 }

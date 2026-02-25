@@ -31,6 +31,29 @@ Si no ves la URL, suele estar en la misma pantalla del Incoming Webhook del bot,
 
 Si dejas `bridge_secret = "";` en el script y no defines `CLIQ_BRIDGE_SECRET` en el .env, el bot acepta todas las llamadas (sirve para probar; en producción conviene usar secreto).
 
+### Comprobar que el token de Cliq tiene los scopes correctos
+
+Zoho **no devuelve los scopes** en la respuesta del refresh token, así que hay que comprobarlos de forma indirecta:
+
+1. **Endpoint de diagnóstico (recomendado)**  
+   Con la app desplegada, abre en el navegador (o con `curl`):
+   ```
+   GET https://tu-dominio.vercel.app/api/debug/cliq-token-check
+   ```
+   - Si `listChannelsStatus === 200`: el token tiene acceso a Cliq (al menos lectura). Si aun así crear canal falla con `operation_failed`, casi seguro falta el scope **ZohoCliq.Channels.CREATE** en el refresh_token.
+   - Si `listChannelsStatus === 401` o `403`: el token no tiene permisos Cliq; el refresh_token se generó sin scopes de Cliq.
+
+2. **En Zoho API Console**  
+   - Entra a [API Console](https://api-console.zoho.com), abre tu **Client** (el que usas para Cliq).
+   - En **Scopes** revisa que esté marcado **ZohoCliq.Channels.CREATE** (y si quieres listar canales, **ZohoCliq.Channels.READ**).
+   - Los scopes del *cliente* son los que *puedes* pedir al generar un grant token. El **refresh_token** que tienes guardado solo tiene los scopes que seleccionaste **en el momento** de canjear el grant token por refresh_token. Si entonces no incluiste Cliq, hay que generar un **nuevo** grant token con ZohoCliq.Channels.CREATE marcado y canjearlo por un nuevo refresh_token, y actualizar `ZOHO_CLIQ_REFRESH_TOKEN` (o `ZOHO_REFRESH_TOKEN`) con ese valor.
+
+3. **Regenerar refresh_token con scope Cliq**  
+   - En API Console, en tu Client, en Scopes añade **ZohoCliq.Channels.CREATE**.
+   - Genera un **Grant Token** (Authorize) con ese scope incluido.
+   - Canjea el grant token por **access_token** y **refresh_token** (POST a `/oauth/v2/token` con `grant_type=authorization_code` y el `code`).
+   - El nuevo **refresh_token** ya tendrá el scope de Cliq; úsalo en `ZOHO_CLIQ_REFRESH_TOKEN`.
+
 ---
 
 ## Código a pegar (completo)
