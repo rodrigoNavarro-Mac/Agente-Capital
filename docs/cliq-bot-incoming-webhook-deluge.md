@@ -142,7 +142,9 @@ if (channel_unique_name.isEmpty()) {
 
 // Formato limpio para el asesor: [WA-IN] Nombre (telefono): mensaje
 formatted = "[WA-IN] " + user_name + " (" + user_phone + "): " + text;
-zoho.cliq.postToChannel(channel_unique_name, formatted);
+// Publicar como el bot (WA|BOT), no como el usuario que creo la integracion
+message = {"text": formatted, "bot": {"name": "WA|BOT", "image": ""}};
+zoho.cliq.postToChannel(channel_unique_name, message);
 
 response.put("ok", true);
 response.put("channel_id", channel_id);
