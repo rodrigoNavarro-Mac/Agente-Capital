@@ -609,13 +609,6 @@ function getIntencionForCliq(userData: UserData | undefined): string {
     return '';
 }
 
-/** Derives perfil (Uso) label from user_data; falls back to intencion when perfil_compra is missing. */
-function getPerfilForCliq(userData: UserData | undefined): string {
-    if (userData?.perfil_compra) return formatPerfilCompraForCliq(userData.perfil_compra);
-    if (userData?.intencion) return formatIntencionForCliq(userData.intencion);
-    return '';
-}
-
 /** Human-readable label for preferred_action (cita/visita/cotizacion). */
 function formatAccionPreferidaForCliq(preferred_action: string | undefined): string {
     if (!preferred_action) return 'Visita o llamada';
