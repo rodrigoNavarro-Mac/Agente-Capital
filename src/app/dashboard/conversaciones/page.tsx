@@ -33,6 +33,9 @@ interface ConversationRow {
     cliq_channel_id?: string | null;
     cliq_channel_unique_name?: string | null;
     assigned_agent_email?: string | null;
+    context_sent_at?: string | null;
+    last_cliq_wa_sent_at?: string | null;
+    last_cliq_wa_error?: string | null;
 }
 
 function maskPhone(phone: string): string {
@@ -355,22 +358,29 @@ export default function ConversacionesPage() {
                     Vista de estados por conversación para depuración. Se actualiza cada 15 s.
                 </p>
                 <p className="text-gray-500 text-xs mt-1">
-                    Cliq: el canal en Zoho Cliq se crea al calificar el lead. Para configurar el bot y probar comunicación bidireccional WA - Cliq, ve a <strong>Dashboard de WhatsApp</strong> (sección Bridge WhatsApp - Cliq).
+                    Bridge: WA-&gt;C = contexto enviado al canal; Cliq-&gt;WA = ultimo mensaje asesor a WhatsApp. Errores recientes se muestran en rojo. Usa <strong>Abrir Cliq</strong> para abrir el canal en Zoho Cliq; <strong>Debug</strong> para ver thread y conversacion; <strong>Historial WA</strong> para mensajes del bot.
                 </p>
             </div>
 
-            <div className="flex gap-2 items-center">
-                <label className="text-sm text-gray-600">Desarrollo:</label>
-                <select
-                    value={development}
-                    onChange={(e) => setDevelopment(e.target.value)}
-                    className="border border-gray-300 rounded px-3 py-1.5 text-sm"
-                >
-                    <option value="">Todos</option>
-                    <option value="FUEGO">FUEGO</option>
-                    <option value="AMURA">AMURA</option>
-                    <option value="PUNTO_TIERRA">PUNTO TIERRA</option>
-                </select>
+            <div className="flex gap-4 items-center flex-wrap">
+                <div className="flex gap-2 items-center">
+                    <label className="text-sm text-gray-600">Desarrollo:</label>
+                    <select
+                        value={development}
+                        onChange={(e) => setDevelopment(e.target.value)}
+                        className="border border-gray-300 rounded px-3 py-1.5 text-sm"
+                    >
+                        <option value="">Todos</option>
+                        <option value="FUEGO">FUEGO</option>
+                        <option value="AMURA">AMURA</option>
+                        <option value="PUNTO_TIERRA">PUNTO TIERRA</option>
+                    </select>
+                </div>
+                {conversations.some((c) => c.last_cliq_wa_error) && (
+                    <span className="text-xs text-red-600 font-medium">
+                        Bridge: {conversations.filter((c) => c.last_cliq_wa_error).length} canal(es) con error reciente (revisa columna Bridge)
+                    </span>
+                )}
             </div>
 
             {debugPanel !== null && (
@@ -385,6 +395,18 @@ export default function ConversacionesPage() {
                             Cerrar
                         </button>
                     </div>
+                    {typeof debugPanel === 'object' && debugPanel !== null && 'thread' in debugPanel && (debugPanel as { thread?: { cliq_channel_unique_name?: string } }).thread?.cliq_channel_unique_name && (
+                        <p className="text-xs text-gray-600 mb-2">
+                            <a
+                                href="https://cliq.zoho.com"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-violet-600 hover:underline"
+                            >
+                                Abrir canal en Cliq (#{(debugPanel as { thread: { cliq_channel_unique_name: string } }).thread.cliq_channel_unique_name})
+                            </a>
+                        </p>
+                    )}
                     <pre className="text-xs overflow-auto max-h-64 p-2 bg-white border border-gray-100 rounded">
                         {JSON.stringify(debugPanel, null, 2)}
                     </pre>
@@ -445,6 +467,7 @@ export default function ConversacionesPage() {
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Calificado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Lead Zoho</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Canal Cliq</th>
+                                <th className="text-left py-2 px-3 font-medium text-gray-700">Bridge (WA-Cliq)</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Asignado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Última interacción</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Datos (nombre / horario)</th>
@@ -489,6 +512,24 @@ export default function ConversacionesPage() {
                                         ) : (
                                             '-'
                                         )}
+                                    </td>
+                                    <td className="py-2 px-3 text-xs">
+                                        {c.cliq_channel_id ? (
+                                            <div className="space-y-0.5">
+                                                <div title="Contexto enviado al canal">
+                                                    WA-&gt;C: {c.context_sent_at ? format(new Date(c.context_sent_at), 'dd/MM HH:mm', { locale: es }) : 'No'}
+                                                </div>
+                                                <div title="Ultimo mensaje asesor Cliq -&gt; WA">
+                                                    Cliq-&gt;WA: {c.last_cliq_wa_error ? (
+                                                        <span className="text-red-600" title={c.last_cliq_wa_error}>Error</span>
+                                                    ) : c.last_cliq_wa_sent_at ? (
+                                                        format(new Date(c.last_cliq_wa_sent_at), 'dd/MM HH:mm', { locale: es })
+                                                    ) : (
+                                                        'Nunca'
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : '-'}
                                     </td>
                                     <td className="py-2 px-3 text-gray-600 text-xs max-w-[180px] truncate" title={c.assigned_agent_email || ''}>
                                         {c.assigned_agent_email || '-'}
@@ -546,6 +587,17 @@ export default function ConversacionesPage() {
                                                 development={c.development}
                                                 onShowDebug={(data) => setDebugPanel(data)}
                                             />
+                                            {c.cliq_channel_unique_name && (
+                                                <a
+                                                    href="https://cliq.zoho.com"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className={`${retryButtonClass} inline-block bg-violet-100 text-violet-800 hover:bg-violet-200`}
+                                                    title={`Abrir Cliq (canal: #${c.cliq_channel_unique_name})`}
+                                                >
+                                                    Abrir Cliq
+                                                </a>
+                                            )}
                                         </span>
                                     </td>
                                 </tr>

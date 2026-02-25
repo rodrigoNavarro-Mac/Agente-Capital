@@ -56,6 +56,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                     cliq_channel_unique_name: thread.cliq_channel_unique_name,
                     assigned_agent_email: thread.assigned_agent_email,
                     status: thread.status,
+                    context_sent_at: thread.context_sent_at,
+                    last_cliq_wa_sent_at: thread.last_cliq_wa_sent_at,
+                    last_cliq_wa_error: thread.last_cliq_wa_error,
                 }
                 : null,
             debug: {

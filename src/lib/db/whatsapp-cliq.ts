@@ -18,6 +18,10 @@ export interface WhatsAppCliqThread {
   status: string;
   /** When the initial context message was sent to this channel; null = not sent yet. */
   context_sent_at: Date | null;
+  /** When we last sent a message from Cliq to WA for this channel; null = never. */
+  last_cliq_wa_sent_at: Date | null;
+  /** Last error when Cliq->WA send failed; null if last send succeeded. */
+  last_cliq_wa_error: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -69,7 +73,7 @@ export async function getCliqThreadByUserAndDev(
 ): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
     `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
+            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, created_at, updated_at
      FROM whatsapp_cliq_threads
      WHERE user_phone = $1 AND development = $2`,
     [user_phone, development]
@@ -77,22 +81,19 @@ export async function getCliqThreadByUserAndDev(
   return result.rows[0] ?? null;
 }
 
+const THREAD_SELECT = `id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
+            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, created_at, updated_at`;
+
 export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
-    `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
-     FROM whatsapp_cliq_threads
-     WHERE cliq_channel_id = $1`,
+    `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads WHERE cliq_channel_id = $1`,
     [cliq_channel_id]
   );
   let row = result.rows[0] ?? null;
   if (!row && /^\d+$/.test(cliq_channel_id)) {
     const withO = 'O' + cliq_channel_id;
     const ret2 = await query<WhatsAppCliqThread>(
-      `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-              cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
-       FROM whatsapp_cliq_threads
-       WHERE cliq_channel_id = $1`,
+      `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads WHERE cliq_channel_id = $1`,
       [withO]
     );
     row = ret2.rows[0] ?? null;
@@ -101,16 +102,34 @@ export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise
     const withoutO = cliq_channel_id.slice(1);
     if (/^\d+$/.test(withoutO)) {
       const ret3 = await query<WhatsAppCliqThread>(
-        `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-                cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
-         FROM whatsapp_cliq_threads
-         WHERE cliq_channel_id = $1`,
+        `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads WHERE cliq_channel_id = $1`,
         [withoutO]
       );
       row = ret3.rows[0] ?? null;
     }
   }
   return row;
+}
+
+/** Normalize unique name for comparison: lowercase, no #, spaces, hyphens, underscores. */
+function normalizeUniqueName(name: string): string {
+  return name.replace(/^#/, '').replace(/\s+/g, '').replace(/-/g, '').replace(/_/g, '').toLowerCase().trim();
+}
+
+/**
+ * Find thread by channel unique name (e.g. wafuegorodrigommzte).
+ * Cliq Participation Handler may send CT_... as chat.id but we store O... from create API;
+ * unique_name is stable and can be sent in the payload for fallback lookup.
+ */
+export async function getCliqThreadByChannelUniqueName(unique_name: string): Promise<WhatsAppCliqThread | null> {
+  const norm = normalizeUniqueName(unique_name);
+  if (!norm) return null;
+  const result = await query<WhatsAppCliqThread>(
+    `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads
+     WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cliq_channel_unique_name, ''), '#', ''), ' ', ''), '-', ''), '_', '')) = $1`,
+    [norm]
+  );
+  return result.rows[0] ?? null;
 }
 
 /** Mark that the initial context message was sent to this thread's channel (so we only send once). */
@@ -122,4 +141,26 @@ export async function markContextSent(user_phone: string, development: string): 
     [user_phone, development]
   );
   logger.debug('markContextSent', { user_phone: user_phone.substring(0, 6) + '***', development }, 'whatsapp-cliq-db');
+}
+
+/** Mark successful Cliq->WA send for this thread (for dashboard / debugging). */
+export async function markCliqWaSent(user_phone: string, development: string): Promise<void> {
+  await query(
+    `UPDATE whatsapp_cliq_threads
+     SET last_cliq_wa_sent_at = CURRENT_TIMESTAMP, last_cliq_wa_error = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE user_phone = $1 AND development = $2`,
+    [user_phone, development]
+  );
+}
+
+/** Record Cliq->WA send failure for this channel (by channel_id) so dashboard can show last error. */
+export async function setCliqWaError(cliq_channel_id: string, error_message: string): Promise<void> {
+  const msg = error_message.slice(0, 500);
+  const alt = cliq_channel_id.startsWith('O') ? cliq_channel_id.slice(1) : 'O' + cliq_channel_id;
+  await query(
+    `UPDATE whatsapp_cliq_threads
+     SET last_cliq_wa_error = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE cliq_channel_id = $2 OR cliq_channel_id = $3`,
+    [msg, cliq_channel_id, alt]
+  );
 }

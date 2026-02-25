@@ -164,6 +164,12 @@ export interface RecentConversationRow {
     cliq_channel_unique_name?: string | null;
     /** Email del asesor asignado (desde thread o Zoho Owner) */
     assigned_agent_email?: string | null;
+    /** Cuando se envió contexto WA->Cliq al canal */
+    context_sent_at?: string | null;
+    /** Último envío exitoso Cliq->WA */
+    last_cliq_wa_sent_at?: string | null;
+    /** Último error al enviar Cliq->WA (null si el último envío fue ok) */
+    last_cliq_wa_error?: string | null;
 }
 
 /**
@@ -174,16 +180,17 @@ export async function getRecentConversations(
     development?: string
 ): Promise<RecentConversationRow[]> {
     try {
+        const cols = `c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
+                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email,
+                      t.context_sent_at, t.last_cliq_wa_sent_at, t.last_cliq_wa_error`;
         const sql = development
-            ? `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
-                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email
+            ? `SELECT ${cols}
                FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
                WHERE c.development = $1
                ORDER BY c.last_interaction DESC
                LIMIT $2`
-            : `SELECT c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
-                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email
+            : `SELECT ${cols}
                FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
                ORDER BY c.last_interaction DESC
@@ -258,6 +265,18 @@ export async function updateState(
     } catch (error) {
         logger.error('Error updating state', error, { userPhone, development, newState }, 'conversation-state');
         return false;
+    }
+}
+
+/** Update last_interaction only (e.g. when a message is sent from Cliq to WA so dashboard shows recent activity). */
+export async function touchLastInteraction(userPhone: string, development: string): Promise<void> {
+    try {
+        await query(
+            `UPDATE whatsapp_conversations SET last_interaction = CURRENT_TIMESTAMP WHERE user_phone = $1 AND development = $2`,
+            [userPhone, development]
+        );
+    } catch (error) {
+        logger.error('touchLastInteraction', error, { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-state');
     }
 }
 

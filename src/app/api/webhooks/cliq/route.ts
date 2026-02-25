@@ -9,7 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCliqThreadByChannelId } from '@/lib/db/whatsapp-cliq';
+import { getCliqThreadByChannelId, getCliqThreadByChannelUniqueName, markCliqWaSent, setCliqWaError } from '@/lib/db/whatsapp-cliq';
+import { touchLastInteraction } from '@/lib/modules/whatsapp/conversation-state';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';
 import { logger } from '@/lib/utils/logger';
@@ -85,6 +86,18 @@ function getSender(body: Record<string, unknown>): unknown {
     return body.user;
 }
 
+/** Extract channel unique name for fallback lookup (Cliq sends CT_... as id but we store O...; unique_name matches). */
+function getChannelUniqueName(body: Record<string, unknown>): string {
+    const u = body.channel_unique_name;
+    if (typeof u === 'string') return u.trim();
+    const chat = body.chat as Record<string, unknown> | undefined;
+    if (chat) {
+        const a = chat.channel_unique_name ?? chat.unique_name ?? chat.name ?? chat.title;
+        if (typeof a === 'string') return a.trim();
+    }
+    return '';
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
         let body: Record<string, unknown> = {};
@@ -127,24 +140,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             return NextResponse.json({ ok: true, skipped: 'bot' }, { status: 200 });
         }
 
-        const thread = await getCliqThreadByChannelId(channel_id);
+        let thread = await getCliqThreadByChannelId(channel_id);
         if (!thread) {
-            logger.warn('Cliq webhook: no thread for channel (revisa whatsapp_cliq_threads.cliq_channel_id)', { channel_id }, 'webhooks-cliq');
+            const channel_unique_name = getChannelUniqueName(body);
+            if (channel_unique_name) {
+                thread = await getCliqThreadByChannelUniqueName(channel_unique_name);
+            }
+        }
+        if (!thread) {
+            logger.warn('Cliq webhook: no thread for channel (revisa whatsapp_cliq_threads.cliq_channel_id o envia channel_unique_name)', { channel_id }, 'webhooks-cliq');
             return NextResponse.json({ ok: true }, { status: 200 });
         }
 
         const phone_number_id = thread.phone_number_id || getPhoneNumberIdByDevelopment(thread.development);
         if (!phone_number_id) {
             logger.warn('Cliq webhook: no phone_number_id for thread', { channel_id, development: thread.development }, 'webhooks-cliq');
+            await setCliqWaError(channel_id, 'no phone_number_id');
             return NextResponse.json({ ok: true }, { status: 200 });
         }
 
         const to = thread.user_phone.replace(/^\+/, '');
         await sendTextMessage(phone_number_id, to, message, undefined);
+        await markCliqWaSent(thread.user_phone, thread.development);
+        await touchLastInteraction(thread.user_phone, thread.development);
         logger.info('Cliq->WA sent', { channel_id, to: to.substring(0, 6) + '***' }, 'webhooks-cliq');
         return NextResponse.json({ ok: true }, { status: 200 });
     } catch (error) {
         logger.error('Cliq webhook error', error, {}, 'webhooks-cliq');
+        try {
+            const cid = getChannelId(body);
+            if (cid) await setCliqWaError(cid, error instanceof Error ? error.message : String(error));
+        } catch {
+            // ignore
+        }
         return NextResponse.json({ ok: true }, { status: 200 });
     }
 }

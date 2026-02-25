@@ -272,9 +272,22 @@ if (channel_id == null || channel_id.toString().length() == 0) {
     return response;
 }
 
+// Cliq envia chat.id como CT_... pero en la BD guardamos O... al crear el canal. Enviar channel_unique_name permite al backend encontrar el thread.
+channel_unique_name = "";
+if (chat.get("unique_name") != null) {
+    channel_unique_name = chat.get("unique_name").toString().trim();
+} else if (chat.get("channel_unique_name") != null) {
+    channel_unique_name = chat.get("channel_unique_name").toString().trim();
+} else if (chat.get("name") != null) {
+    channel_unique_name = chat.get("name").toString().trim();
+} else if (chat.get("title") != null) {
+    channel_unique_name = chat.get("title").toString().trim();
+}
+
 bridge_secret = "";
 payload = Map();
 payload.put("channel_id", channel_id);
+payload.put("channel_unique_name", channel_unique_name);
 payload.put("message", message_text);
 payload.put("sender", user);
 payload.put("secret", bridge_secret);
