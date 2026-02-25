@@ -114,22 +114,32 @@ export interface CliqWebhookPayload {
 /**
  * Create a Cliq channel and optionally invite users by email.
  * POST /api/v2/channels
+ * Requires OAuth scope: ZohoCliq.Channels.CREATE (use a Cliq-enabled refresh token, not only CRM).
  * Zoho Cliq only accepts valid email addresses in email_ids; invalid values cause 400 input_pattern_mismatch.
  */
 function isValidEmailForCliq(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
 }
 
+const MAX_CHANNEL_NAME_LENGTH = 80;
+
+function sanitizeChannelName(name: string): string {
+  const s = (name || '').replace(/[\x00-\x1f]/g, '').trim();
+  return s.length > MAX_CHANNEL_NAME_LENGTH ? s.slice(0, MAX_CHANNEL_NAME_LENGTH) : s;
+}
+
 export async function createCliqChannel(options: CreateCliqChannelOptions): Promise<CreateCliqChannelResult> {
   const { name, description, level = 'organization', email_ids } = options;
   const token = await getCliqAccessToken();
 
+  // Cliq REST API v2: name, level, description, invite_only, email_ids (optional)
+  const validEmails = email_ids && email_ids.length > 0 ? email_ids.filter(isValidEmailForCliq) : [];
   const body: Record<string, unknown> = {
-    name,
+    name: sanitizeChannelName(name),
     level,
+    invite_only: false,
   };
   if (description) body.description = description;
-  const validEmails = email_ids && email_ids.length > 0 ? email_ids.filter(isValidEmailForCliq) : [];
   if (validEmails.length > 0) body.email_ids = validEmails;
 
   const response = await fetchWithTimeout(
