@@ -85,7 +85,32 @@ export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise
      WHERE cliq_channel_id = $1`,
     [cliq_channel_id]
   );
-  return result.rows[0] ?? null;
+  let row = result.rows[0] ?? null;
+  if (!row && /^\d+$/.test(cliq_channel_id)) {
+    const withO = 'O' + cliq_channel_id;
+    const ret2 = await query<WhatsAppCliqThread>(
+      `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
+              cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
+       FROM whatsapp_cliq_threads
+       WHERE cliq_channel_id = $1`,
+      [withO]
+    );
+    row = ret2.rows[0] ?? null;
+  }
+  if (!row && cliq_channel_id.startsWith('O') && cliq_channel_id.length > 1) {
+    const withoutO = cliq_channel_id.slice(1);
+    if (/^\d+$/.test(withoutO)) {
+      const ret3 = await query<WhatsAppCliqThread>(
+        `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
+                cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
+         FROM whatsapp_cliq_threads
+         WHERE cliq_channel_id = $1`,
+        [withoutO]
+      );
+      row = ret3.rows[0] ?? null;
+    }
+  }
+  return row;
 }
 
 /** Mark that the initial context message was sent to this thread's channel (so we only send once). */

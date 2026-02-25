@@ -217,137 +217,141 @@ Si usas Participation Handler en el bot, cuando `operation == "message_sent"` y 
 
 4. Escribe en el canal como **usuario** (no como bot): ese mensaje debe llegar al WhatsApp del cliente.
 
-#### Código Deluge para Cliq -> WA (Participation Handler)
+#### Codigo Deluge para Cliq -> WA (Participation Handler)
 
-Para que los mensajes que escribe el asesor en el canal se envíen a WhatsApp, el **bot** debe tener configurado el **Participation Handler**. Cuando alguien (que no sea el bot) escribe en el canal, Cliq ejecuta este código; el código debe llamar a nuestra API.
+Para que los mensajes que escribe el asesor en el canal se envien a WhatsApp, el **bot** debe tener configurado el **Participation Handler**. Cuando alguien (que no sea el bot) escribe en el canal, Cliq ejecuta este codigo; el codigo debe llamar a nuestra API.
 
-1. En Cliq: **Bots** → bot **WA|BOT** → **Participation Handler** → **Edit Code**.
-2. Pega el siguiente código. La URL ya apunta a `https://agente-capital.vercel.app/api/webhooks/cliq`. Si dejas `bridge_secret` vacío, el backend acepta la llamada igual (solo para pruebas; en producción conviene definir `CLIQ_BRIDGE_SECRET` en Vercel y poner aquí el mismo valor).
+**Importante:** Este codigo va en **Participation Handler**, NO en Incoming Webhook Handler. Son pantallas distintas:
+- **Incoming Webhook Handler** = usa `body` y `headers` (WA -> Cliq)
+- **Participation Handler** = usa los datos que Cliq inyecta (Cliq -> WA)
+
+1. En Cliq: **Bots** -> bot **WA|BOT** -> **Participation Handler** -> **Edit Code**.
+2. Pega el siguiente codigo. La URL apunta a `https://agente-capital.vercel.app/api/webhooks/cliq`. Deja `bridge_secret = ""` para pruebas; en produccion usa el mismo valor que `CLIQ_BRIDGE_SECRET` en Vercel.
+
+**Importante:** NO inicialices `operation`, `data`, `user`, `chat` - Cliq los inyecta en runtime. Si los declaras vacios, el script siempre sale antes de llamar a la API y nada llega a Vercel. Si el editor da "Variable is not defined", prueba guardar de todos modos (algunos entornos validan distinto al ejecutar).
 
 ```javascript
-// Cliq -> WA: cuando un usuario escribe en el canal, enviar ese mensaje a WhatsApp
-// En Creator, puedes probar así inicializando request vacío. En Cliq, sustituye este bloque por el de más abajo.
-request = Map();
-request.put("operation", "message_sent");
-request.put("data", Map());
-request.put("user", Map());
-request.put("chat", Map());
-
-// Inicializa el response
 response = Map();
-
-// Intenta obtener datos evitando errores por nulos
-operation = ifnull(request.get("operation"), "");
-data_map = ifnull(request.get("data"), Map());
-user_map = ifnull(request.get("user"), Map());
-chat_map = ifnull(request.get("chat"), Map());
 
 if (operation != "message_sent") {
     return response;
 }
 
-// Validar que user y chat tengan datos
-if (user_map.isEmpty() || chat_map.isEmpty()) {
+if (user.isEmpty() || chat.isEmpty()) {
     return response;
 }
 
-// Ignora mensajes de bots (id inicia con 'b-' o type=='bot')
-sender_id = ifnull(user_map.get("id"), "");
-sender_type = ifnull(user_map.get("type"), "");
-if (sender_id.toString().startsWith("b-") || sender_type == "bot") {
+sender_id = "";
+if (user.get("id") != null) {
+    sender_id = user.get("id").toString();
+}
+sender_type = "";
+if (user.get("type") != null) {
+    sender_type = user.get("type").toString();
+}
+if (sender_id.indexOf("b-") == 0 || sender_type == "bot") {
     return response;
 }
 
-// Extrae el mensaje de la estructura esperada
-msg = data_map.get("message");
+msg = data.get("message");
 message_text = "";
-
-if (msg != null) {
-    text_obj = msg.get("text");
-    if (text_obj != null) {
-        message_text = text_obj.toString().trim();
-    }
+if (msg != null && msg.get("text") != null) {
+    message_text = msg.get("text").toString().trim();
 }
 
-// Si no hay texto, salir
-if (message_text == null || message_text.length() == 0) {
+if (message_text.length() == 0) {
     return response;
 }
 
-// Ignorar mensajes que vienen de WhatsApp (ciclo infinito)
 if (message_text.indexOf("[WA-IN]") >= 0) {
     return response;
 }
 
-// Extrae id del canal
-channel_id = chat_map.get("id");
+channel_id = chat.get("id");
 if (channel_id == null || channel_id.toString().length() == 0) {
     return response;
 }
 
-// Construir el payload
+bridge_secret = "";
 payload = Map();
 payload.put("channel_id", channel_id);
 payload.put("message", message_text);
-payload.put("sender", user_map);
-bridge_secret = ""; // Pon aquí tu secreto si usas CLIQ_BRIDGE_SECRET en el backend
+payload.put("sender", user);
 payload.put("secret", bridge_secret);
 
-// Llama a la API vía invokeurl
 api_url = "https://agente-capital.vercel.app/api/webhooks/cliq";
+headers = Map();
+headers.put("Content-Type", "application/json");
+
+// En Cliq, invokeurl a URLs externas requiere una Connection. Usa el NOMBRE DEL ENLACE DE CONEXION (Connection Link Name), no el nombre del servicio. Ej.: si creaste la conexion con link name "wabot", pon "wabot".
+connection_name = "wabot";
+
 invokeurl
 [
     url : api_url
     type : POST
-    parameters : payload
-    content-type : application/json
+    body : payload.toString()
+    headers : headers
+    connection : connection_name
 ];
 
 return response;
 ```
 
-**Bloque para Cliq (solo las 5 líneas):**  
-  channel_id = chat_map.get("id");
-  if (channel_id != null) {
-    api_url = "https://agente-capital.vercel.app/api/webhooks/cliq";
-    bridge_secret = "";
+**Crear la Connection en Cliq (obligatorio para que invokeurl funcione):**
 
-    payload = Map();
-    payload.put("channel_id", channel_id);
-    payload.put("message", message_text);
-    payload.put("sender", user_map);
-    payload.put("secret", bridge_secret);
+1. En Cliq: **Tu foto/avatar** -> **Bots and Tools** -> **Connections** -> **Create Connection**.
+2. En **Custom Services** (o donde permita crear servicio custom), **Create Service**.
+3. **Service details:**
+   - **Service Name:** Agente WA Bridge (o el que quieras).
+   - **Service Link Name:** `agente_bridge` (minusculas, sin espacios; este nombre va en el script).
+   - **Authentication Type:** **API Key**.
+   - **Actual Parameter:** `X-Bridge-Token` (o cualquier nombre).
+   - **Parameter Display Name:** Token.
+   - **Param Type:** **Header**.
+4. **Connection details:**
+   - **Connection Name:** Agente Bridge.
+   - **Connection Link Name:** `agente_bridge`.
+   - Si usas `CLIQ_BRIDGE_SECRET` en Vercel, en el valor del parametro pon ese mismo valor; si no, pon cualquier texto (ej. `bridge`).
+5. **Create and Connect** y completa el paso de permisos.
+6. En el Participation Handler usa el **Connection Link Name** (ej. `wabot`), no el nombre del servicio: `connection_name = "wabot";`
 
-    invokeurl
-    [
-      url: api_url
-      type: POST
-      parameters: payload
-      content-type: application/json
-    ];
-  }
-}
-return response;
-```
-
-**Bloque para Cliq (solo las 5 líneas):** cuando pegues este código en el **Participation Handler dentro de Cliq** (no en Creator), sustituye las 5 líneas que empiezan por `request = Map();` por estas otras, para usar los datos reales que Cliq inyecta (operation, data, user, chat):
-
-```javascript
-request = Map();
-request.put("operation", operation);
-request.put("data", data);
-request.put("user", user);
-request.put("chat", chat);
-```
-
-Así en el editor (Creator) el script compila con el bloque por defecto; en Cliq usas el bloque de arriba y el handler recibe los datos reales.
+**Si al guardar aparece "Variable 'operation' is not defined":** Confirma que estas en **Participation Handler** (no en Incoming Webhook Handler). En algunos entornos hay que hacer "Save" aunque el validador marque error - en runtime Cliq inyecta las variables.
 
 3. Opcional: si más adelante configuras `CLIQ_BRIDGE_SECRET` en Vercel, cambia `bridge_secret = "";` por `bridge_secret = "tu_secreto";` (el mismo valor que en Vercel).
 4. Guarda el handler. Asegúrate de que el bot tiene **Listen to messages** activado en la configuración de participación.
 
 Si en tu entorno Deluge el body se envía con otro parámetro (por ejemplo `requestBody` en lugar de `parameters`), ajusta la tarea `invokeurl` según la documentación de tu producto (Cliq/CRM).
 
-### 4. Probar solo el Incoming Webhook (sin pasar por WhatsApp)
+### 4. Diagnosticar si el Participation Handler se ejecuta
+
+Si los mensajes no llegan a WhatsApp ni a los logs de Vercel, el handler puede no estar ejecutandose. Prueba esto:
+
+1. En el Participation Handler, **reemplaza todo el codigo** temporalmente por:
+
+```javascript
+response = Map();
+response.put("type", "transient_message");
+response.put("text", "Handler OK - si ves esto, el bot escucha el canal");
+return response;
+```
+
+2. Guarda, escribe un mensaje en el canal y mira si aparece un mensaje temporal que dice "Handler OK - si ves esto, el bot escucha el canal".
+
+- **Si aparece:** El handler se ejecuta. El problema esta en el invokeurl (Connection, URL bloqueada, etc.). Sigue al paso 5.
+- **Si NO aparece:** El handler no se ejecuta. Verifica: (a) el bot WA|BOT esta en la lista de participantes del canal, (b) "Listen to messages" esta activado, (c) escribes en un canal creado por el backend (el que tiene nombre tipo "WA | FUEGO | ...").
+
+3. Si el handler SÍ se ejecuta, prueba si invokeurl puede llamar a una URL externa. Crea una URL de prueba en [webhook.site](https://webhook.site) (te dan una URL unica). Cambia en el script:
+
+```
+api_url = "https://webhook.site/TU-ID-UNICO";
+```
+
+4. Restaura el script completo, cambia solo esa linea, guarda y escribe en el canal. Revisa webhook.site: si llega el POST, invokeurl funciona y el fallo esta en nuestra API o el payload. Si no llega nada, invokeurl puede estar bloqueado o requerir una **Connection** en Cliq.
+
+5. Si invokeurl requiere Connection: En Cliq, ve a **Bots & Tools** -> **Connections** -> **Create Connection**. Crea una **Custom connection** apuntando a tu API (o una URL generica si no hay opcion "sin auth"). Usa el nombre de esa connection en el invokeurl: `connection : "nombre_conexion"`.
+
+### 5. Probar solo el Incoming Webhook (sin pasar por WhatsApp)
 
 Desde tu maquina, con la URL del bot y un canal que ya exista (necesitas el `channel_unique_name` del canal):
 

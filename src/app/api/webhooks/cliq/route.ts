@@ -29,9 +29,15 @@ function getSecretFromRequest(request: NextRequest, body: Record<string, unknown
 
 /** Extract channel id from flat or nested payload (Channel Webhook or Participation Handler). */
 function getChannelId(body: Record<string, unknown>): string {
-    if (typeof body.channel_id === 'string') return body.channel_id.trim();
+    const c = body.channel_id;
+    if (typeof c === 'string') return c.trim();
+    if (typeof c === 'number') return String(c);
     const chat = body.chat as Record<string, unknown> | undefined;
-    if (chat && typeof chat.id === 'string') return chat.id.trim();
+    if (chat) {
+        const id = chat.id;
+        if (typeof id === 'string') return id.trim();
+        if (typeof id === 'number') return String(id);
+    }
     return '';
 }
 
@@ -123,7 +129,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         const thread = await getCliqThreadByChannelId(channel_id);
         if (!thread) {
-            logger.debug('Cliq webhook: no thread for channel', { channel_id }, 'webhooks-cliq');
+            logger.warn('Cliq webhook: no thread for channel (revisa whatsapp_cliq_threads.cliq_channel_id)', { channel_id }, 'webhooks-cliq');
             return NextResponse.json({ ok: true }, { status: 200 });
         }
 
