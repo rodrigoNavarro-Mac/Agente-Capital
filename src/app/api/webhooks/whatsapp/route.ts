@@ -17,7 +17,7 @@ import {
 } from '@/lib/modules/whatsapp/webhook-handler';
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage, sendImageMessage, sendDocumentMessage } from '@/lib/modules/whatsapp/whatsapp-client';
-import { handleIncomingMessage } from '@/lib/modules/whatsapp/conversation-flows';
+import { handleIncomingMessage, sendInitialContextIfNeeded } from '@/lib/modules/whatsapp/conversation-flows';
 import { getConversation } from '@/lib/modules/whatsapp/conversation-state';
 import { logger } from '@/lib/utils/logger';
 import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId } from '@/lib/db/postgres';
@@ -307,6 +307,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         try {
             const thread = await getCliqThreadByUserAndDev(userPhone, development);
             if (thread?.cliq_channel_id && thread?.cliq_channel_unique_name) {
+                // If channel exists but context was never sent, send it once (then mark so we do not repeat)
+                await sendInitialContextIfNeeded(userPhone, development);
                 const conversation = await getConversation(userPhone, development);
                 const user_name = (conversation?.user_data as { name?: string } | undefined)?.name || 'Cliente';
                 const crm_lead_url = thread.zoho_lead_id && process.env.ZOHO_CRM_BASE_URL

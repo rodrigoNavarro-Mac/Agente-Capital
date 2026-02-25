@@ -28,11 +28,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
         const user_data = conversation?.user_data as Record<string, unknown> | undefined;
         const user_data_keys = user_data ? Object.keys(user_data) : [];
+        // Derive intencion/perfil when missing (e.g. LLM path did not persist them before fix)
+        const intencionRaw = user_data?.intencion ?? user_data?.perfil_compra ?? (user_data?.preferred_action === 'visita_o_llamada' ? 'Visita o llamada' : null);
+        const perfilRaw = user_data?.perfil_compra ?? user_data?.intencion ?? null;
         const context_preview = {
             nombre: user_data?.name ?? user_data?.nombre ?? '(vacío)',
-            intencion: user_data?.intencion ?? '(vacío)',
+            intencion: intencionRaw != null ? String(intencionRaw) : '(vacío)',
             horario_preferido: user_data?.horario_preferido ?? '(vacío)',
-            perfil_compra: user_data?.perfil_compra ?? '(vacío)',
+            perfil_compra: perfilRaw != null ? String(perfilRaw) : '(vacío)',
         };
 
         return NextResponse.json({

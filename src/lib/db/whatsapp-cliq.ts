@@ -16,6 +16,8 @@ export interface WhatsAppCliqThread {
   cliq_channel_id: string;
   cliq_channel_unique_name: string | null;
   status: string;
+  /** When the initial context message was sent to this channel; null = not sent yet. */
+  context_sent_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -67,7 +69,7 @@ export async function getCliqThreadByUserAndDev(
 ): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
     `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, status, created_at, updated_at
+            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
      FROM whatsapp_cliq_threads
      WHERE user_phone = $1 AND development = $2`,
     [user_phone, development]
@@ -78,10 +80,20 @@ export async function getCliqThreadByUserAndDev(
 export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
     `SELECT id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, status, created_at, updated_at
+            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, created_at, updated_at
      FROM whatsapp_cliq_threads
      WHERE cliq_channel_id = $1`,
     [cliq_channel_id]
   );
   return result.rows[0] ?? null;
 }
+
+/** Mark that the initial context message was sent to this thread's channel (so we only send once). */
+export async function markContextSent(user_phone: string, development: string): Promise<void> {
+  await query(
+    `UPDATE whatsapp_cliq_threads
+     SET context_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE user_phone = $1 AND development = $2`,
+    [user_phone, development]
+  );
+  logger.debug('markContextSent', { user_phone: user_phone.substring(0, 6) + '***', development }, 'whatsapp-cliq-db');
