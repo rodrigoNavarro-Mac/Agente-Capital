@@ -4346,6 +4346,62 @@ export async function getWhatsAppLogs(options: {
 }
 
 /**
+ * Log entry for a single conversation (full message/response for chat view)
+ */
+export interface WhatsAppConversationLogEntry {
+  id: number;
+  message: string;
+  response: string;
+  created_at: Date;
+  received_at: Date | null;
+  response_at: Date | null;
+}
+
+/**
+ * Obtiene el historial de mensajes de una conversación (user_phone + development) en orden cronológico.
+ * Para mostrar en UI tipo chat: mensaje del usuario y respuesta del bot por cada intercambio.
+ */
+export async function getWhatsAppLogsByConversation(
+  user_phone: string,
+  development: string,
+  limit = 100
+): Promise<WhatsAppConversationLogEntry[]> {
+  try {
+    const result = await query<{
+      id: number;
+      message: string;
+      response: string;
+      created_at: Date;
+      received_at: Date | null;
+      response_at: Date | null;
+    }>(
+      `SELECT id, message, response, created_at, received_at, response_at
+       FROM whatsapp_logs
+       WHERE user_phone = $1 AND development = $2
+       ORDER BY created_at ASC
+       LIMIT $3`,
+      [user_phone, development, Math.min(limit, 200)]
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      message: row.message ?? '',
+      response: row.response ?? '',
+      created_at: row.created_at,
+      received_at: row.received_at ?? null,
+      response_at: row.response_at ?? null,
+    }));
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
  * Cuenta total de logs con filtros opcionales
  */
 export async function countWhatsAppLogs(options: {

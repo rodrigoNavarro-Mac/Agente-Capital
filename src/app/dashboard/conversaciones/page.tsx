@@ -232,12 +232,82 @@ function DebugCliqButton({
     );
 }
 
+/** One exchange: user message + bot response with timestamps */
+interface ConversationLogEntry {
+    id: number;
+    message: string;
+    response: string;
+    created_at: string;
+    received_at: string | null;
+    response_at: string | null;
+}
+
+function HistoryWAButton({
+    userPhone,
+    development,
+    maskedPhone,
+    onShowHistory,
+}: {
+    userPhone: string;
+    development: string;
+    maskedPhone: string;
+    onShowHistory: (data: { userPhone: string; development: string; logs: ConversationLogEntry[]; maskedPhone: string }) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        setLoading(true);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch(
+                `/api/whatsapp/logs/conversation?user_phone=${encodeURIComponent(userPhone)}&development=${encodeURIComponent(development)}`,
+                { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+            );
+            const data = await res.json();
+            if (!res.ok) {
+                onShowHistory({ userPhone, development, logs: [], maskedPhone });
+                return;
+            }
+            const logs = (data.logs || []).map((l: { id: number; message: string; response: string; created_at: string; received_at: string | null; response_at: string | null }) => ({
+                id: l.id,
+                message: l.message ?? '',
+                response: l.response ?? '',
+                created_at: l.created_at,
+                received_at: l.received_at ?? null,
+                response_at: l.response_at ?? null,
+            }));
+            onShowHistory({ userPhone, development, logs, maskedPhone });
+        } catch {
+            onShowHistory({ userPhone, development, logs: [], maskedPhone });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className={`${retryButtonClass} bg-sky-100 text-sky-800 hover:bg-sky-200`}
+        >
+            {loading ? '...' : 'Historial WA'}
+        </button>
+    );
+}
+
 export default function ConversacionesPage() {
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [development, setDevelopment] = useState<string>('');
     const [debugPanel, setDebugPanel] = useState<unknown>(null);
+    const [historyPanel, setHistoryPanel] = useState<{
+        userPhone: string;
+        development: string;
+        logs: ConversationLogEntry[];
+        maskedPhone: string;
+    } | null>(null);
 
     const fetchConversations = useCallback(async () => {
         try {
@@ -318,6 +388,47 @@ export default function ConversacionesPage() {
                     <pre className="text-xs overflow-auto max-h-64 p-2 bg-white border border-gray-100 rounded">
                         {JSON.stringify(debugPanel, null, 2)}
                     </pre>
+                </div>
+            )}
+
+            {historyPanel !== null && (
+                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-2xl">
+                    <div className="flex justify-between items-center mb-3">
+                        <h2 className="text-sm font-semibold text-gray-800">
+                            Historial WhatsApp – {historyPanel.maskedPhone} / {historyPanel.development}
+                        </h2>
+                        <button
+                            type="button"
+                            onClick={() => setHistoryPanel(null)}
+                            className="text-xs px-2 py-1 rounded bg-gray-200 hover:bg-gray-300"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                    <div className="border border-gray-100 rounded bg-gray-50 max-h-96 overflow-y-auto p-3 space-y-3">
+                        {historyPanel.logs.length === 0 ? (
+                            <p className="text-sm text-gray-500">No hay mensajes registrados para esta conversación.</p>
+                        ) : (
+                            historyPanel.logs.map((entry) => (
+                                <div key={entry.id} className="space-y-2">
+                                    <div className="flex justify-start">
+                                        <div className="max-w-[85%] rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-800">
+                                            <span className="text-xs text-gray-500 block mb-0.5">
+                                                {format(new Date(entry.created_at), 'dd/MM/yy HH:mm', { locale: es })} – Cliente
+                                            </span>
+                                            <span className="whitespace-pre-wrap break-words">{entry.message}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <div className="max-w-[85%] rounded-lg bg-sky-100 px-3 py-2 text-sm text-gray-800">
+                                            <span className="text-xs text-sky-600 block mb-0.5">Bot</span>
+                                            <span className="whitespace-pre-wrap break-words">{entry.response}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -424,6 +535,12 @@ export default function ConversacionesPage() {
                                                     onError={(msg) => setError(msg)}
                                                 />
                                             )}
+                                            <HistoryWAButton
+                                                userPhone={c.user_phone}
+                                                development={c.development}
+                                                maskedPhone={maskPhone(c.user_phone)}
+                                                onShowHistory={(data) => setHistoryPanel(data)}
+                                            />
                                             <DebugCliqButton
                                                 userPhone={c.user_phone}
                                                 development={c.development}

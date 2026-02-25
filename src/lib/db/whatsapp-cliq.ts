@@ -97,3 +97,4 @@ export async function markContextSent(user_phone: string, development: string): 
     [user_phone, development]
   );
   logger.debug('markContextSent', { user_phone: user_phone.substring(0, 6) + '***', development }, 'whatsapp-cliq-db');
+}
