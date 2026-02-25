@@ -250,8 +250,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 }
             }
 
-            // Si el flujo no devolvió mensajes (ej. conversación ya en handover), enviar al menos un texto
-            if (flowResult.outboundMessages.length === 0 && !messageSent) {
+            // Si el flujo no devolvio mensajes: en handover (CLIENT_ACCEPTA) no enviamos nada; en otros casos fallback.
+            if (flowResult.outboundMessages.length === 0 && !messageSent && flowResult.nextState !== 'CLIENT_ACCEPTA') {
                 const fallbackSent = await sendTextMessage(
                     phoneNumberId,
                     userPhone,

@@ -140,7 +140,8 @@ if (channel_unique_name.isEmpty()) {
   return response;
 }
 
-formatted = "[WA-IN] " + user_name + " (" + user_phone + ")\n" + text + "\nDEV:" + development + "\nCRM:" + crm_lead_url;
+// Formato limpio para el asesor: [WA-IN] Nombre (telefono): mensaje
+formatted = "[WA-IN] " + user_name + " (" + user_phone + "): " + text;
 zoho.cliq.postToChannel(channel_unique_name, formatted);
 
 response.put("ok", true);

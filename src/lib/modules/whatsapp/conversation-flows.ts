@@ -193,11 +193,10 @@ export async function handleIncomingMessage(
         return await handleInicio(development, userPhone);
     }
 
-    // Si el usuario ya estaba calificado / en handover, no reiniciar flujo; responder breve y mantener estado
+    // Si el usuario ya esta calificado / en handover, el bot no responde: la conversacion es asesor-cliente (Cliq <-> WA).
     if (conversation.state === 'CLIENT_ACCEPTA' || conversation.is_qualified) {
-        const postHandoverReply = 'Ya estás en contacto con un asesor. Cualquier duda puedes escribir aquí.';
         return {
-            outboundMessages: [{ type: 'text', text: postHandoverReply }],
+            outboundMessages: [],
             nextState: 'CLIENT_ACCEPTA',
         };
     }
