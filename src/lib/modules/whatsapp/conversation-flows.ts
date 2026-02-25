@@ -25,7 +25,7 @@ import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler'
 import { selectResponseAndState, getResponseText, type ResponseKey } from './response-selector';
 import { logger } from '@/lib/utils/logger';
 import { createZohoLeadRecord, searchZohoLeadsByPhone, getZohoLeadById } from '@/lib/services/zoho-crm';
-import { createCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
+import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 import { upsertWhatsAppCliqThread } from '@/lib/db/whatsapp-cliq';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 
@@ -569,6 +569,28 @@ function buildDatosFromUserData(userData: UserData): string | undefined {
     return parts.length > 0 ? parts.join('. ') : undefined;
 }
 
+/** Builds the first message to Cliq with context (user_data) so agents see lead info and preferred action. */
+function buildHandoverMessageForCliq(
+    userData: UserData | undefined,
+    userPhone: string,
+    userName: string | undefined,
+    crmLeadUrl: string,
+    isRetry: boolean
+): string {
+    const lines: string[] = [];
+    lines.push(isRetry ? 'Lead calificado desde WhatsApp (reintento Cliq).' : 'Lead calificado desde WhatsApp.');
+    lines.push('Acción preferida: visita/llamada.');
+    const name = userName || (userData?.name as string) || userData?.nombre;
+    if (name) lines.push(`Nombre: ${String(name).trim()}`);
+    if (userData?.intencion) lines.push(`Intención: ${String(userData.intencion)}`);
+    if (userData?.horario_preferido) lines.push(`Horario preferido: ${String(userData.horario_preferido).slice(0, 80)}`);
+    if (userData?.preferred_action) lines.push(`Acción elegida: ${String(userData.preferred_action)}`);
+    if (userData?.lead_quality) lines.push(`Calidad lead: ${userData.lead_quality}`);
+    lines.push(`Tel: ${userPhone.replace(/\s/g, '')}`);
+    if (crmLeadUrl) lines.push(crmLeadUrl);
+    return lines.join('\n');
+}
+
 async function handleClientAccepta(
     development: string,
     userPhone: string,
@@ -627,6 +649,7 @@ async function handleClientAccepta(
                 level: 'organization',
                 email_ids: buildCliqChannelInviteEmails(assigned_agent_email),
             });
+            await addBotToCliqChannel(unique_name);
             await upsertWhatsAppCliqThread({
                 user_phone: userPhone,
                 development,
@@ -640,13 +663,14 @@ async function handleClientAccepta(
             const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
                 ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
                 : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
+            const handoverText = buildHandoverMessageForCliq(userData, userPhone, userName, crm_lead_url, false);
             await postMessageToCliqViaWebhook({
                 channel_id,
                 channel_unique_name: unique_name,
                 development,
                 user_phone: userPhone,
                 user_name: userName || 'Cliente',
-                text: `Lead calificado desde WhatsApp. Acción preferida: visita/llamada.${crm_lead_url ? ` ${crm_lead_url}` : ''}`,
+                text: handoverText,
                 crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
             });
         } catch (cliErr) {
@@ -736,6 +760,7 @@ export async function retryCliqOnly(
             level: 'organization',
             email_ids: inviteEmails,
         });
+        await addBotToCliqChannel(unique_name);
         await upsertWhatsAppCliqThread({
             user_phone: userPhone,
             development,
@@ -749,13 +774,14 @@ export async function retryCliqOnly(
         const crm_lead_url = process.env.ZOHO_CRM_BASE_URL
             ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${zoho_lead_id}`
             : (zoho_lead_id ? `Lead ID: ${zoho_lead_id}` : '');
+        const handoverText = buildHandoverMessageForCliq(conversation.user_data, userPhone, userName, crm_lead_url, true);
         await postMessageToCliqViaWebhook({
             channel_id,
             channel_unique_name: unique_name,
             development,
             user_phone: userPhone,
             user_name: userName || 'Cliente',
-            text: `Lead calificado desde WhatsApp (reintento Cliq). Acción preferida: visita/llamada.${crm_lead_url ? ` ${crm_lead_url}` : ''}`,
+            text: handoverText,
             crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
         });
     } catch (cliErr) {

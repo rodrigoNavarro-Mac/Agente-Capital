@@ -13,9 +13,9 @@ La URL la da **Zoho Cliq** cuando configuras el bot:
 1. Entra a **Zoho Cliq** (cliq.zoho.com).
 2. Menu o engranaje → **Bots** → **Add Bot** (o edita el bot, ej. **WA|BOT**).
 3. Activa **Incoming Webhook Handler** (o **Incoming Webhook**).
-4. Cliq muestra la **URL del webhook** (algo como `https://cliq.zoho.com/...` o la URL que use tu dominio de Cliq). **Copia esa URL**.
+4. Para **WA|BOT** la URL es **Incoming Webhook Endpoint:** `https://cliq.zoho.com/api/v2/bots/wabot/incoming` (el unique name del bot es `wabot`).
 5. En tu `.env` (o en Vercel) pon:  
-   `CLIQ_BOT_INCOMING_WEBHOOK_URL=https://la-url-que-copiaste`
+   `CLIQ_BOT_INCOMING_WEBHOOK_URL=https://cliq.zoho.com/api/v2/bots/wabot/incoming`
 
 Si no ves la URL, suele estar en la misma pantalla del Incoming Webhook del bot, a veces como “Webhook URL” o “Endpoint URL”.
 
@@ -30,6 +30,16 @@ Si no ves la URL, suele estar en la misma pantalla del Incoming Webhook del bot,
    (la misma frase que en el .env)
 
 Si dejas `bridge_secret = "";` en el script y no defines `CLIQ_BRIDGE_SECRET` en el .env, el bot acepta todas las llamadas (sirve para probar; en producción conviene usar secreto).
+
+### CLIQ_BOT_UNIQUE_NAME (para que el bot aparezca en el canal)
+
+El nombre visible del bot es **WA|BOT**; en la API de Cliq su **unique name** es `wabot` (aparece en la ruta del webhook: `/api/v2/bots/wabot/incoming`). Para que la app añada el bot al canal recién creado (y así el bot aparezca en el chat y funcione el bridge Cliq → WA), en tu `.env` (o Vercel) pon:
+
+```
+CLIQ_BOT_UNIQUE_NAME=wabot
+```
+
+Si no configuras `CLIQ_BOT_UNIQUE_NAME`, el canal se crea e invita a los usuarios por email, pero el bot no se añade al canal (no verás al bot en el chat y el bridge Cliq → WA puede no funcionar para ese canal).
 
 ### Comprobar que el token de Cliq tiene los scopes correctos
 

@@ -22,6 +22,7 @@ const ZOHO_CLIQ_CLIENT_SECRET = process.env.ZOHO_CLIQ_CLIENT_SECRET || process.e
 const ZOHO_CLIQ_REFRESH_TOKEN = process.env.ZOHO_CLIQ_REFRESH_TOKEN || process.env.ZOHO_REFRESH_TOKEN || '';
 const CLIQ_BRIDGE_SECRET = process.env.CLIQ_BRIDGE_SECRET || '';
 const CLIQ_BOT_INCOMING_WEBHOOK_URL = (process.env.CLIQ_BOT_INCOMING_WEBHOOK_URL || '').trim();
+const CLIQ_BOT_UNIQUE_NAME = (process.env.CLIQ_BOT_UNIQUE_NAME || '').trim();
 
 const CLIQ_REQUEST_TIMEOUT = TIMEOUTS.ZOHO_REQUEST;
 
@@ -232,6 +233,38 @@ export async function createCliqChannel(options: CreateCliqChannelOptions): Prom
   }
 
   return { channel_id: String(channel_id), unique_name: String(unique_name) };
+}
+
+/**
+ * Add the WA|BOT bot to the channel so it can post and receive messages (bridge WA <-> Cliq).
+ * POST /api/v2/bots/{BOT_UNIQUE_NAME}/associate
+ * Requires scope ZohoCliq.Channels.UPDATE. Set CLIQ_BOT_UNIQUE_NAME in env (e.g. bot name in Cliq).
+ */
+export async function addBotToCliqChannel(channelUniqueName: string): Promise<boolean> {
+  if (!CLIQ_BOT_UNIQUE_NAME) {
+    logger.warn('addBotToCliqChannel: CLIQ_BOT_UNIQUE_NAME not set, bot will not be in channel', {}, 'zoho-cliq');
+    return false;
+  }
+  const token = await getCliqAccessToken();
+  const response = await fetchWithTimeout(
+    `${ZOHO_CLIQ_API_URL}/bots/${encodeURIComponent(CLIQ_BOT_UNIQUE_NAME)}/associate`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ channel_unique_name: channelUniqueName }),
+    },
+    CLIQ_REQUEST_TIMEOUT
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    logger.error('addBotToCliqChannel failed', undefined, { status: response.status, channelUniqueName, text }, 'zoho-cliq');
+    return false;
+  }
+  logger.info('addBotToCliqChannel ok', { channelUniqueName }, 'zoho-cliq');
+  return true;
 }
 
 // =====================================================
