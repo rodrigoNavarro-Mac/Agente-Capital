@@ -211,7 +211,7 @@ export default function WhatsAppDashboard() {
                         <ul className="list-disc list-inside text-gray-600 space-y-0.5">
                             <li>En Cliq: crear bot (ej. WA|BOT) con <strong>Incoming Webhook Handler</strong>.</li>
                             <li>En el handler (Deluge), pegar el código que recibe el payload del backend y publica en el canal con <code className="bg-gray-100 px-1 rounded">zoho.cliq.postToChannel</code>.</li>
-                            <li>Configurar en el backend: <code className="bg-gray-100 px-1 rounded">CLIQ_BOT_INCOMING_WEBHOOK_URL</code> (URL del webhook del bot) y <code className="bg-gray-100 px-1 rounded">CLIQ_BRIDGE_SECRET</code> para validación.</li>
+                            <li>Configurar en el backend: <code className="bg-gray-100 px-1 rounded">CLIQ_BOT_INCOMING_WEBHOOK_URL</code>, <code className="bg-gray-100 px-1 rounded">CLIQ_BOT_INCOMING_WEBHOOK_TOKEN</code> (token de Bots &amp; Tools → Webhook Tokens; sin él Cliq devuelve 401) y <code className="bg-gray-100 px-1 rounded">CLIQ_BRIDGE_SECRET</code> para validación.</li>
                         </ul>
                         <p className="mt-2 text-gray-500">
                             Código Deluge y contrato: <code className="bg-gray-100 px-1 rounded text-xs">docs/cliq-bot-incoming-webhook-deluge.md</code>

@@ -19,6 +19,27 @@ La URL la da **Zoho Cliq** cuando configuras el bot:
 
 Si no ves la URL, suele estar en la misma pantalla del Incoming Webhook del bot, a veces como “Webhook URL” o “Endpoint URL”.
 
+### CLIQ_BOT_INCOMING_WEBHOOK_TOKEN (obligatorio para que Cliq acepte el POST; sin esto da 401)
+
+Cliq exige un **Webhook Token** en la URL para autenticar las llamadas al Incoming Webhook. Sin este token, la API de Cliq responde **401 Unauthorized**.
+
+**Donde se saca el token (paso a paso):**
+
+1. Entra a **Zoho Cliq** en el navegador: [cliq.zoho.com](https://cliq.zoho.com).
+2. Abre el **menu** (icono de hamburguesa o tu foto/avatar arriba) y entra a **Bots & Tools** (o "Bots y herramientas").
+3. En el listado de herramientas internas, busca **Webhook Tokens** (o "Tokens de webhook") y haz clic.
+4. Cliq puede pedir **verificación 2FA** (código por app o SMS). Completa la verificación y pulsa **Continue**.
+5. Dentro de Webhook Tokens, haz clic en **Generate New Token** (o "Generar nuevo token").
+6. Escribe un nombre para el token (ej. `WA Bridge`) y confirma. Cliq mostrará el **token** (una cadena larga).
+7. **Copia el token de inmediato**: solo se muestra una vez. Si no lo copias, tendrás que generar otro token nuevo.
+8. Pega ese valor en tu `.env` o en **Vercel** → Settings → Environment Variables:
+   - Nombre: `CLIQ_BOT_INCOMING_WEBHOOK_TOKEN`
+   - Valor: el token que copiaste (sin espacios ni comillas).
+
+**Importante:** Este token **no** está en la pantalla del bot (donde ves la URL del Incoming Webhook). Es una sección distinta: **Bots & Tools → Webhook Tokens**. Puedes tener hasta 5 tokens; si ya tienes uno, puedes reutilizarlo o crear uno nuevo solo para este bridge.
+
+Documentación oficial: [Webhook Tokens en Cliq](https://www.zoho.com/cliq/help/platform/webhook-tokens.html).
+
 ### CLIQ_BRIDGE_SECRET
 
 **No se obtiene de ningun lado:** tu eliges una frase o string secreto (ej. una contraseña larga) y la usas en dos sitios:

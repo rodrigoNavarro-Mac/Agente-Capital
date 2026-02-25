@@ -22,6 +22,8 @@ const ZOHO_CLIQ_CLIENT_SECRET = process.env.ZOHO_CLIQ_CLIENT_SECRET || process.e
 const ZOHO_CLIQ_REFRESH_TOKEN = process.env.ZOHO_CLIQ_REFRESH_TOKEN || process.env.ZOHO_REFRESH_TOKEN || '';
 const CLIQ_BRIDGE_SECRET = process.env.CLIQ_BRIDGE_SECRET || '';
 const CLIQ_BOT_INCOMING_WEBHOOK_URL = (process.env.CLIQ_BOT_INCOMING_WEBHOOK_URL || '').trim();
+/** Webhook Token from Cliq (Bots & Tools > Webhook Tokens). Required for Incoming Webhook; without it Cliq returns 401. */
+const CLIQ_BOT_INCOMING_WEBHOOK_TOKEN = (process.env.CLIQ_BOT_INCOMING_WEBHOOK_TOKEN || process.env.CLIQ_WEBHOOK_TOKEN || '').trim();
 const CLIQ_BOT_UNIQUE_NAME = (process.env.CLIQ_BOT_UNIQUE_NAME || '').trim();
 
 const CLIQ_REQUEST_TIMEOUT = TIMEOUTS.ZOHO_REQUEST;
@@ -280,13 +282,20 @@ export async function postMessageToCliqViaWebhook(payload: CliqWebhookPayload): 
     logger.warn('postMessageToCliqViaWebhook: CLIQ_BOT_INCOMING_WEBHOOK_URL not set', {}, 'zoho-cliq');
     return { ok: false };
   }
+  if (!CLIQ_BOT_INCOMING_WEBHOOK_TOKEN) {
+    logger.warn('postMessageToCliqViaWebhook: CLIQ_BOT_INCOMING_WEBHOOK_TOKEN (or CLIQ_WEBHOOK_TOKEN) not set; Cliq may return 401', {}, 'zoho-cliq');
+  }
   if (!CLIQ_BRIDGE_SECRET) {
     logger.warn('postMessageToCliqViaWebhook: CLIQ_BRIDGE_SECRET not set', {}, 'zoho-cliq');
   }
 
+  const url = CLIQ_BOT_INCOMING_WEBHOOK_TOKEN
+    ? `${CLIQ_BOT_INCOMING_WEBHOOK_URL}${CLIQ_BOT_INCOMING_WEBHOOK_URL.includes('?') ? '&' : '?'}zapikey=${encodeURIComponent(CLIQ_BOT_INCOMING_WEBHOOK_TOKEN)}`
+    : CLIQ_BOT_INCOMING_WEBHOOK_URL;
+
   try {
     const response = await fetchWithTimeout(
-      CLIQ_BOT_INCOMING_WEBHOOK_URL,
+      url,
       {
         method: 'POST',
         headers: {
