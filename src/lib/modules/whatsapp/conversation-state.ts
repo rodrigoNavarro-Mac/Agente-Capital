@@ -172,36 +172,56 @@ export interface RecentConversationRow {
     last_cliq_wa_error?: string | null;
 }
 
+/** Options for filtering recent conversations by role/scope */
+export interface GetRecentConversationsOptions {
+    /** Filter by list of developments (e.g. user's allowed developments) */
+    developments?: string[];
+    /** Filter by assigned agent email (e.g. "my leads" only) */
+    assignedAgentEmail?: string;
+}
+
 /**
- * Lista conversaciones recientes ordenadas por última interacción (para depuración / UI de estados)
+ * Lista conversaciones recientes ordenadas por última interacción (para depuración / UI de estados).
+ * Supports optional single development (legacy) or options.developments + options.assignedAgentEmail.
  */
 export async function getRecentConversations(
     limit: number = 50,
-    development?: string
+    development?: string,
+    options?: GetRecentConversationsOptions
 ): Promise<RecentConversationRow[]> {
     try {
         const cols = `c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
                       t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email,
                       t.context_sent_at, t.last_cliq_wa_sent_at, t.last_cliq_wa_error`;
-        const sql = development
-            ? `SELECT ${cols}
-               FROM whatsapp_conversations c
-               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
-               WHERE c.development = $1
-               ORDER BY c.last_interaction DESC
-               LIMIT $2`
-            : `SELECT ${cols}
-               FROM whatsapp_conversations c
-               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development
-               ORDER BY c.last_interaction DESC
-               LIMIT $1`;
-        const result = await query<RecentConversationRow>(
-            sql,
-            development ? [development, limit] : [limit]
-        );
+        const baseFrom = `FROM whatsapp_conversations c
+               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development`;
+        const params: unknown[] = [];
+        const conditions: string[] = [];
+        let paramIndex = 1;
+
+        if (options?.developments?.length) {
+            conditions.push(`LOWER(c.development) = ANY($${paramIndex})`);
+            params.push(options.developments.map((d) => d.toLowerCase()));
+            paramIndex++;
+        } else if (development) {
+            conditions.push(`c.development = $${paramIndex}`);
+            params.push(development);
+            paramIndex++;
+        }
+
+        if (options?.assignedAgentEmail) {
+            conditions.push(`t.assigned_agent_email = $${paramIndex}`);
+            params.push(options.assignedAgentEmail);
+            paramIndex++;
+        }
+
+        params.push(limit);
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        const sql = `SELECT ${cols} ${baseFrom} ${whereClause} ORDER BY c.last_interaction DESC LIMIT $${paramIndex}`;
+        const result = await query<RecentConversationRow>(sql, params);
         return result.rows || [];
     } catch (error) {
-        logger.error('Error getting recent conversations', error, { limit, development }, 'conversation-state');
+        logger.error('Error getting recent conversations', error, { limit, development, options }, 'conversation-state');
         return [];
     }
 }

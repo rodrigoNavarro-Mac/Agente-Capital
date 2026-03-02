@@ -2,14 +2,16 @@
 
 /**
  * =====================================================
- * CONVERSACIONES WHATSAPP - Vista de estados (depuración)
+ * CONVERSACIONES WHATSAPP - Vista por rol y depuración
  * =====================================================
- * Lista conversaciones recientes con estado actual para depurar el flujo.
+ * Admin/CEO: ven todas las conversaciones (debug). Sales manager: solo desarrollos asignados
+ * y opción "Solo mis leads". Incluye estado de handover al asesor e historial.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { getUserDevelopments } from '@/lib/api';
 
 interface UserDataPreview {
     name?: string;
@@ -41,6 +43,23 @@ interface ConversationRow {
 function maskPhone(phone: string): string {
     if (!phone || phone.length < 6) return '***';
     return phone.substring(0, 4) + '***' + phone.slice(-3);
+}
+
+/** Handover status for display: Enviado | Sin asignar | Error */
+function getHandoverStatus(c: ConversationRow): { label: string; className: string } {
+    if (c.last_cliq_wa_error) {
+        return { label: 'Error', className: 'text-red-700 font-medium' };
+    }
+    if (c.cliq_channel_id && c.context_sent_at) {
+        return { label: 'Enviado', className: 'text-green-700 font-medium' };
+    }
+    if (c.is_qualified && !c.assigned_agent_email) {
+        return { label: 'Sin asignar', className: 'text-amber-600' };
+    }
+    if (!c.is_qualified) {
+        return { label: '-', className: 'text-gray-400' };
+    }
+    return { label: 'Pendiente', className: 'text-gray-600' };
 }
 
 const retryButtonClass = 'text-xs px-2 py-1 rounded disabled:opacity-50';
@@ -299,11 +318,18 @@ function HistoryWAButton({
     );
 }
 
+const FULL_ACCESS_ROLES = ['admin', 'ceo'];
+const DEFAULT_DEVELOPMENTS = ['FUEGO', 'AMURA', 'PUNTO_TIERRA'];
+
 export default function ConversacionesPage() {
     const [conversations, setConversations] = useState<ConversationRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [development, setDevelopment] = useState<string>('');
+    const [scope, setScope] = useState<'all' | 'my_leads'>('my_leads');
+    const [userRole, setUserRole] = useState<string | null>(null);
+    const [userId, setUserId] = useState<number | null>(null);
+    const [developmentOptions, setDevelopmentOptions] = useState<string[]>([]);
     const [debugPanel, setDebugPanel] = useState<unknown>(null);
     const [historyPanel, setHistoryPanel] = useState<{
         userPhone: string;
@@ -312,14 +338,73 @@ export default function ConversacionesPage() {
         maskedPhone: string;
     } | null>(null);
 
-    const fetchConversations = useCallback(async () => {
+    const fullAccess = userRole !== null && FULL_ACCESS_ROLES.includes(userRole);
+
+    // Load user from token and allowed developments for non-admin
+    useEffect(() => {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) {
+            setUserRole(null);
+            setUserId(null);
+            setDevelopmentOptions(DEFAULT_DEVELOPMENTS);
+            return;
+        }
         try {
-            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const payload = JSON.parse(atob(token.split('.')[1])) as { userId?: number; role?: string };
+            const uid = payload.userId;
+            const role = payload.role;
+            setUserId(uid ?? null);
+            setUserRole(role ?? null);
+            if (role && FULL_ACCESS_ROLES.includes(role)) {
+                setDevelopmentOptions(DEFAULT_DEVELOPMENTS);
+            } else if (role && typeof uid === 'number') {
+                getUserDevelopments(uid)
+                    .then((devs) => {
+                        const withQuery = devs.filter((d) => d.can_query);
+                        const names = Array.from(new Set(withQuery.map((d) => d.development)));
+                        setDevelopmentOptions(names.length > 0 ? names : []);
+                        if (names.length > 0) {
+                            setDevelopment((prev) => (prev ? prev : names[0]));
+                        }
+                    })
+                    .catch(() => setDevelopmentOptions([]));
+            }
+        } catch {
+            setUserRole(null);
+            setUserId(null);
+            setDevelopmentOptions([]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount to load user and developments
+    }, []);
+
+    const fetchConversations = useCallback(async () => {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) {
+            setError('No autorizado. Inicia sesión de nuevo.');
+            setConversations([]);
+            setLoading(false);
+            return;
+        }
+        try {
             const params = new URLSearchParams({ limit: '100' });
             if (development) params.set('development', development);
+            if (!fullAccess && userRole === 'sales_manager') {
+                params.set('scope', scope);
+            }
             const res = await fetch(`/api/whatsapp/conversations?${params}`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                headers: { Authorization: `Bearer ${token}` },
             });
+            if (res.status === 401) {
+                setError('No autorizado. Inicia sesión de nuevo.');
+                setConversations([]);
+                return;
+            }
+            if (res.status === 403) {
+                const data = await res.json().catch(() => ({}));
+                setError(data.error || 'Sin permiso para ver estas conversaciones.');
+                setConversations([]);
+                return;
+            }
             if (!res.ok) throw new Error('Error al cargar conversaciones');
             const data = await res.json();
             setConversations(data.conversations || []);
@@ -330,14 +415,22 @@ export default function ConversacionesPage() {
         } finally {
             setLoading(false);
         }
-    }, [development]);
+    }, [development, scope, fullAccess, userRole]);
 
     useEffect(() => {
+        if (userRole === null && userId === null) {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            if (!token) {
+                setLoading(false);
+                setError('No autorizado. Inicia sesión de nuevo.');
+                return;
+            }
+        }
         setLoading(true);
         fetchConversations();
         const interval = setInterval(fetchConversations, 15000);
         return () => clearInterval(interval);
-    }, [fetchConversations]);
+    }, [fetchConversations, userRole, userId]);
 
     if (error) {
         return (
@@ -353,12 +446,14 @@ export default function ConversacionesPage() {
     return (
         <div className="p-6 space-y-4">
             <div>
-                <h1 className="text-2xl font-bold text-gray-900">Estados de conversaciones WhatsApp</h1>
+                <h1 className="text-2xl font-bold text-gray-900">Conversaciones WhatsApp</h1>
                 <p className="text-gray-600 text-sm mt-1">
-                    Vista de estados por conversación para depuración. Se actualiza cada 15 s.
+                    {fullAccess
+                        ? 'Vista completa para depuración. Se actualiza cada 15 s.'
+                        : 'Solo ves conversaciones de tus desarrollos. Se actualiza cada 15 s.'}
                 </p>
                 <p className="text-gray-500 text-xs mt-1">
-                    Bridge: WA-&gt;C = contexto enviado al canal; Cliq-&gt;WA = ultimo mensaje asesor a WhatsApp. Errores recientes se muestran en rojo. Usa <strong>Abrir Cliq</strong> para abrir el canal en Zoho Cliq; <strong>Debug</strong> para ver thread y conversacion; <strong>Historial WA</strong> para mensajes del bot.
+                    Bridge: WA-&gt;C = contexto enviado al canal; Cliq-&gt;WA = ultimo mensaje asesor a WhatsApp. <strong>Handover</strong> = estado de asignación al asesor. <strong>Historial WA</strong> = mensajes del bot.
                 </p>
             </div>
 
@@ -370,12 +465,25 @@ export default function ConversacionesPage() {
                         onChange={(e) => setDevelopment(e.target.value)}
                         className="border border-gray-300 rounded px-3 py-1.5 text-sm"
                     >
-                        <option value="">Todos</option>
-                        <option value="FUEGO">FUEGO</option>
-                        <option value="AMURA">AMURA</option>
-                        <option value="PUNTO_TIERRA">PUNTO TIERRA</option>
+                        <option value="">{fullAccess ? 'Todos' : 'Todos (mis desarrollos)'}</option>
+                        {developmentOptions.map((dev) => (
+                            <option key={dev} value={dev}>{dev}</option>
+                        ))}
                     </select>
                 </div>
+                {!fullAccess && userRole === 'sales_manager' && (
+                    <div className="flex gap-2 items-center">
+                        <label className="text-sm text-gray-600">Ver:</label>
+                        <select
+                            value={scope}
+                            onChange={(e) => setScope(e.target.value as 'all' | 'my_leads')}
+                            className="border border-gray-300 rounded px-3 py-1.5 text-sm"
+                        >
+                            <option value="my_leads">Solo mis leads</option>
+                            <option value="all">Todas (mis desarrollos)</option>
+                        </select>
+                    </div>
+                )}
                 {conversations.some((c) => c.last_cliq_wa_error) && (
                     <span className="text-xs text-red-600 font-medium">
                         Bridge: {conversations.filter((c) => c.last_cliq_wa_error).length} canal(es) con error reciente (revisa columna Bridge)
@@ -467,6 +575,7 @@ export default function ConversacionesPage() {
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Calificado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Lead Zoho</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Canal Cliq</th>
+                                <th className="text-left py-2 px-3 font-medium text-gray-700" title="Estado handover al asesor">Handover</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Bridge (WA-Cliq)</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Asignado</th>
                                 <th className="text-left py-2 px-3 font-medium text-gray-700">Última interacción</th>
@@ -512,6 +621,9 @@ export default function ConversacionesPage() {
                                         ) : (
                                             '-'
                                         )}
+                                    </td>
+                                    <td className="py-2 px-3">
+                                        <span className={getHandoverStatus(c).className}>{getHandoverStatus(c).label}</span>
                                     </td>
                                     <td className="py-2 px-3 text-xs">
                                         {c.cliq_channel_id ? (
