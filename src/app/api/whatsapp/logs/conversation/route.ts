@@ -1,12 +1,12 @@
 /**
  * GET /api/whatsapp/logs/conversation?user_phone=...&development=...
- * Historial de mensajes de una conversación (usuario + desarrollo) para mostrar en UI tipo chat.
+ * Historial unificado: mensajes bot (whatsapp_logs) + eventos bridge WA-Cliq y Cliq-WA.
  * Auth required. User can only see logs for conversations in developments they have access to.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
-import { getWhatsAppLogsByConversation } from '@/lib/db/postgres';
+import { getConversationHistoryUnified } from '@/lib/db/postgres';
 import { canAccessConversation, isAllowedRole } from '@/lib/modules/whatsapp/conversation-access';
 import { logger } from '@/lib/utils/logger';
 
@@ -50,8 +50,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             );
         }
 
-        const logs = await getWhatsAppLogsByConversation(user_phone, development, limit);
-        return NextResponse.json({ logs });
+        const entries = await getConversationHistoryUnified(user_phone, development, limit);
+        return NextResponse.json({ entries, logs: entries });
     } catch (error) {
         logger.error('Error fetching WhatsApp conversation logs', error, {}, 'whatsapp-api');
         return NextResponse.json(

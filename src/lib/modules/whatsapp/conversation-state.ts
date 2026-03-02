@@ -226,6 +226,117 @@ export async function getRecentConversations(
     }
 }
 
+/** KPI aggregates for supervisor dashboard (same filters as getRecentConversations) */
+export interface ConversationKPIs {
+    total: number;
+    active: number;
+    handover: number;
+    noResponse15m: number;
+    withError: number;
+    conversionPct: number;
+    slaAvgMs: number | null;
+    firstResponseAvgMs: number | null;
+}
+
+/**
+ * Compute KPI counts and averages for the conversation list (same filters as getRecentConversations).
+ * Active = last_interaction in last 24h and state != SALIDA_ELEGANTE.
+ * Handover = CLIENT_ACCEPTA with cliq_channel_id. NoResponse15m = last_interaction > 15 min ago, not closed.
+ */
+export async function getConversationKPIs(
+    development?: string,
+    options?: GetRecentConversationsOptions
+): Promise<ConversationKPIs> {
+    const empty: ConversationKPIs = {
+        total: 0,
+        active: 0,
+        handover: 0,
+        noResponse15m: 0,
+        withError: 0,
+        conversionPct: 0,
+        slaAvgMs: null,
+        firstResponseAvgMs: null,
+    };
+    try {
+        const baseFrom = `FROM whatsapp_conversations c
+               LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development`;
+        const params: unknown[] = [];
+        const conditions: string[] = [];
+        let paramIndex = 1;
+
+        if (options?.developments?.length) {
+            conditions.push(`LOWER(c.development) = ANY($${paramIndex})`);
+            params.push(options.developments.map((d) => d.toLowerCase()));
+            paramIndex++;
+        } else if (development) {
+            conditions.push(`c.development = $${paramIndex}`);
+            params.push(development);
+            paramIndex++;
+        }
+
+        if (options?.assignedAgentEmail) {
+            conditions.push(`t.assigned_agent_email = $${paramIndex}`);
+            params.push(options.assignedAgentEmail);
+            paramIndex++;
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        const countSql = `SELECT
+            COUNT(*)::int as total,
+            COUNT(*) FILTER (WHERE c.state != 'SALIDA_ELEGANTE' AND c.last_interaction > NOW() - INTERVAL '24 hours')::int as active,
+            COUNT(*) FILTER (WHERE c.state = 'CLIENT_ACCEPTA' AND t.cliq_channel_id IS NOT NULL)::int as handover,
+            COUNT(*) FILTER (WHERE c.state != 'SALIDA_ELEGANTE' AND c.last_interaction < NOW() - INTERVAL '15 minutes')::int as no_response_15m,
+            COUNT(*) FILTER (WHERE t.last_cliq_wa_error IS NOT NULL AND t.last_cliq_wa_error != '')::int as with_error,
+            COUNT(*) FILTER (WHERE c.is_qualified = true)::int as qualified
+            ${baseFrom} ${whereClause}`;
+        const countResult = await query<{
+            total: number;
+            active: number;
+            handover: number;
+            no_response_15m: number;
+            with_error: number;
+            qualified: number;
+        }>(countSql, params);
+        const row = countResult.rows[0];
+        if (!row) return empty;
+
+        const total = Number(row.total) || 0;
+        const qualified = Number(row.qualified) || 0;
+
+        let slaAvgMs: number | null = null;
+        const devFilter = options?.developments?.length
+            ? 'LOWER(w.development) = ANY($1)'
+            : development
+                ? 'w.development = $1'
+                : null;
+        const logParams = devFilter ? (options?.developments?.length ? [options.developments.map((d) => d.toLowerCase())] : [development]) : [];
+        try {
+            const logWhere = devFilter ? ` WHERE ${devFilter} AND w.response_at IS NOT NULL AND w.received_at IS NOT NULL` : ' WHERE w.response_at IS NOT NULL AND w.received_at IS NOT NULL';
+            const avgSql = `SELECT AVG(EXTRACT(EPOCH FROM (w.response_at - w.received_at)) * 1000)::bigint as avg_ms FROM whatsapp_logs w${logWhere}`;
+            const avgResult = await query<{ avg_ms: string | null }>(avgSql, logParams);
+            const avgStr = avgResult.rows[0]?.avg_ms;
+            if (avgStr != null) slaAvgMs = parseInt(avgStr, 10);
+        } catch {
+            // whatsapp_logs may not have received_at/response_at
+        }
+
+        return {
+            total,
+            active: Number(row.active) || 0,
+            handover: Number(row.handover) || 0,
+            noResponse15m: Number(row.no_response_15m) || 0,
+            withError: Number(row.with_error) || 0,
+            conversionPct: total > 0 ? Math.round((qualified / total) * 100) : 0,
+            slaAvgMs,
+            firstResponseAvgMs: slaAvgMs,
+        };
+    } catch (error) {
+        logger.error('Error getting conversation KPIs', error, { development, options }, 'conversation-state');
+        return empty;
+    }
+}
+
 /**
  * Crea o actualiza una conversación
  */

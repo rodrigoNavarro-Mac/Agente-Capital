@@ -27,6 +27,7 @@ import { logger } from '@/lib/utils/logger';
 import { createZohoLeadRecord, searchZohoLeadsByPhone, getZohoLeadById } from '@/lib/services/zoho-crm';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 import { upsertWhatsAppCliqThread, getCliqThreadByUserAndDev, markContextSent } from '@/lib/db/whatsapp-cliq';
+import { saveBridgeLog } from '@/lib/db/postgres';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 
 // Imports Legacy (reservados para uso futuro)
@@ -791,6 +792,7 @@ async function handleClientAccepta(
                 crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
             });
             await markContextSent(userPhone, development);
+            await saveBridgeLog({ user_phone: userPhone, development, direction: 'wa_cliq', content: 'Handover enviado al canal Cliq' });
         } catch (cliErr) {
             logger.error('Cliq channel/thread/post failed in handleClientAccepta', cliErr, { development }, 'conversation-flows');
         }
@@ -911,6 +913,7 @@ export async function retryCliqOnly(
             crm_lead_url: typeof crm_lead_url === 'string' && crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
         });
         await markContextSent(userPhone, development);
+        await saveBridgeLog({ user_phone: userPhone, development, direction: 'wa_cliq', content: 'Handover enviado al canal Cliq (reintento)' });
     } catch (cliErr) {
         logger.error('retryCliqOnly: Cliq channel/thread/post failed', cliErr, { development }, 'conversation-flows');
         return { success: false, error: cliErr instanceof Error ? cliErr.message : String(cliErr) };
@@ -971,6 +974,7 @@ export async function resendCliqContext(
             crm_lead_url: crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
         });
         await markContextSent(userPhone, development);
+        await saveBridgeLog({ user_phone: userPhone, development, direction: 'wa_cliq', content: 'Contexto reenviado al canal Cliq' });
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error('resendCliqContext: post failed', err, { development }, 'conversation-flows');
@@ -1016,6 +1020,7 @@ export async function sendInitialContextIfNeeded(userPhone: string, development:
             crm_lead_url: crm_lead_url.startsWith('http') ? crm_lead_url : undefined,
         });
         await markContextSent(userPhone, development);
+        await saveBridgeLog({ user_phone: userPhone, development, direction: 'wa_cliq', content: 'Contexto inicial enviado al canal Cliq' });
         logger.info('sendInitialContextIfNeeded: context sent once', { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
         return true;
     } catch (err) {

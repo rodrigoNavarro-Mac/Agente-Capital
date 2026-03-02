@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCliqThreadByChannelId, getCliqThreadByChannelUniqueName, markCliqWaSent, setCliqWaError } from '@/lib/db/whatsapp-cliq';
+import { saveBridgeLog } from '@/lib/db/postgres';
 import { touchLastInteraction } from '@/lib/modules/whatsapp/conversation-state';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
 import { sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';
@@ -163,6 +164,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await sendTextMessage(phone_number_id, to, message, undefined);
         await markCliqWaSent(thread.user_phone, thread.development);
         await touchLastInteraction(thread.user_phone, thread.development);
+        await saveBridgeLog({
+            user_phone: thread.user_phone,
+            development: thread.development,
+            direction: 'cliqq_wa',
+            content: message,
+        });
         logger.info('Cliq->WA sent', { channel_id, to: to.substring(0, 6) + '***' }, 'webhooks-cliq');
         return NextResponse.json({ ok: true }, { status: 200 });
     } catch (error) {

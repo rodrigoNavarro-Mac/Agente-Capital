@@ -4401,6 +4401,126 @@ export async function getWhatsAppLogsByConversation(
   }
 }
 
+// =====================================================
+// WHATSAPP BRIDGE LOGS (WA <-> Cliq)
+// =====================================================
+
+export type BridgeLogDirection = 'wa_cliq' | 'cliqq_wa';
+
+/** Canonical phone format for bridge logs (no leading +) so queries match regardless of source. */
+function normalizePhoneForBridge(phone: string): string {
+  return (phone || '').trim().replace(/^\+/, '');
+}
+
+export async function saveBridgeLog(params: {
+  user_phone: string;
+  development: string;
+  direction: BridgeLogDirection;
+  content: string;
+}): Promise<void> {
+  const user_phone = normalizePhoneForBridge(params.user_phone);
+  const development = (params.development || '').trim();
+  if (!user_phone || !development) return;
+  try {
+    await query(
+      `INSERT INTO whatsapp_bridge_logs (user_phone, development, direction, content)
+       VALUES ($1, $2, $3, $4)`,
+      [user_phone, development, params.direction, params.content]
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('whatsapp_bridge_logs') && (msg.includes('does not exist') || msg.includes('no existe'))) {
+      return;
+    }
+    logger.warn('saveBridgeLog failed', { error: msg, user_phone: params.user_phone?.substring(0, 6) + '***' }, 'postgres');
+  }
+}
+
+export async function getBridgeLogsByConversation(
+  user_phone: string,
+  development: string,
+  limit = 50
+): Promise<{ id: number; direction: BridgeLogDirection; content: string; created_at: Date }[]> {
+  const phone = normalizePhoneForBridge(user_phone);
+  const dev = (development || '').trim();
+  if (!phone || !dev) return [];
+  try {
+    const result = await query<{ id: number; direction: string; content: string; created_at: Date }>(
+      `SELECT id, direction, content, created_at
+       FROM whatsapp_bridge_logs
+       WHERE user_phone = $1 AND development = $2
+       ORDER BY created_at ASC
+       LIMIT $3`,
+      [phone, dev, Math.min(limit, 100)]
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      direction: row.direction as BridgeLogDirection,
+      content: row.content ?? '',
+      created_at: row.created_at,
+    }));
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('whatsapp_bridge_logs') && (msg.includes('does not exist') || msg.includes('no existe'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/** Unified history entry: bot exchange or bridge event */
+export type ConversationHistoryEntry =
+  | { type: 'bot'; id: number; message: string; response: string; created_at: Date; received_at: Date | null; response_at: Date | null }
+  | { type: 'wa_cliq'; id: number; content: string; created_at: Date }
+  | { type: 'cliqq_wa'; id: number; content: string; created_at: Date };
+
+/**
+ * Historial unificado: mensajes bot (whatsapp_logs) + eventos bridge (wa_cliq, cliq_wa) ordenados por fecha.
+ */
+export async function getConversationHistoryUnified(
+  user_phone: string,
+  development: string,
+  limit = 100
+): Promise<ConversationHistoryEntry[]> {
+  const dev = (development || '').trim();
+  if (!user_phone?.trim() || !dev) return [];
+  const phoneNorm = normalizePhoneForBridge(user_phone);
+  const phoneTrim = user_phone.trim();
+  const [logsRaw, logsNorm, bridgeLogs] = await Promise.all([
+    getWhatsAppLogsByConversation(phoneTrim, dev, limit),
+    phoneNorm !== phoneTrim ? getWhatsAppLogsByConversation(phoneNorm, dev, limit) : Promise.resolve([]),
+    getBridgeLogsByConversation(phoneNorm || phoneTrim, dev, limit),
+  ]);
+  const seenIds = new Set(logsRaw.map((l) => l.id));
+  const logs = [...logsRaw];
+  for (const l of logsNorm) {
+    if (!seenIds.has(l.id)) {
+      seenIds.add(l.id);
+      logs.push(l);
+    }
+  }
+  logs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const botEntries: ConversationHistoryEntry[] = logs.map((l) => ({
+    type: 'bot' as const,
+    id: l.id,
+    message: l.message,
+    response: l.response,
+    created_at: l.created_at,
+    received_at: l.received_at,
+    response_at: l.response_at,
+  }));
+  const bridgeEntries: ConversationHistoryEntry[] = bridgeLogs.map((b) => ({
+    type: b.direction as 'wa_cliq' | 'cliqq_wa',
+    id: b.id,
+    content: b.content,
+    created_at: b.created_at,
+  }));
+  const combined = [...botEntries, ...bridgeEntries].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  return combined.slice(-limit);
+}
+
 /**
  * Cuenta total de logs con filtros opcionales
  */
