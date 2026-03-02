@@ -67,15 +67,15 @@ function getHandoverStatus(c: ConversationRow): { label: string; className: stri
 
 const retryButtonClass = 'text-xs px-2 py-1 rounded disabled:opacity-50 transition-colors';
 
-/** Badge pill for status */
-function Badge({ children, variant }: { children: React.ReactNode; variant: 'success' | 'warning' | 'error' | 'neutral' | 'info' }) {
+/** Badge pill for status. Colores por temperatura del lead: caliente (naranja/ambar) vs frio (gris/azul). */
+function Badge({ children, variant }: { children: React.ReactNode; variant: 'hot' | 'warm' | 'cold' | 'cool' | 'neutral' }) {
     const base = 'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium';
     const variants = {
-        success: 'bg-green-100 text-green-800',
-        warning: 'bg-amber-100 text-amber-800',
-        error: 'bg-red-100 text-red-800',
-        neutral: 'bg-gray-100 text-gray-700',
-        info: 'bg-sky-100 text-sky-800',
+        hot: 'bg-red-100 text-red-800',       // Lead muy caliente (handover)
+        warm: 'bg-amber-100 text-amber-800',  // Lead caliente (interesado)
+        cool: 'bg-sky-100 text-sky-800',      // Tibio (en proceso / filtro)
+        cold: 'bg-gray-100 text-gray-600',    // Frio (cerrado)
+        neutral: 'bg-slate-100 text-slate-700', // Inicio / sin clasificar
     };
     return <span className={`${base} ${variants[variant]}`}>{children}</span>;
 }
@@ -387,19 +387,20 @@ function formatTimeSince(dateIsoOrNull: string | null | undefined): string {
     return `${Math.floor(h / 24)}d`;
 }
 
-/** Estado con color para la tabla (KPIs y métricas visuales) */
-function getStateBadge(state: string): { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' | 'info' } {
+/** Estado con color para la tabla: caliente (rojo/ambar) vs frio (gris/azul). */
+function getStateBadge(state: string): { label: string; variant: 'hot' | 'warm' | 'cool' | 'cold' | 'neutral' } {
     switch (state) {
         case 'CLIENT_ACCEPTA':
-            return { label: 'Handover', variant: 'success' };
-        case 'SALIDA_ELEGANTE':
-            return { label: 'Cerrada', variant: 'neutral' };
-        case 'FILTRO_INTENCION':
-            return { label: 'Filtro intención', variant: 'info' };
+            return { label: 'Handover', variant: 'hot' };      // Muy caliente
         case 'CTA_PRIMARIO':
         case 'SOLICITUD_HORARIO':
         case 'SOLICITUD_NOMBRE':
-            return { label: state.replace(/_/g, ' '), variant: 'warning' };
+            return { label: state.replace(/_/g, ' '), variant: 'warm' }; // Caliente
+        case 'FILTRO_INTENCION':
+        case 'INFO_REINTENTO':
+            return { label: state.replace(/_/g, ' '), variant: 'cool' }; // Tibio (en proceso)
+        case 'SALIDA_ELEGANTE':
+            return { label: 'Cerrada', variant: 'cold' };       // Frio (cerrado)
         case 'INICIO':
             return { label: 'Inicio', variant: 'neutral' };
         default:
