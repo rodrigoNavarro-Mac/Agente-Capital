@@ -77,6 +77,33 @@ function getMessageText(message: WhatsAppMessage): string | null {
     return null;
 }
 
+/**
+ * Placeholder text for media/sticker messages when bridging WA -> Cliq,
+ * so advisors see that the client sent something (image, sticker, etc.).
+ */
+const MEDIA_PLACEHOLDERS: Record<string, string> = {
+    image: '[Se adjuntó foto]',
+    video: '[Se adjuntó video]',
+    audio: '[Se adjuntó audio]',
+    document: '[Se adjuntó documento]',
+    sticker: '[Se adjuntó sticker]',
+};
+
+/**
+ * Returns display text for any message: real text for text/button/interactive,
+ * or a placeholder like "[Se adjuntó foto]" for media types. Used when bridging
+ * to Cliq so advisors know the client sent media/sticker even when we don't show the file.
+ */
+function getMessageDisplayText(message: WhatsAppMessage): string | null {
+    const text = getMessageText(message);
+    if (text) return text;
+    const type = (message.type || '').toLowerCase();
+    if (MEDIA_PLACEHOLDERS[type]) return MEDIA_PLACEHOLDERS[type];
+    // Unknown type (e.g. reaction): still show something
+    if (message.type) return `[Se adjuntó ${message.type}]`;
+    return null;
+}
+
 // =====================================================
 // EXTRACTION
 // =====================================================
@@ -147,6 +174,49 @@ export function extractMessageData(payload: WhatsAppWebhookPayload): {
         return null;
     } catch (error) {
         logger.error('Error extracting message data', error, {}, 'whatsapp-handler');
+        return null;
+    }
+}
+
+/**
+ * Extrae datos del primer mensaje de cualquier tipo (texto o media) para el puente WA -> Cliq.
+ * Para mensajes de texto devuelve el texto real; para imagen/video/audio/documento/sticker
+ * devuelve un placeholder como "[Se adjuntó foto]" para que en Cliq se vea que el cliente envió algo.
+ * Usar cuando extractMessageData devuelve null (solo media) y aun así se quiere notificar a Cliq.
+ */
+export function extractMessageDataIncludingMedia(payload: WhatsAppWebhookPayload): {
+    phoneNumberId: string;
+    userPhone: string;
+    message: string;
+    messageId: string;
+    messageTimestamp: string;
+} | null {
+    try {
+        for (const entry of payload.entry) {
+            for (const change of entry.changes) {
+                if (!hasMessages(change)) continue;
+
+                const { metadata, messages } = change.value;
+                const phoneNumberId = String(metadata?.phone_number_id ?? '').trim();
+                if (!phoneNumberId) continue;
+
+                for (const message of messages!) {
+                    const displayText = getMessageDisplayText(message);
+                    if (!displayText) continue;
+
+                    return {
+                        phoneNumberId,
+                        userPhone: message.from,
+                        message: displayText,
+                        messageId: message.id,
+                        messageTimestamp: message.timestamp || String(Math.floor(Date.now() / 1000)),
+                    };
+                }
+            }
+        }
+        return null;
+    } catch (error) {
+        logger.error('Error extracting message data (including media)', error, {}, 'whatsapp-handler');
         return null;
     }
 }

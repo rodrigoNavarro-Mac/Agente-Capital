@@ -47,8 +47,6 @@ export const DEVELOPMENT_MEDIA: Record<string, DevelopmentMedia> = {
     FUEGO: {
         heroImageUrl: 'https://via.placeholder.com/1200x800/1a472a/ffffff?text=FUEGO+Cancun',
         brochureUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Presentacio%CC%81n%20FUEGO%20-%20FINAL25.pdf',
-        // Ejemplo de configuración de galería de amenidades y ubicación.
-        // Reemplazar estos placeholders por URLs reales de Vercel Blob cuando estén listas.
         amenitiesGalleryUrls: [
             'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/AmenidadesFUEGO1.jpeg',
             'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/AmenidadesFUEGO2.jpeg',

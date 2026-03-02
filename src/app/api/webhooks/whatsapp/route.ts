@@ -13,6 +13,7 @@ import type { WhatsAppWebhookPayload } from '@/lib/modules/whatsapp/types';
 import {
     isValidWebhookPayload,
     extractMessageData,
+    extractMessageDataIncludingMedia,
     extractStatusUpdates,
 } from '@/lib/modules/whatsapp/webhook-handler';
 import { getRouting } from '@/lib/modules/whatsapp/channel-router';
@@ -115,10 +116,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // 3. Extraer datos del mensaje (texto, botón o interactivo)
         const messageData = extractMessageData(payload);
 
+        // Si no hay texto procesable pero sí hay mensaje (media/sticker), extraer para puente WA -> Cliq
+        // y enviar placeholder en Cliq (ej. "[Se adjuntó foto]") para que el asesor sepa que el cliente envió algo.
         if (!messageData) {
-            // Común: Meta envía varios POST por evento (mensaje + sent/delivered/read). Solo uno trae messages con texto.
-            logger.debug('No messageData: payload has no valid text/button/interactive message (puede ser status sent/delivered/read o reacción)', {}, 'whatsapp-webhook');
-            logger.debug('No valid messages to process', undefined, 'whatsapp-webhook');
+            const bridgeData = extractMessageDataIncludingMedia(payload);
+            if (bridgeData) {
+                const routing = getRouting(bridgeData.phoneNumberId);
+                if (routing) {
+                    const thread = await getCliqThreadByUserAndDev(bridgeData.userPhone, routing.development);
+                    if (thread?.cliq_channel_id && thread?.cliq_channel_unique_name) {
+                        const conversation = await getConversation(bridgeData.userPhone, routing.development);
+                        const user_name = (conversation?.user_data as { name?: string } | undefined)?.name || 'Cliente';
+                        const crm_lead_url = thread.zoho_lead_id && process.env.ZOHO_CRM_BASE_URL
+                            ? `${process.env.ZOHO_CRM_BASE_URL.replace(/\/$/, '')}/tab/Leads/${thread.zoho_lead_id}`
+                            : undefined;
+                        await postMessageToCliqViaWebhook({
+                            channel_id: thread.cliq_channel_id,
+                            channel_unique_name: thread.cliq_channel_unique_name,
+                            conversation_id: `wa:${bridgeData.userPhone}|${routing.development}`,
+                            wa_message_id: bridgeData.messageId,
+                            development: routing.development,
+                            user_phone: bridgeData.userPhone,
+                            user_name,
+                            text: bridgeData.message,
+                            crm_lead_url,
+                        });
+                        logger.info('WA->Cliq bridge (media placeholder)', {
+                            development: routing.development,
+                            placeholder: bridgeData.message,
+                        }, 'whatsapp-webhook');
+                    }
+                }
+            }
             return NextResponse.json({ status: 'ok' }, { status: 200 });
         }
 
