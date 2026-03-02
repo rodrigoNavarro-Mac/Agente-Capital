@@ -111,32 +111,51 @@ Un asesor continuará contigo a primera hora.`
  * Mensajes AMURA - Placeholder para segundo desarrollo
  */
 const AMURA_MESSAGES: DevelopmentMessages = {
-    BIENVENIDA: `Hola
-Soy el asistente de AMURA.
+    BIENVENIDA: `Hola 👋  
+Soy el asistente virtual de AMURA.
+
+Un desarrollo residencial premium diseñado para inversión inteligente y construcción patrimonial 🏡✨  
 
 Para ayudarte mejor, ¿te interesa invertir o construir?`,
-    CONFIRMACION_COMPRA: `Perfecto
-Entonces buscas construir tu patrimonio. AMURA te puede interesar.`,
-    CONFIRMACION_INVERSION: `Excelente
-AMURA es una opción sólida para inversión.`,
-    CTA_AYUDA: `Para orientarte mejor:
 
-¿Te gustaría agendar una visita al desarrollo o prefieres una llamada breve con un asesor?`,
-    SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
-    SOLICITUD_NOMBRE: `Perfecto, con gusto lo coordinamos
+    CONFIRMACION_COMPRA: `Excelente decisión 🏡  
+Si estás buscando construir tu patrimonio, AMURA te ofrece ubicación estratégica, plusvalía y un entorno residencial de alto nivel.`,
 
-¿Cuál es tu nombre completo para decirle al asesor?`,
-    INFO_REINTENTO: `Entiendo que quieras revisar detalles primero
+    CONFIRMACION_INVERSION: `Gran elección 📈✨  
+AMURA es una oportunidad sólida de inversión con alta proyección de plusvalía y demanda creciente.`,
 
-¿Estás buscando esta oportunidad para invertir o para vivir?`,
-    HANDOVER_EXITOSO: `Gracias, {NOMBRE}
+    CTA_AYUDA: `Para orientarte mejor 👇  
 
-Te voy a conectar con un asesor de AMURA para coordinar los detalles.`,
-    CONFIRMACION_FINAL: `¿Confirmamos visita o llamada?`,
-    SALIDA_ELEGANTE: `Gracias por tu interés. Si más adelante decides avanzar, aquí estaré.`,
-    FUERA_HORARIO: `Gracias por escribir. En un momento un asesor de AMURA continúa contigo.`,
+¿Te gustaría agendar una visita al desarrollo 🏡 o prefieres una llamada breve con un asesor 📞?`,
+
+    SOLICITUD_HORARIO: `Perfecto 👍  
+
+¿En qué horario te gustaría que te contactemos para la llamada o visita? 🕒`,
+
+    SOLICITUD_NOMBRE: `Con gusto lo coordinamos 🤝  
+
+¿Me compartes tu nombre completo para asignarte con un asesor?`,
+
+    INFO_REINTENTO: `Claro 👍  
+
+Antes de avanzar, ¿estás buscando esta oportunidad para invertir 📈 o para vivir 🏡?`,
+
+    HANDOVER_EXITOSO: `Gracias, {NOMBRE} 🙌  
+
+Te voy a conectar con un asesor de AMURA para coordinar los siguientes pasos y resolver cualquier duda.`,
+
+    CONFIRMACION_FINAL: `Solo para confirmar 👇  
+
+¿Agendamos visita 🏡 o llamada 📞?`,
+
+    SALIDA_ELEGANTE: `Gracias por tu interés en AMURA ✨  
+
+Cuando decidas dar el siguiente paso, aquí estaré para apoyarte.`,
+
+    FUERA_HORARIO: `Gracias por escribir 🙌  
+
+En breve un asesor de AMURA continuará contigo para brindarte atención personalizada.`
 };
-
 /**
  * Mensajes PUNTO TIERRA - Placeholder para tercer desarrollo
  */

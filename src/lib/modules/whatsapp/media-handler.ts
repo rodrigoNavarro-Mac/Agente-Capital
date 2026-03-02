@@ -59,7 +59,7 @@ export const DEVELOPMENT_MEDIA: Record<string, DevelopmentMedia> = {
     },
     AMURA: {
         heroImageUrl: undefined,
-        brochureUrl: undefined,
+        brochureUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Brochure_AMURA_2026.pdf',
     },
     PUNTO_TIERRA: {
         heroImageUrl: undefined,
