@@ -15,6 +15,8 @@ export interface WhatsAppCliqThread {
   assigned_agent_email: string | null;
   cliq_channel_id: string;
   cliq_channel_unique_name: string | null;
+  /** Zoho Cliq chat id (CT_..._companyId) for browser URL */
+  cliq_chat_id: string | null;
   status: string;
   /** When the initial context message was sent to this channel; null = not sent yet. */
   context_sent_at: Date | null;
@@ -35,6 +37,7 @@ export interface UpsertWhatsAppCliqThreadParams {
   cliq_channel_id: string;
   cliq_channel_unique_name?: string | null;
   status?: string;
+  cliq_chat_id?: string | null;
 }
 
 export async function upsertWhatsAppCliqThread(params: UpsertWhatsAppCliqThreadParams): Promise<void> {
@@ -47,12 +50,13 @@ export async function upsertWhatsAppCliqThread(params: UpsertWhatsAppCliqThreadP
     cliq_channel_id,
     cliq_channel_unique_name = null,
     status = 'open',
+    cliq_chat_id = null,
   } = params;
 
   await query(
     `INSERT INTO whatsapp_cliq_threads
-       (user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email, cliq_channel_id, cliq_channel_unique_name, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email, cliq_channel_id, cliq_channel_unique_name, status, cliq_chat_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (user_phone, development)
      DO UPDATE SET
        phone_number_id = EXCLUDED.phone_number_id,
@@ -60,9 +64,10 @@ export async function upsertWhatsAppCliqThread(params: UpsertWhatsAppCliqThreadP
        assigned_agent_email = COALESCE(EXCLUDED.assigned_agent_email, whatsapp_cliq_threads.assigned_agent_email),
        cliq_channel_id = EXCLUDED.cliq_channel_id,
        cliq_channel_unique_name = EXCLUDED.cliq_channel_unique_name,
+       cliq_chat_id = COALESCE(EXCLUDED.cliq_chat_id, whatsapp_cliq_threads.cliq_chat_id),
        status = EXCLUDED.status,
        updated_at = CURRENT_TIMESTAMP`,
-    [user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email, cliq_channel_id, cliq_channel_unique_name, status]
+    [user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email, cliq_channel_id, cliq_channel_unique_name, status, cliq_chat_id]
   );
   logger.debug('upsertWhatsAppCliqThread', { user_phone: user_phone.substring(0, 6) + '***', development, cliq_channel_id }, 'whatsapp-cliq-db');
 }
@@ -82,7 +87,7 @@ export async function getCliqThreadByUserAndDev(
 }
 
 const THREAD_SELECT = `id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, created_at, updated_at`;
+            cliq_channel_id, cliq_channel_unique_name, cliq_chat_id, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, created_at, updated_at`;
 
 export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
@@ -162,5 +167,16 @@ export async function setCliqWaError(cliq_channel_id: string, error_message: str
      SET last_cliq_wa_error = $1, updated_at = CURRENT_TIMESTAMP
      WHERE cliq_channel_id = $2 OR cliq_channel_id = $3`,
     [msg, cliq_channel_id, alt]
+  );
+}
+
+/** Persist the CT_... chat id for a given thread (identified by user + dev). */
+export async function setCliqChatIdForThread(user_phone: string, development: string, cliq_chat_id: string): Promise<void> {
+  if (!cliq_chat_id) return;
+  await query(
+    `UPDATE whatsapp_cliq_threads
+     SET cliq_chat_id = $3, updated_at = CURRENT_TIMESTAMP
+     WHERE user_phone = $1 AND development = $2`,
+    [user_phone, development, cliq_chat_id]
   );
 }

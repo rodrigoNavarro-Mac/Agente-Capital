@@ -162,6 +162,8 @@ export interface RecentConversationRow {
     /** Canal Cliq creado para esta conversación (si existe thread) */
     cliq_channel_id?: string | null;
     cliq_channel_unique_name?: string | null;
+    /** Chat id real (CT_..._companyId) para URL de navegador */
+    cliq_chat_id?: string | null;
     /** Email del asesor asignado (desde thread o Zoho Owner) */
     assigned_agent_email?: string | null;
     /** Cuando se envió contexto WA->Cliq al canal */
@@ -170,6 +172,8 @@ export interface RecentConversationRow {
     last_cliq_wa_sent_at?: string | null;
     /** Último error al enviar Cliq->WA (null si el último envío fue ok) */
     last_cliq_wa_error?: string | null;
+    /** Número de intercambios (mensajes bot) para métricas/KPIs */
+    interaction_count?: number;
 }
 
 /** Options for filtering recent conversations by role/scope */
@@ -191,8 +195,9 @@ export async function getRecentConversations(
 ): Promise<RecentConversationRow[]> {
     try {
         const cols = `c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
-                      t.cliq_channel_id, t.cliq_channel_unique_name, t.assigned_agent_email,
-                      t.context_sent_at, t.last_cliq_wa_sent_at, t.last_cliq_wa_error`;
+                      t.cliq_channel_id, t.cliq_channel_unique_name, t.cliq_chat_id, t.assigned_agent_email,
+                      t.context_sent_at, t.last_cliq_wa_sent_at, t.last_cliq_wa_error,
+                      (SELECT COUNT(*)::int FROM whatsapp_logs w WHERE w.user_phone = c.user_phone AND w.development = c.development) AS interaction_count`;
         const baseFrom = `FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development`;
         const params: unknown[] = [];

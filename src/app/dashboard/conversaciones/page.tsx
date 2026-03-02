@@ -38,6 +38,9 @@ interface ConversationRow {
     context_sent_at?: string | null;
     last_cliq_wa_sent_at?: string | null;
     last_cliq_wa_error?: string | null;
+    interaction_count?: number;
+    lead_url?: string | null;
+    cliq_channel_url?: string | null;
 }
 
 function maskPhone(phone: string): string {
@@ -370,6 +373,38 @@ function formatMinsAgo(mins: number | null): string {
     if (mins < 60) return `${mins} min`;
     const h = Math.floor(mins / 60);
     return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+/** Tiempo transcurrido desde una fecha (para tiempo de creación y desde handover) */
+function formatTimeSince(dateIsoOrNull: string | null | undefined): string {
+    if (!dateIsoOrNull) return '-';
+    const diff = Date.now() - new Date(dateIsoOrNull).getTime();
+    if (diff < 0) return '-';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+}
+
+/** Estado con color para la tabla (KPIs y métricas visuales) */
+function getStateBadge(state: string): { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' | 'info' } {
+    switch (state) {
+        case 'CLIENT_ACCEPTA':
+            return { label: 'Handover', variant: 'success' };
+        case 'SALIDA_ELEGANTE':
+            return { label: 'Cerrada', variant: 'neutral' };
+        case 'FILTRO_INTENCION':
+            return { label: 'Filtro intención', variant: 'info' };
+        case 'CTA_PRIMARIO':
+        case 'SOLICITUD_HORARIO':
+        case 'SOLICITUD_NOMBRE':
+            return { label: state.replace(/_/g, ' '), variant: 'warning' };
+        case 'INICIO':
+            return { label: 'Inicio', variant: 'neutral' };
+        default:
+            return { label: state.replace(/_/g, ' '), variant: 'neutral' };
+    }
 }
 
 export default function ConversacionesPage() {
@@ -947,27 +982,25 @@ export default function ConversacionesPage() {
                                 <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
                                     <tr>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap w-8" title="Prioridad">P</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Tel.</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap min-w-[140px]">Nombre</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Desarrollo</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Estado</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo sin respuesta">Sin resp.</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Calif.</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Lead</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Handover</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Canal y bridge">Canal / Bridge</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Asignado</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Última</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap max-w-[120px]">Contacto</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo sin respuesta">Sin resp.</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo desde creación">Creación</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Canal Cliq">Canal</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo desde handover">Desde handover</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Número de interacciones">Interacc.</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 w-20">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredConversations.map((c, idx) => {
-                                        const handover = getHandoverStatus(c);
-                                        const handoverVariant = handover.label === 'Enviado' ? 'success' : handover.label === 'Error' ? 'error' : handover.label === 'Sin asignar' ? 'warning' : 'neutral';
                                         const mins = minsSinceLastInteraction(c.last_interaction, c.state);
                                         const priority = getPriority(c.state, mins);
                                         const rowBg = priority === 'red' ? 'bg-red-50/70' : priority === 'orange' ? 'bg-amber-50/60' : priority === 'black' ? 'bg-gray-100/50' : idx % 2 === 1 ? 'bg-gray-50/50' : '';
+                                        const stateBadge = getStateBadge(c.state);
+                                        const clientName = c.user_data?.name || c.user_data?.nombre || 'Sin nombre';
                                         return (
                                             <tr
                                                 key={c.id}
@@ -977,60 +1010,61 @@ export default function ConversacionesPage() {
                                                 <td className="py-1.5 px-2" title={priority === 'red' ? 'Sin respuesta 15m+' : priority === 'orange' ? 'Sin respuesta 5m+' : priority === 'black' ? 'Cerrada' : 'Activa'}>
                                                     <span className={`inline-block h-2.5 w-2.5 rounded-full ${priority === 'red' ? 'bg-red-500' : priority === 'orange' ? 'bg-amber-500' : priority === 'green' ? 'bg-green-500' : 'bg-gray-400'}`} />
                                                 </td>
-                                                <td className="py-1.5 px-2 font-mono text-gray-700">{maskPhone(c.user_phone)}</td>
+                                                <td className="py-1.5 px-2 text-gray-800">
+                                                    <span className="font-medium">{clientName}</span>
+                                                    <span className="block font-mono text-xs text-gray-500">{c.user_phone}</span>
+                                                </td>
                                                 <td className="py-1.5 px-2 text-gray-800">{c.development}</td>
                                                 <td className="py-1.5 px-2">
-                                                    {c.state === 'CLIENT_ACCEPTA' ? (
-                                                        <Badge variant="success">Handover</Badge>
-                                                    ) : c.state === 'SALIDA_ELEGANTE' ? (
-                                                        <Badge variant="neutral">Cerrada</Badge>
+                                                    <Badge variant={stateBadge.variant}>{stateBadge.label}</Badge>
+                                                </td>
+                                                <td className="py-1.5 px-2">
+                                                    {c.lead_url && c.zoho_lead_id ? (
+                                                        <a
+                                                            href={c.lead_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-sky-600 hover:underline font-mono text-xs truncate max-w-[100px] inline-block"
+                                                            title={`Abrir lead ${c.zoho_lead_id}`}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {c.zoho_lead_id.length > 10 ? c.zoho_lead_id.slice(0, 10) + '…' : c.zoho_lead_id}
+                                                        </a>
+                                                    ) : c.zoho_lead_id ? (
+                                                        <span className="font-mono text-gray-500 text-xs">{c.zoho_lead_id.slice(0, 10)}…</span>
                                                     ) : (
-                                                        <span className="text-gray-700">{c.state}</span>
+                                                        <span className="text-gray-400">-</span>
                                                     )}
                                                 </td>
                                                 <td className="py-1.5 px-2 text-xs text-gray-600">
                                                     {mins != null ? formatMinsAgo(mins) : '-'}
                                                 </td>
-                                                <td className="py-1.5 px-2">
-                                                    {c.is_qualified ? <Badge variant="success">Sí</Badge> : <span className="text-gray-400">No</span>}
+                                                <td className="py-1.5 px-2 text-xs text-gray-600" title={c.created_at}>
+                                                    {formatTimeSince(c.created_at)}
                                                 </td>
-                                                <td className="py-1.5 px-2 font-mono text-gray-500 max-w-[80px] truncate" title={c.zoho_lead_id || ''}>
-                                                    {c.zoho_lead_id ? c.zoho_lead_id.slice(0, 12) + (c.zoho_lead_id.length > 12 ? '…' : '') : '-'}
-                                                </td>
-                                                <td className="py-1.5 px-2">
-                                                    <Badge variant={handoverVariant}>{handover.label}</Badge>
-                                                </td>
-                                                <td className="py-1.5 px-2 max-w-[140px]">
-                                                    {c.cliq_channel_id ? (
-                                                        <div className="truncate" title={c.cliq_channel_id}>
-                                                            <span className="text-green-700 font-medium">{c.cliq_channel_unique_name || 'Canal'}</span>
-                                                            <span className="ml-1 text-gray-400">
-                                                                {c.last_cliq_wa_error ? (
-                                                                    <span className="text-red-600" title={c.last_cliq_wa_error}>Error</span>
-                                                                ) : c.context_sent_at && c.last_cliq_wa_sent_at ? (
-                                                                    `${format(new Date(c.context_sent_at), 'dd/MM HH:mm', { locale: es })} · ${format(new Date(c.last_cliq_wa_sent_at), 'dd/MM HH:mm', { locale: es })}`
-                                                                ) : c.context_sent_at ? (
-                                                                    format(new Date(c.context_sent_at), 'dd/MM HH:mm', { locale: es })
-                                                                ) : c.last_cliq_wa_sent_at ? (
-                                                                    format(new Date(c.last_cliq_wa_sent_at), 'dd/MM HH:mm', { locale: es })
-                                                                ) : null}
-                                                            </span>
-                                                        </div>
+                                                <td className="py-1.5 px-2 max-w-[120px]">
+                                                    {c.cliq_channel_url ? (
+                                                        <a
+                                                            href={c.cliq_channel_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-green-700 font-medium hover:underline"
+                                                            title="Abrir canal en Cliq"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            Ir a Cliq
+                                                        </a>
                                                     ) : c.is_qualified ? (
-                                                        <span className="text-amber-600">Sin canal</span>
+                                                        <span className="text-amber-600 text-xs">Sin canal</span>
                                                     ) : (
                                                         <span className="text-gray-400">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-1.5 px-2 max-w-[120px] truncate text-gray-600" title={c.assigned_agent_email || ''}>
-                                                    {c.assigned_agent_email ? c.assigned_agent_email.replace(/@.*/, '') : '-'}
+                                                <td className="py-1.5 px-2 text-xs text-gray-600" title={c.context_sent_at || ''}>
+                                                    {formatTimeSince(c.context_sent_at)}
                                                 </td>
-                                                <td className="py-1.5 px-2 text-gray-500 whitespace-nowrap">
-                                                    {c.last_interaction ? format(new Date(c.last_interaction), 'dd/MM HH:mm', { locale: es }) : '-'}
-                                                </td>
-                                                <td className="py-1.5 px-2 max-w-[140px] truncate text-gray-600">
-                                                    {c.user_data?.name || c.user_data?.nombre || '-'}
-                                                    {c.user_data?.horario_preferido ? ` · ${String(c.user_data.horario_preferido).slice(0, 15)}` : ''}
+                                                <td className="py-1.5 px-2 text-gray-700 tabular-nums">
+                                                    {c.interaction_count != null ? c.interaction_count : '-'}
                                                 </td>
                                                 <td className="py-1 px-2 w-12" onClick={(e) => e.stopPropagation()}>
                                                     <div
@@ -1075,16 +1109,16 @@ export default function ConversacionesPage() {
                                                                         }}
                                                                     />
                                                                 </div>
-                                                                {c.cliq_channel_unique_name && (
+                                                                {c.cliq_channel_url && (
                                                                     <div className="border-b border-gray-100 px-2 py-1.5 last:border-0">
                                                                         <a
-                                                                            href="https://cliq.zoho.com"
+                                                                            href={c.cliq_channel_url}
                                                                             target="_blank"
                                                                             rel="noopener noreferrer"
                                                                             className="inline-block rounded px-2 py-1 text-xs text-violet-700 hover:bg-violet-50"
                                                                             onClick={() => setOpenActionsRowId(null)}
                                                                         >
-                                                                            Abrir Cliq
+                                                                            Ir a Cliq
                                                                         </a>
                                                                     </div>
                                                                 )}
@@ -1116,7 +1150,7 @@ export default function ConversacionesPage() {
                     )}
                 </div>
                 <p className="mt-2 text-xs text-gray-400">
-                    Bridge: WA-&gt;C = contexto al canal; Cliq-&gt;WA = último mensaje asesor. Handover = estado de asignación al asesor.
+                    Lead y Canal abren enlace a CRM y Cliq. Creación = tiempo desde alta de conversación; Desde handover = tiempo desde envío al asesor; Interacc. = mensajes bot (para KPIs).
                 </p>
             </div>
         </div>
