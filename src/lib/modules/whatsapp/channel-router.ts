@@ -23,7 +23,7 @@ const CHANNEL_CONFIG: ChannelConfig = {
     // FUEGO: número de prueba - WABA ID: 2047862732669355
     '980541871814181': 'FUEGO',
     // Ejemplos para cuando tengas los números de AMURA y PUNTO_TIERRA:
-    // '<phone_number_id_amura>': 'AMURA',
+    '913257945213997': 'AMURA',
     // '<phone_number_id_punto_tierra>': 'PUNTO_TIERRA',
 };
 
