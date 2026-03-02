@@ -13,7 +13,8 @@ import { getCliqThreadByChannelId, getCliqThreadByChannelUniqueName, markCliqWaS
 import { saveBridgeLog } from '@/lib/db/postgres';
 import { touchLastInteraction } from '@/lib/modules/whatsapp/conversation-state';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
-import { sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';
+import { sendDocumentMessage, sendImageMessage, sendTextMessage } from '@/lib/modules/whatsapp/whatsapp-client';
+import { getAmenitiesImages, getBrochure, getBrochureFilename, getLocationMedia } from '@/lib/modules/whatsapp/media-handler';
 import { logger } from '@/lib/utils/logger';
 
 const CLIQ_BRIDGE_SECRET = (process.env.CLIQ_BRIDGE_SECRET || '').trim();
@@ -99,6 +100,157 @@ function getChannelUniqueName(body: Record<string, unknown>): string {
     return '';
 }
 
+/**
+ * Parsea un posible comando de Cliq en formato "/comando arg1 arg2".
+ * Si el texto no comienza con "/", devuelve null.
+ */
+function parseCliqCommand(message: string): { command: string; args: string[] } | null {
+    const trimmed = (message || '').trim();
+    if (!trimmed.startsWith('/')) {
+        return null;
+    }
+    const parts = trimmed.split(/\s+/);
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1);
+    return { command, args };
+}
+
+/**
+ * Envía amenidades por WhatsApp a partir del contexto del thread (desarrollo + usuario).
+ * No reenvía el texto del comando al cliente; solo las imágenes configuradas.
+ */
+async function handleAmenitiesCommandForThread(
+    development: string,
+    userPhone: string,
+    phoneNumberId: string
+): Promise<boolean> {
+    const to = userPhone.replace(/^\+/, '');
+    const amenitiesImages = getAmenitiesImages(development);
+
+    if (amenitiesImages.length === 0) {
+        // Si no hay amenidades configuradas, no fallar: simplemente no se envía media.
+        await sendTextMessage(
+            phoneNumberId,
+            to,
+            'Aún no hay amenidades configuradas para este desarrollo. Un asesor te compartirá más información en breve.'
+        );
+        return false;
+    }
+
+    let anySent = false;
+    for (const url of amenitiesImages) {
+        const result = await sendImageMessage(
+            phoneNumberId,
+            to,
+            url,
+            undefined
+        );
+        if (result) {
+            anySent = true;
+        }
+    }
+    return anySent;
+}
+
+/**
+ * Envía la información de ubicación por WhatsApp a partir del contexto del thread.
+ * Combina imagen (si existe) y texto (dirección + link de mapa).
+ */
+async function handleLocationCommandForThread(
+    development: string,
+    userPhone: string,
+    phoneNumberId: string
+): Promise<boolean> {
+    const to = userPhone.replace(/^\+/, '');
+    const locationMedia = getLocationMedia(development);
+
+    let anySent = false;
+
+    if (locationMedia.imageUrl) {
+        const caption = locationMedia.locationText || `Ubicación del desarrollo ${development}`;
+        const imageResult = await sendImageMessage(
+            phoneNumberId,
+            to,
+            locationMedia.imageUrl,
+            caption
+        );
+        if (imageResult) {
+            anySent = true;
+        }
+    }
+
+    const parts: string[] = [];
+    if (locationMedia.locationText) {
+        parts.push(locationMedia.locationText);
+    }
+    if (locationMedia.mapsUrl) {
+        parts.push(locationMedia.mapsUrl);
+    }
+    const text = parts.join('\n');
+
+    if (text.trim().length > 0) {
+        const textResult = await sendTextMessage(
+            phoneNumberId,
+            to,
+            text
+        );
+        if (textResult) {
+            anySent = true;
+        }
+    }
+
+    if (!anySent) {
+        await sendTextMessage(
+            phoneNumberId,
+            to,
+            'Aún no hay información de ubicación configurada para este desarrollo. Un asesor te compartirá los detalles en breve.'
+        );
+    }
+
+    return anySent;
+}
+
+/**
+ * Envía el brochure PDF del desarrollo actual por WhatsApp.
+ */
+async function handleBrochureCommandForThread(
+    development: string,
+    userPhone: string,
+    phoneNumberId: string
+): Promise<boolean> {
+    const to = userPhone.replace(/^\+/, '');
+    const brochureUrl = getBrochure(development);
+
+    if (!brochureUrl) {
+        await sendTextMessage(
+            phoneNumberId,
+            to,
+            'Aún no hay brochure configurado para este desarrollo. Un asesor te compartirá la información en breve.'
+        );
+        return false;
+    }
+
+    const filename = getBrochureFilename(development);
+    const result = await sendDocumentMessage(
+        phoneNumberId,
+        to,
+        brochureUrl,
+        filename,
+        'Te comparto el brochure del desarrollo.'
+    );
+
+    if (!result) {
+        await sendTextMessage(
+            phoneNumberId,
+            to,
+            'Hubo un problema al enviar el brochure. Por favor intenta de nuevo o avisa a soporte.'
+        );
+        return false;
+    }
+
+    return true;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
     let body: Record<string, unknown> = {};
     try {
@@ -174,6 +326,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             logger.warn('Cliq webhook: no phone_number_id for thread', { channel_id, development: thread.development }, 'webhooks-cliq');
             await setCliqWaError(channel_id, 'no phone_number_id');
             return NextResponse.json({ ok: true }, { status: 200 });
+        }
+
+        // Resolver comando (si aplica) usando el contexto del thread (desarrollo + lead).
+        const parsedCommand = parseCliqCommand(message);
+        if (parsedCommand) {
+            const { command } = parsedCommand;
+            let handled = false;
+
+            if (command === '/amenidades') {
+                handled = await handleAmenitiesCommandForThread(
+                    thread.development,
+                    thread.user_phone,
+                    phone_number_id
+                );
+            } else if (command === '/ubicacion') {
+                handled = await handleLocationCommandForThread(
+                    thread.development,
+                    thread.user_phone,
+                    phone_number_id
+                );
+            } else if (command === '/brochure') {
+                handled = await handleBrochureCommandForThread(
+                    thread.development,
+                    thread.user_phone,
+                    phone_number_id
+                );
+            }
+
+            if (handled) {
+                await markCliqWaSent(thread.user_phone, thread.development);
+                await touchLastInteraction(thread.user_phone, thread.development);
+                await saveBridgeLog({
+                    user_phone: thread.user_phone,
+                    development: thread.development,
+                    direction: 'cliqq_wa',
+                    content: message,
+                });
+                logger.info('Cliq->WA command handled', { channel_id, command, development: thread.development }, 'webhooks-cliq');
+                return NextResponse.json({ ok: true, handled: true, command }, { status: 200 });
+            }
+            // Si el comando no fue reconocido o no se pudo manejar, se continúa y se reenvía como texto normal.
         }
 
         const to = thread.user_phone.replace(/^\+/, '');
