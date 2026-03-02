@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCliqThreadByChannelId, getCliqThreadByChannelUniqueName, markCliqWaSent, setCliqWaError, setCliqChatIdForThread } from '@/lib/db/whatsapp-cliq';
+import { getCliqThreadByChannelId, getCliqThreadByChannelUniqueName, markCliqWaSent, setCliqWaError, setCliqChatIdForThread, setCliqRawPayloadForThread } from '@/lib/db/whatsapp-cliq';
 import { saveBridgeLog } from '@/lib/db/postgres';
 import { touchLastInteraction } from '@/lib/modules/whatsapp/conversation-state';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
@@ -151,6 +151,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (!thread) {
             logger.warn('Cliq webhook: no thread for channel (revisa whatsapp_cliq_threads.cliq_channel_id o envia channel_unique_name)', { channel_id }, 'webhooks-cliq');
             return NextResponse.json({ ok: true }, { status: 200 });
+        }
+
+        // Guardar último payload bruto de Cliq para este thread (debug).
+        try {
+            await setCliqRawPayloadForThread(thread.user_phone, thread.development, body);
+        } catch {
+            // no bloquear flujo por debug
         }
 
         // Si canal_id es un CT_... (ID de chat real), persistirlo en el thread para poder construir URLs correctas.

@@ -24,6 +24,8 @@ export interface WhatsAppCliqThread {
   last_cliq_wa_sent_at: Date | null;
   /** Last error when Cliq->WA send failed; null if last send succeeded. */
   last_cliq_wa_error: string | null;
+  /** Last raw webhook payload from Cliq (for debugging only). */
+  last_cliq_raw_payload: unknown | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -87,7 +89,7 @@ export async function getCliqThreadByUserAndDev(
 }
 
 const THREAD_SELECT = `id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
-            cliq_channel_id, cliq_channel_unique_name, cliq_chat_id, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, created_at, updated_at`;
+            cliq_channel_id, cliq_channel_unique_name, cliq_chat_id, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, last_cliq_raw_payload, created_at, updated_at`;
 
 export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
@@ -180,3 +182,18 @@ export async function setCliqChatIdForThread(user_phone: string, development: st
     [user_phone, development, cliq_chat_id]
   );
 }
+
+/** Persist last raw Cliq payload for debugging. */
+export async function setCliqRawPayloadForThread(user_phone: string, development: string, payload: unknown): Promise<void> {
+  try {
+    await query(
+      `UPDATE whatsapp_cliq_threads
+       SET last_cliq_raw_payload = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE user_phone = $1 AND development = $2`,
+      [user_phone, development, payload]
+    );
+  } catch {
+    // debug-only; no-op on error
+  }
+}
+

@@ -59,6 +59,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                     context_sent_at: thread.context_sent_at,
                     last_cliq_wa_sent_at: thread.last_cliq_wa_sent_at,
                     last_cliq_wa_error: thread.last_cliq_wa_error,
+                    cliq_chat_id: (thread as { cliq_chat_id?: string | null }).cliq_chat_id ?? null,
+                    last_cliq_raw_payload: (thread as { last_cliq_raw_payload?: unknown | null }).last_cliq_raw_payload ?? null,
                 }
                 : null,
             debug: {
