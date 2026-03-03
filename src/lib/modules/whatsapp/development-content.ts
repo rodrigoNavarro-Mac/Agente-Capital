@@ -12,6 +12,8 @@
  */
 export interface DevelopmentMessages {
     BIENVENIDA: string;
+    /** Short re-prompt when user sends only a greeting in FILTRO_INTENCION (e.g. "Hola") */
+    FILTRO_PREGUNTA: string;
     CONFIRMACION_COMPRA: string;
     CONFIRMACION_INVERSION: string;
     CTA_AYUDA: string;
@@ -46,6 +48,8 @@ FUEGO es un condominio privado dentro de Terraquia, ubicado en 📍 Av. Huayacá
 
 Para ayudarte mejor:
 ¿Buscas invertir 💰 o construir tu hogar 🏡?`,
+
+    FILTRO_PREGUNTA: `Para ayudarte mejor: ¿Buscas invertir 💰 o construir tu hogar 🏡?`,
 
     CONFIRMACION_COMPRA: `Excelente 🏡✨
 
@@ -134,6 +138,8 @@ Un desarrollo residencial premium diseñado para inversión inteligente y constr
 
 Para ayudarte mejor, ¿te interesa invertir o construir?`,
 
+    FILTRO_PREGUNTA: `Para ayudarte mejor, ¿te interesa invertir o construir?`,
+
     CONFIRMACION_COMPRA: `Excelente decisión 🏡  
 Si estás buscando construir tu patrimonio, AMURA te ofrece ubicación estratégica, plusvalía y un entorno residencial de alto nivel.`,
 
@@ -190,6 +196,9 @@ const PUNTO_TIERRA_MESSAGES: DevelopmentMessages = {
 Soy el asistente de Punto Tierra.
 
 ¿Te interesa invertir o construir?`,
+
+    FILTRO_PREGUNTA: `¿Te interesa invertir o construir?`,
+
     CONFIRMACION_COMPRA: `Perfecto. Punto Tierra puede ser una buena opción para ti.`,
     CONFIRMACION_INVERSION: `Excelente. Punto Tierra ofrece oportunidades de inversión.`,
     CTA_AYUDA: `¿Te gustaría agendar una visita o una llamada con un asesor?`,

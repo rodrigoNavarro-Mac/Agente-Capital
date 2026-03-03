@@ -23,6 +23,22 @@ function matchesAny(normalized: string, terms: string[]): boolean {
     });
 }
 
+/**
+ * True when the message is only a greeting (e.g. "Hola", "Holaaa", "Buenas").
+ * Used in FILTRO_INTENCION to re-send the intent question instead of INFO_REINTENTO.
+ */
+export function isOnlyGreeting(text: string): boolean {
+    const n = normalizeForMatch(text);
+    if (!n) return false;
+    // "hola", "holaa", "holaaa", etc.
+    if (/^hola+$/.test(n)) return true;
+    const greetings = [
+        'buenas', 'buenos dias', 'hey', 'hi', 'saludos',
+        'que tal', 'good morning', 'good afternoon', 'buen dia',
+    ];
+    return greetings.some(g => n === removeAccents(g.toLowerCase().trim()));
+}
+
 /* =====================================================
    INTENCIÓN: COMPRAR / CONSTRUIR
 ===================================================== */

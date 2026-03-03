@@ -325,6 +325,19 @@ describe('conversation-flows', () => {
     });
   });
 
+  describe('FILTRO_INTENCION -> greeting (start from 0)', () => {
+    it('when user sends only greeting (e.g. "Holaaa") responds with BIENVENIDA and stays in FILTRO_INTENCION', async () => {
+      setState('FILTRO_INTENCION');
+      const res = await handleIncomingMessage(ctx('Holaaa'));
+      expect(res.nextState).toBe('FILTRO_INTENCION');
+      const text = firstText(res);
+      expect(text).toBeDefined();
+      // BIENVENIDA contains the intent question, not INFO_REINTENTO
+      expect(text).toMatch(/invertir|construir|hogar/i);
+      expect(text).not.toMatch(/Claro|Antes de avanzar/);
+    });
+  });
+
   describe('FILTRO_INTENCION -> INFO_REINTENTO (solo info)', () => {
     it('on "solo precios" sends INFO_REINTENTO', async () => {
       setState('FILTRO_INTENCION');

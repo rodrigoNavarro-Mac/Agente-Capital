@@ -26,6 +26,7 @@ import {
     matchNegativeByKeywords,
     matchCtaPrimarioByKeywords,
     matchCtaCanalByKeywords,
+    isOnlyGreeting,
 } from './conversation-keywords';
 import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
@@ -458,6 +459,16 @@ async function handleFiltroIntencion(
 ): Promise<FlowResult> {
     const text = messageText.toLowerCase().trim();
     const messages = getMessagesForDevelopment(development);
+
+    // Si solo manda saludo (ej. "Holaaa" tras reset o race), responder con BIENVENIDA como inicio desde cero
+    if (isOnlyGreeting(text)) {
+        const outboundMessages: OutboundMessage[] = [{ type: 'text', text: messages.BIENVENIDA }];
+        const heroImageUrl = getHeroImage(development);
+        if (heroImageUrl) {
+            outboundMessages.push({ type: 'image', imageUrl: heroImageUrl, caption: undefined });
+        }
+        return { outboundMessages, nextState: 'FILTRO_INTENCION' };
+    }
 
     // Primero intentar por palabras clave (más casos de uso, sin depender del LLM)
     let intent = matchIntentByKeywords(messageText);
