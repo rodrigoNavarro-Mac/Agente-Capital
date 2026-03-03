@@ -17,9 +17,16 @@ import {
 } from './conversation-state';
 import {
     classifyIntent,
-    classifyAccion,
+    classifyCtaPrimario,
+    classifyCtaCanal,
 } from './intent-classifier';
-import { matchIntentByKeywords, matchAffirmativeByKeywords, matchNegativeByKeywords } from './conversation-keywords';
+import {
+    matchIntentByKeywords,
+    matchAffirmativeByKeywords,
+    matchNegativeByKeywords,
+    matchCtaPrimarioByKeywords,
+    matchCtaCanalByKeywords,
+} from './conversation-keywords';
 import { getMessagesForDevelopment } from './development-content';
 import { getHeroImage, getBrochure, getBrochureFilename } from './media-handler';
 import { selectResponseAndState, getResponseText, type ResponseKey } from './response-selector';
@@ -66,6 +73,39 @@ export interface IncomingMessageContext {
     userPhone: string;
     messageText: string;
 }
+
+// =====================================================
+// ALLOWLIST: nextState permitidos por estado actual (evita ciclos y retrocesos)
+// =====================================================
+const ALLOWED_NEXT_STATES_BY_STATE: Record<ConversationState, ConversationState[]> = {
+    INICIO: ['FILTRO_INTENCION'],
+    FILTRO_INTENCION: ['CTA_PRIMARIO', 'INFO_REINTENTO', 'SALIDA_ELEGANTE'],
+    INFO_REINTENTO: ['CTA_PRIMARIO', 'SALIDA_ELEGANTE'],
+    CTA_PRIMARIO: ['SOLICITUD_HORARIO', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
+    CTA_CANAL: ['SOLICITUD_HORARIO', 'SALIDA_ELEGANTE'],
+    SOLICITUD_HORARIO: ['SOLICITUD_NOMBRE'],
+    SOLICITUD_NOMBRE: ['CLIENT_ACCEPTA', 'SOLICITUD_NOMBRE'],
+    CLIENT_ACCEPTA: [],
+    ENVIO_BROCHURE: ['INICIO'],
+    REVALIDACION_INTERES: ['INICIO'],
+    VALIDACION_PRODUCTO: ['INICIO'],
+    PERFIL_COMPRA: ['INICIO'],
+    CALIFICACION_PRESUPUESTO: ['INICIO'],
+    OFERTA_PLAN_PAGOS: ['INICIO'],
+    CALIFICACION_URGENCIA: ['INICIO'],
+    SOLICITUD_ACCION: ['INICIO'],
+    HANDOVER_ASESOR: ['INICIO'],
+    SALIDA_ELEGANTE: [],
+    CONVERSACION_LIBRE: [],
+};
+
+/** responseKeys que repiten la pregunta del estado actual; si LLM devuelve state igual + esta clave, usar FSM (anti-repeat) */
+const REPEAT_RESPONSE_KEYS_BY_STATE: Partial<Record<ConversationState, string[]>> = {
+    CTA_PRIMARIO: ['CTA_AYUDA', 'CTA_VISITA_O_CONTACTO'],
+    CTA_CANAL: ['CTA_CANAL'],
+    INFO_REINTENTO: ['INFO_REINTENTO'],
+    SOLICITUD_NOMBRE: ['SOLICITUD_NOMBRE'],
+};
 
 // =====================================================
 // CONFIGURACIÓN HORARIA
@@ -232,8 +272,8 @@ function buildOutboundFromSelection(
     }
 
     if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
-        // Brochure se envía casi al final del flujo (en SOLICITUD_NOMBRE)
-        outbound.push({ type: 'text', text: messages.CTA_AYUDA });
+        // Primera pregunta CTA: visitar o que te contacte un agente
+        outbound.push({ type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA });
     }
 
     return outbound;
@@ -261,6 +301,17 @@ async function processState(
             });
             if (selection) {
                 const { responseKey, nextState } = selection;
+
+                // Validación allowlist: nextState debe estar permitido desde state
+                const allowed = ALLOWED_NEXT_STATES_BY_STATE[state];
+                const allowlistOk = !allowed || allowed.length === 0 || allowed.includes(nextState);
+                const repeatKeys = REPEAT_RESPONSE_KEYS_BY_STATE[state];
+                const isRepeat = nextState === state && repeatKeys?.includes(responseKey);
+                if (!allowlistOk) {
+                    logger.warn('LLM nextState not in allowlist, using FSM fallback', { state, nextState, responseKey }, 'conversation-flows');
+                } else if (isRepeat) {
+                    logger.info('Anti-repeat: same state + repeat responseKey, using FSM fallback', { state, responseKey }, 'conversation-flows');
+                } else {
                 if (responseKey === 'HANDOVER_EXITOSO' && nextState === 'CLIENT_ACCEPTA') {
                     const userName =
                         state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3
@@ -314,13 +365,22 @@ async function processState(
                     const perfil_compra = responseKey === 'CONFIRMACION_INVERSION' ? 'inversion' : 'construir_casa';
                     await mergeUserData(userPhone, development, { intencion, perfil_compra });
                 }
-                // When LLM moves from CTA_PRIMARIO to SOLICITUD_HORARIO, persist preferred_action (llamada/visita/cotizacion)
+                // When LLM moves from CTA_PRIMARIO to SOLICITUD_HORARIO, persist preferred_action (visita/contactado) y preferred_channel si aplica
                 if (state === 'CTA_PRIMARIO' && nextState === 'SOLICITUD_HORARIO') {
-                    const action = await classifyAccion(messageText);
-                    await mergeUserData(userPhone, development, { preferred_action: action || 'visita_o_llamada' });
+                    const ctaPrim = await classifyCtaPrimario(messageText).catch(() => null) ?? matchCtaPrimarioByKeywords(messageText);
+                    const channel = await classifyCtaCanal(messageText).catch(() => null) ?? matchCtaCanalByKeywords(messageText);
+                    await mergeUserData(userPhone, development, {
+                        preferred_action: ctaPrim === 'visitar' ? 'visita' : 'contactado',
+                        ...(channel && { preferred_channel: channel }),
+                    });
+                }
+                if (state === 'CTA_CANAL' && nextState === 'SOLICITUD_HORARIO') {
+                    const channel = await classifyCtaCanal(messageText).catch(() => null) ?? matchCtaCanalByKeywords(messageText);
+                    await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: channel || 'whatsapp' });
                 }
                 logger.info('Flow driven by LLM response selector', { responseKey, nextState }, 'conversation-flows');
                 return { outboundMessages, nextState };
+                }
             }
         } catch (err) {
             logger.warn('LLM response selector failed, using keyword/FSM fallback', { err }, 'conversation-flows');
@@ -339,6 +399,9 @@ async function processState(
 
         case 'CTA_PRIMARIO':
             return await handleCtaPrimario(messageText, development, userPhone);
+
+        case 'CTA_CANAL':
+            return await handleCtaCanal(messageText, development, userPhone);
 
         case 'SOLICITUD_HORARIO':
             return await handleSolicitudHorario(messageText, development, userPhone);
@@ -410,8 +473,8 @@ async function handleFiltroIntencion(
                 text: (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA
             },
         ];
-        // Brochure se envía casi al final, una vez agendada cita/llamada (en SOLICITUD_NOMBRE)
-        outboundMessages.push({ type: 'text', text: messages.CTA_AYUDA });
+        // Primera pregunta CTA: visitar o que te contacte un agente
+        outboundMessages.push({ type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA });
 
         return {
             outboundMessages,
@@ -473,7 +536,7 @@ async function handleInfoReintento(
 
         const outboundMessages: OutboundMessage[] = [
             { type: 'text', text: messages.CONFIRMACION_COMPRA },
-            { type: 'text', text: messages.CTA_AYUDA },
+            { type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA },
         ];
         // Brochure se envía casi al final (en SOLICITUD_NOMBRE)
 
@@ -492,30 +555,85 @@ async function handleCtaPrimario(
     development: string,
     userPhone: string
 ): Promise<FlowResult> {
-    const action = await classifyAccion(messageText);
+    const messages = getMessagesForDevelopment(development);
 
-    // Negativos: primero por palabras clave ampliadas, luego reglas concretas
-    const isNegative = matchNegativeByKeywords(messageText);
-
-    if (isNegative) {
+    // 1. Negativo -> salida elegante
+    if (matchNegativeByKeywords(messageText)) {
         return await handleSalidaElegante(development, userPhone, 'rechazo_cta_explicito');
     }
 
-    // Afirmativo: keywords ampliados o LLM (cita/visita/cotizacion)
-    const isAffirmative = matchAffirmativeByKeywords(messageText) || (action !== null);
-
-    const messages = getMessagesForDevelopment(development);
-    if (isAffirmative) {
-        const accionGuardar = action || 'visita_o_llamada';
-        await mergeUserData(userPhone, development, { preferred_action: accionGuardar });
+    // 2. Visitar -> directo a horario (preferred_action = visita)
+    const ctaPrimKeywords = matchCtaPrimarioByKeywords(messageText);
+    const ctaPrimLLM = ctaPrimKeywords ?? await classifyCtaPrimario(messageText);
+    if (ctaPrimLLM === 'visitar') {
+        await mergeUserData(userPhone, development, { preferred_action: 'visita', preferred_channel: undefined });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
         return {
             outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
-            nextState: 'SOLICITUD_HORARIO'
+            nextState: 'SOLICITUD_HORARIO',
         };
-    } else {
-        return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
     }
+
+    // 3. Short-circuit: ya dijo canal (WhatsApp o llamada) -> saltar CTA_CANAL
+    const canalKeywords = matchCtaCanalByKeywords(messageText);
+    const canalLLM = canalKeywords ?? await classifyCtaCanal(messageText);
+    if (canalLLM === 'whatsapp' || canalLLM === 'llamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: canalLLM });
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        return {
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            nextState: 'SOLICITUD_HORARIO',
+        };
+    }
+
+    // 4. Contactado (genérico, sin canal) -> preguntar canal en CTA_CANAL
+    if (ctaPrimLLM === 'contactado' || matchAffirmativeByKeywords(messageText)) {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado' });
+        await updateState(userPhone, development, 'CTA_CANAL');
+        const ctaCanalText = messages.CTA_CANAL ?? 'Por WhatsApp o por llamada?';
+        return {
+            outboundMessages: [{ type: 'text', text: ctaCanalText }],
+            nextState: 'CTA_CANAL',
+        };
+    }
+
+    // 5. Ambiguo -> salida elegante
+    return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
+}
+
+async function handleCtaCanal(
+    messageText: string,
+    development: string,
+    userPhone: string
+): Promise<FlowResult> {
+    const messages = getMessagesForDevelopment(development);
+
+    if (matchNegativeByKeywords(messageText)) {
+        return await handleSalidaElegante(development, userPhone, 'rechazo_cta_explicito');
+    }
+
+    const canalKeywords = matchCtaCanalByKeywords(messageText);
+    const canal = canalKeywords ?? await classifyCtaCanal(messageText);
+    if (canal === 'whatsapp' || canal === 'llamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: canal });
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        return {
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            nextState: 'SOLICITUD_HORARIO',
+        };
+    }
+
+    // Afirmativo genérico (ej. "sí") sin canal -> default WhatsApp
+    if (matchAffirmativeByKeywords(messageText)) {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'whatsapp' });
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        return {
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            nextState: 'SOLICITUD_HORARIO',
+        };
+    }
+
+    return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
 }
 
 async function handleSolicitudHorario(
@@ -609,15 +727,19 @@ function getIntencionForCliq(userData: UserData | undefined): string {
     return '';
 }
 
-/** Human-readable label for preferred_action (cita/visita/cotizacion). */
-function formatAccionPreferidaForCliq(preferred_action: string | undefined): string {
-    if (!preferred_action) return 'Visita o llamada';
-    const t = String(preferred_action).toLowerCase();
-    if (t === 'cita' || t.includes('llamada')) return 'Llamada';
-    if (t === 'visita') return 'Visita';
-    if (t === 'cotizacion' || t.includes('cotiz')) return 'Cotización';
-    if (t === 'visita_o_llamada') return 'Visita o llamada';
-    return preferred_action;
+/** Human-readable label for preferred_action + preferred_channel (visita | contactado + whatsapp/llamada). */
+function formatAccionPreferidaForCliq(userData: UserData | undefined): string {
+    const action = (userData?.preferred_action ?? '').toLowerCase();
+    const channel = (userData?.preferred_channel ?? '').toLowerCase();
+    if (action === 'visita') return 'Visita al desarrollo';
+    if (action === 'contactado' && channel === 'whatsapp') return 'Contacto: WhatsApp';
+    if (action === 'contactado' && channel === 'llamada') return 'Contacto: Llamada';
+    if (action === 'contactado') return 'Contacto (canal no indicado)';
+    if (action === 'cita' || action.includes('llamada')) return 'Llamada';
+    if (action === 'cotizacion' || action.includes('cotiz')) return 'Cotización';
+    if (action === 'visita_o_llamada') return 'Visita o llamada';
+    if (action) return action;
+    return 'Visita o llamada';
 }
 
 /** Format phone for display (e.g. +52 1 222 844 2014 for Mexico 12-digit). */
@@ -666,7 +788,7 @@ function buildHandoverMessageForCliq(
     if (development) lines.push(`Desarrollo: ${development}`);
     const intencion = getIntencionForCliq(userData);
     lines.push(`Intención: ${intencion || '(no indicada)'}`);
-    const accion = formatAccionPreferidaForCliq(userData?.preferred_action);
+    const accion = formatAccionPreferidaForCliq(userData);
     lines.push(`Acción preferida: ${accion}`);
     const horario = (userData?.horario_preferido || '').trim();
     lines.push(`Horario sugerido: ${horario || '(no indicado)'}`);
@@ -802,7 +924,8 @@ async function handleClientAccepta(
     await markQualified(userPhone, development, zoho_lead_id || 'pending');
     await mergeUserData(userPhone, development, {
         lead_quality: 'ALTO',
-        preferred_action: userData?.preferred_action || 'visita_o_llamada',
+        preferred_action: userData?.preferred_action || 'visita',
+        preferred_channel: userData?.preferred_channel,
         trigger_text: triggerText,
         qualified_at: new Date().toISOString(),
         ...(assigned_agent_email ? { assigned_owner_email: assigned_agent_email } : {}),

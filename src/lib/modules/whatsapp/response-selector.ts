@@ -20,6 +20,8 @@ const VALID_RESPONSE_KEYS: ResponseKey[] = [
     'CONFIRMACION_COMPRA',
     'CONFIRMACION_INVERSION',
     'CTA_AYUDA',
+    'CTA_VISITA_O_CONTACTO',
+    'CTA_CANAL',
     'SOLICITUD_HORARIO',
     'SOLICITUD_NOMBRE',
     'INFO_REINTENTO',
@@ -34,6 +36,7 @@ const VALID_STATES: ConversationState[] = [
     'FILTRO_INTENCION',
     'INFO_REINTENTO',
     'CTA_PRIMARIO',
+    'CTA_CANAL',
     'SOLICITUD_HORARIO',
     'SOLICITUD_NOMBRE',
     'CLIENT_ACCEPTA',
@@ -60,6 +63,8 @@ const RESPONSE_KEY_DESCRIPTIONS: Record<ResponseKey, string> = {
     CONFIRMACION_COMPRA: 'Confirma que busca construir/vivir; ventajas para vivienda.',
     CONFIRMACION_INVERSION: 'Confirma que busca invertir; plusvalía y rentabilidad.',
     CTA_AYUDA: 'Pregunta si prefiere visita o llamada con asesor.',
+    CTA_VISITA_O_CONTACTO: 'Pregunta si quiere visitar el desarrollo o que un agente lo contacte.',
+    CTA_CANAL: 'Pregunta por WhatsApp o por llamada (solo si eligió ser contactado).',
     SOLICITUD_HORARIO: 'Pide horario preferido para ser contactado o realizar la llamada.',
     SOLICITUD_NOMBRE: 'Pide nombre completo para asignar asesor.',
     INFO_REINTENTO: 'Usuario solo info o no claro; dar datos y preguntar invertir o vivir.',
@@ -108,13 +113,15 @@ Reglas:
 1. Usuario quiere INVERTIR -> CONFIRMACION_INVERSION, nextState CTA_PRIMARIO.
 2. Usuario quiere COMPRAR/CONSTRUIR/VIVIR -> CONFIRMACION_COMPRA, nextState CTA_PRIMARIO.
 3. Usuario solo INFO/PRECIO (primera vez) -> INFO_REINTENTO, nextState INFO_REINTENTO.
-4. Usuario acepta visita/llamada (sí, agendar, etc.) -> SOLICITUD_HORARIO, nextState SOLICITUD_HORARIO.
-5. En estado SOLICITUD_HORARIO, usuario indica horario (cualquier texto) -> SOLICITUD_NOMBRE, nextState SOLICITUD_NOMBRE.
-6. Usuario rechaza (no gracias, luego) -> SALIDA_ELEGANTE, nextState SALIDA_ELEGANTE.
-7. Usuario da su nombre (varias palabras) -> HANDOVER_EXITOSO, nextState CLIENT_ACCEPTA.
-8. Mensaje ambiguo en FILTRO_INTENCION -> INFO_REINTENTO, nextState INFO_REINTENTO.
-9. Primer mensaje solo saludo (hola) -> BIENVENIDA, nextState FILTRO_INTENCION.
-10. NUNCA inventes ni menciones disponibilidad de lotes en específico ni rangos en m²; solo usa las claves del banco.
+4. En estado CTA_PRIMARIO: solo nextState SOLICITUD_HORARIO (visita o canal ya elegido), CTA_CANAL (ser contactado sin canal) o SALIDA_ELEGANTE. NUNCA CONFIRMACION_* ni volver a FILTRO.
+5. En estado CTA_CANAL: solo nextState SOLICITUD_HORARIO o SALIDA_ELEGANTE.
+6. Usuario acepta visita/llamada/contacto (sí, agendar, etc.) -> SOLICITUD_HORARIO, nextState SOLICITUD_HORARIO.
+7. En estado SOLICITUD_HORARIO, usuario indica horario (cualquier texto) -> SOLICITUD_NOMBRE, nextState SOLICITUD_NOMBRE.
+8. Usuario rechaza (no gracias, luego) -> SALIDA_ELEGANTE, nextState SALIDA_ELEGANTE.
+9. Usuario da su nombre (varias palabras) -> HANDOVER_EXITOSO, nextState CLIENT_ACCEPTA.
+10. Mensaje ambiguo en FILTRO_INTENCION -> INFO_REINTENTO, nextState INFO_REINTENTO.
+11. Primer mensaje solo saludo (hola) -> BIENVENIDA, nextState FILTRO_INTENCION.
+12. NUNCA inventes ni menciones disponibilidad de lotes; solo usa las claves del banco.
 
 Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextState":"ESTADO"}`;
 

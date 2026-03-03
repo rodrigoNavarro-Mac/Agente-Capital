@@ -15,6 +15,10 @@ export interface DevelopmentMessages {
     CONFIRMACION_COMPRA: string;
     CONFIRMACION_INVERSION: string;
     CTA_AYUDA: string;
+    /** Primera pregunta CTA: visitar desarrollo o ser contactado por agente */
+    CTA_VISITA_O_CONTACTO: string;
+    /** Si eligió contactado: por WhatsApp o por llamada */
+    CTA_CANAL: string;
     SOLICITUD_HORARIO: string;
     SOLICITUD_NOMBRE: string;
     INFO_REINTENTO: string;
@@ -64,6 +68,12 @@ Es una inversión sólida y con respaldo real.`,
     CTA_AYUDA: `Para orientarte mejor:
 
 ¿Prefieres agendar una visita al desarrollo 🏡 o una llamada breve con un asesor 📞?`,
+
+    CTA_VISITA_O_CONTACTO: `Para orientarte mejor:
+
+¿Quieres visitar el desarrollo 🏡 o que un agente te contacte?`,
+
+    CTA_CANAL: `¿Por WhatsApp o por llamada 📞?`,
 
     SOLICITUD_HORARIO: `Perfecto 🙌
 
@@ -128,6 +138,12 @@ AMURA es una oportunidad sólida de inversión con alta proyección de plusvalí
 
 ¿Te gustaría agendar una visita al desarrollo 🏡 o prefieres una llamada breve con un asesor 📞?`,
 
+    CTA_VISITA_O_CONTACTO: `Para orientarte mejor:
+
+¿Quieres visitar el desarrollo o que un agente te contacte?`,
+
+    CTA_CANAL: `¿Por WhatsApp o por llamada?`,
+
     SOLICITUD_HORARIO: `Perfecto 👍  
 
 ¿En qué horario te gustaría que te contactemos para la llamada o visita? 🕒`,
@@ -167,6 +183,8 @@ Soy el asistente de Punto Tierra.
     CONFIRMACION_COMPRA: `Perfecto. Punto Tierra puede ser una buena opción para ti.`,
     CONFIRMACION_INVERSION: `Excelente. Punto Tierra ofrece oportunidades de inversión.`,
     CTA_AYUDA: `¿Te gustaría agendar una visita o una llamada con un asesor?`,
+    CTA_VISITA_O_CONTACTO: `¿Quieres visitar el desarrollo o que un agente te contacte?`,
+    CTA_CANAL: `¿Por WhatsApp o por llamada?`,
     SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
     SOLICITUD_NOMBRE: `¿Cuál es tu nombre completo para el asesor?`,
     INFO_REINTENTO: `¿Estás buscando esta oportunidad para invertir o para vivir?`,

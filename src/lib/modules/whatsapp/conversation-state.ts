@@ -16,7 +16,8 @@ export type ConversationState =
     | 'INICIO'                    // Primer mensaje
     | 'FILTRO_INTENCION'         // ¿Qué te interesa? (Comprar/Invertir/Solo ver)
     | 'INFO_REINTENTO'           // Segunda oportunidad para curiosos
-    | 'CTA_PRIMARIO'             // Micro-decisión: Visita o Llamada
+    | 'CTA_PRIMARIO'             // Micro-decisión: Visita o que te contacte un agente
+    | 'CTA_CANAL'                // Si contactado: elegir canal WhatsApp o llamada
     | 'SOLICITUD_HORARIO'        // Pedir horario preferido de contacto antes del nombre
     | 'SOLICITUD_NOMBRE'         // Pedir nombre antes de handover
     | 'CLIENT_ACCEPTA'           // Handover, Lead en Zoho
@@ -46,7 +47,10 @@ export interface UserData {
     perfil_compra?: string;       // 'construir_casa' | 'inversion' | 'no_claro'
     presupuesto?: string;         // Rango o monto
     urgencia?: string;            // '0-3m' | '3-6m' | '6-12m' | 'explorando'
-    preferred_action?: string;    // 'cita' | 'cotizacion'
+    /** Macro: 'visita' = ir al desarrollo | 'contactado' = que un agente lo contacte */
+    preferred_action?: string;    // 'visita' | 'contactado' (legacy: 'cita' | 'cotizacion')
+    /** Solo si preferred_action === 'contactado': 'whatsapp' | 'llamada' */
+    preferred_channel?: string;
     horario_preferido?: string;   // Respuesta libre: a qué hora le gustaría ser contactado
     lead_quality?: LeadQuality;   // Scoring automático
     disqualified_reason?: string; // Razón de descalificación
@@ -174,6 +178,8 @@ export interface RecentConversationRow {
     last_cliq_wa_error?: string | null;
     /** Número de intercambios (mensajes bot) para métricas/KPIs */
     interaction_count?: number;
+    /** Segundos desde primer mensaje del usuario hasta primera respuesta (desde whatsapp_logs) */
+    first_response_secs?: number | null;
 }
 
 /** Options for filtering recent conversations by role/scope */
@@ -197,7 +203,8 @@ export async function getRecentConversations(
         const cols = `c.id, c.user_phone, c.development, c.state, c.last_interaction, c.is_qualified, c.zoho_lead_id, c.user_data, c.created_at, c.updated_at,
                       t.cliq_channel_id, t.cliq_channel_unique_name, t.cliq_chat_id, t.assigned_agent_email,
                       t.context_sent_at, t.last_cliq_wa_sent_at, t.last_cliq_wa_error,
-                      (SELECT COUNT(*)::int FROM whatsapp_logs w WHERE w.user_phone = c.user_phone AND w.development = c.development) AS interaction_count`;
+                      (SELECT COUNT(*)::int FROM whatsapp_logs w WHERE w.user_phone = c.user_phone AND w.development = c.development) AS interaction_count,
+                      (SELECT EXTRACT(EPOCH FROM (w.response_at - w.received_at))::double precision FROM whatsapp_logs w WHERE w.user_phone = c.user_phone AND w.development = c.development AND w.received_at IS NOT NULL AND w.response_at IS NOT NULL ORDER BY w.created_at ASC LIMIT 1) AS first_response_secs`;
         const baseFrom = `FROM whatsapp_conversations c
                LEFT JOIN whatsapp_cliq_threads t ON t.user_phone = c.user_phone AND t.development = c.development`;
         const params: unknown[] = [];
@@ -291,7 +298,7 @@ export async function getConversationKPIs(
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE c.state != 'SALIDA_ELEGANTE' AND c.last_interaction > NOW() - INTERVAL '24 hours')::int as active,
             COUNT(*) FILTER (WHERE c.state = 'CLIENT_ACCEPTA' AND t.cliq_channel_id IS NOT NULL)::int as handover,
-            COUNT(*) FILTER (WHERE c.state != 'SALIDA_ELEGANTE' AND c.last_interaction < NOW() - INTERVAL '15 minutes')::int as no_response_15m,
+            COUNT(*) FILTER (WHERE c.state = 'CLIENT_ACCEPTA' AND t.cliq_channel_id IS NOT NULL AND (t.last_cliq_wa_sent_at IS NULL OR t.last_cliq_wa_sent_at < c.last_interaction) AND c.last_interaction < NOW() - INTERVAL '15 minutes')::int as no_response_15m,
             COUNT(*) FILTER (WHERE t.last_cliq_wa_error IS NOT NULL AND t.last_cliq_wa_error != '')::int as with_error,
             COUNT(*) FILTER (WHERE c.is_qualified = true)::int as qualified
             ${baseFrom} ${whereClause}`;

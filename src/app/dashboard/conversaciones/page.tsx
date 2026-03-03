@@ -41,6 +41,8 @@ interface ConversationRow {
     interaction_count?: number;
     lead_url?: string | null;
     cliq_channel_url?: string | null;
+    /** Segundos desde primer mensaje del usuario hasta primera respuesta (bot) */
+    first_response_secs?: number | null;
 }
 
 function maskPhone(phone: string): string {
@@ -358,19 +360,44 @@ function minsSinceLastInteraction(lastInteraction: string | null, state: string)
     return Math.floor(diff / 60000);
 }
 
+/**
+ * Minutos sin que el asesor responda tras el handover.
+ * Solo aplica cuando: CLIENT_ACCEPTA, hay canal Cliq, y el ultimo mensaje fue del cliente
+ * (last_interaction > last_cliq_wa_sent_at o el asesor aun no ha respondido).
+ */
+function minsWaitingForAdvisor(c: ConversationRow): number | null {
+    if (c.state !== 'CLIENT_ACCEPTA' || !c.cliq_channel_id) return null;
+    const lastInteraction = c.last_interaction ? new Date(c.last_interaction).getTime() : 0;
+    if (!lastInteraction) return null;
+    const lastAgent = c.last_cliq_wa_sent_at ? new Date(c.last_cliq_wa_sent_at).getTime() : 0;
+    if (lastAgent >= lastInteraction) return null;
+    return Math.floor((Date.now() - lastInteraction) / 60000);
+}
+
 type PriorityLevel = 'red' | 'orange' | 'green' | 'black';
 
-function getPriority(state: string, mins: number | null): PriorityLevel {
+/** Prioridad de fila: rojo/naranja solo cuando el asesor no ha respondido despues del handover. */
+function getPriority(state: string, minsWaitingForAdvisorValue: number | null): PriorityLevel {
     if (state === 'SALIDA_ELEGANTE') return 'black';
-    if (mins == null) return 'green';
-    if (mins >= 15) return 'red';
-    if (mins >= 5) return 'orange';
+    if (minsWaitingForAdvisorValue == null) return 'green';
+    if (minsWaitingForAdvisorValue >= 15) return 'red';
+    if (minsWaitingForAdvisorValue >= 5) return 'orange';
     return 'green';
 }
 
 function formatMinsAgo(mins: number | null): string {
     if (mins == null) return '-';
     if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+/** Formatea segundos a texto corto (ej. 90 -> "1m", 120 -> "2m", 3661 -> "1h") */
+function formatFirstResponseSecs(secs: number | null | undefined): string {
+    if (secs == null || secs < 0 || !Number.isFinite(secs)) return '-';
+    if (secs < 60) return `${Math.round(secs)}s`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m`;
     const h = Math.floor(mins / 60);
     return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }
@@ -441,9 +468,10 @@ export default function ConversacionesPage() {
     const filteredConversations = React.useMemo(() => {
         if (!filterEstado) return conversations;
         return conversations.filter((c) => {
+            const minsAdvisor = minsWaitingForAdvisor(c);
             const mins = minsSinceLastInteraction(c.last_interaction, c.state);
             if (filterEstado === 'handover') return c.state === 'CLIENT_ACCEPTA' && c.cliq_channel_id;
-            if (filterEstado === 'sin_respuesta_15') return mins != null && mins >= 15 && c.state !== 'SALIDA_ELEGANTE';
+            if (filterEstado === 'sin_respuesta_15') return minsAdvisor != null && minsAdvisor >= 15;
             if (filterEstado === 'errores') return !!c.last_cliq_wa_error;
             if (filterEstado === 'activas') return c.state !== 'SALIDA_ELEGANTE' && (mins == null || mins < 15);
             if (filterEstado === 'filtro_intencion') return c.state === 'FILTRO_INTENCION';
@@ -636,7 +664,7 @@ export default function ConversacionesPage() {
                             <p className="mt-0.5 text-lg font-semibold text-sky-700">{kpis.handover}</p>
                         </div>
                         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Sin respuesta 15m+</p>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Asesor sin responder 15m+</p>
                             <p className="mt-0.5 text-lg font-semibold text-amber-700">{kpis.noResponse15m}</p>
                         </div>
                         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
@@ -702,7 +730,7 @@ export default function ConversacionesPage() {
                                     <option value="">Todas</option>
                                     <option value="activas">Activas recientes</option>
                                     <option value="handover">En handover</option>
-                                    <option value="sin_respuesta_15">Sin respuesta 15m+</option>
+                                    <option value="sin_respuesta_15">Asesor sin responder 15m+</option>
                                     <option value="errores">Solo errores</option>
                                     <option value="filtro_intencion">Filtro intención</option>
                                 </select>
@@ -721,7 +749,7 @@ export default function ConversacionesPage() {
                                             <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-2 shadow-lg">
                                                 {kpis && kpis.noResponse15m > 0 && (
                                                     <div className="px-3 py-1.5 text-xs text-amber-700">
-                                                        Sin respuesta 15m+: {kpis.noResponse15m}
+                                                        Asesor sin responder 15m+: {kpis.noResponse15m}
                                                     </div>
                                                 )}
                                                 {kpis && kpis.withError > 0 && (
@@ -987,7 +1015,8 @@ export default function ConversacionesPage() {
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Desarrollo</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Estado</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap">Lead</th>
-                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo sin respuesta">Sin resp.</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo hasta primera respuesta del bot">1ra respuesta</th>
+                                        <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo sin que el asesor responda al ultimo mensaje del cliente (solo post-handover)">Sin responder</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo desde creación">Creación</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Canal Cliq">Canal</th>
                                         <th className="text-left py-2 px-2 font-medium text-gray-600 whitespace-nowrap" title="Tiempo desde handover">Desde handover</th>
@@ -997,8 +1026,8 @@ export default function ConversacionesPage() {
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredConversations.map((c, idx) => {
-                                        const mins = minsSinceLastInteraction(c.last_interaction, c.state);
-                                        const priority = getPriority(c.state, mins);
+                                        const minsAdvisor = minsWaitingForAdvisor(c);
+                                        const priority = getPriority(c.state, minsAdvisor);
                                         const rowBg = priority === 'red' ? 'bg-red-50/70' : priority === 'orange' ? 'bg-amber-50/60' : priority === 'black' ? 'bg-gray-100/50' : idx % 2 === 1 ? 'bg-gray-50/50' : '';
                                         const stateBadge = getStateBadge(c.state);
                                         const clientName = c.user_data?.name || c.user_data?.nombre || 'Sin nombre';
@@ -1008,7 +1037,7 @@ export default function ConversacionesPage() {
                                                 className={`cursor-pointer transition-colors hover:bg-sky-50/50 ${rowBg}`}
                                                 onClick={() => setDetailRow(c)}
                                             >
-                                                <td className="py-1.5 px-2" title={priority === 'red' ? 'Sin respuesta 15m+' : priority === 'orange' ? 'Sin respuesta 5m+' : priority === 'black' ? 'Cerrada' : 'Activa'}>
+                                                <td className="py-1.5 px-2" title={priority === 'red' ? 'Asesor sin responder 15m+' : priority === 'orange' ? 'Asesor sin responder 5m+' : priority === 'black' ? 'Cerrada' : 'Activa'}>
                                                     <span className={`inline-block h-2.5 w-2.5 rounded-full ${priority === 'red' ? 'bg-red-500' : priority === 'orange' ? 'bg-amber-500' : priority === 'green' ? 'bg-green-500' : 'bg-gray-400'}`} />
                                                 </td>
                                                 <td className="py-1.5 px-2 text-gray-800">
@@ -1037,8 +1066,11 @@ export default function ConversacionesPage() {
                                                         <span className="text-gray-400">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-1.5 px-2 text-xs text-gray-600">
-                                                    {mins != null ? formatMinsAgo(mins) : '-'}
+                                                <td className="py-1.5 px-2 text-xs text-gray-600 tabular-nums" title={c.first_response_secs != null ? `${c.first_response_secs}s` : ''}>
+                                                    {formatFirstResponseSecs(c.first_response_secs)}
+                                                </td>
+                                                <td className="py-1.5 px-2 text-xs text-gray-600 tabular-nums" title={minsAdvisor != null ? `Asesor no ha respondido en ${minsAdvisor} min` : 'Solo aplica despues del handover'}>
+                                                    {minsAdvisor != null ? formatMinsAgo(minsAdvisor) : '-'}
                                                 </td>
                                                 <td className="py-1.5 px-2 text-xs text-gray-600" title={c.created_at}>
                                                     {formatTimeSince(c.created_at)}

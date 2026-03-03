@@ -137,6 +137,34 @@ const NEGATIVE_TERMS = [
 ];
 
 /* =====================================================
+   CTA PRIMARIO: VISITAR vs SER CONTACTADO
+===================================================== */
+const VISITAR_TERMS = [
+    'visitar', 'visita', 'ir a ver', 'ir al desarrollo',
+    'conocer el desarrollo', 'conocer', 'agendar visita',
+    'pasar', 'ir', 'ver el desarrollo', 'recorrido',
+];
+
+const CONTACTADO_TERMS = [
+    'contacten', 'que me contacten', 'contacto', 'contactame',
+    'que un agente', 'que me llame', 'llamada', 'llamada con asesor',
+    'por telefono', 'por llamada', 'asesor me contacte',
+];
+
+/* =====================================================
+   CTA CANAL: WHATSAPP vs LLAMADA
+===================================================== */
+const WHATSAPP_TERMS = [
+    'whatsapp', 'wa', 'por aqui', 'por este medio',
+    'por mensaje', 'mensaje', 'escrito',
+];
+
+const LLAMADA_TERMS = [
+    'llamada', 'llamada telefonica', 'por telefono', 'telefono',
+    'que me llamen', 'llamen', 'por llamada',
+];
+
+/* =====================================================
    DETECCIÓN PRINCIPAL
 ===================================================== */
 
@@ -187,4 +215,36 @@ export function matchNegativeByKeywords(messageText: string): boolean {
     if (/^no\s+\w{1,4}$/.test(n)) return true;
 
     return false;
+}
+
+/**
+ * CTA primario: detecta si el usuario prefiere "visitar" el desarrollo o "ser contactado" por un agente.
+ * Si detecta canal explícito (whatsapp/llamada) no se usa para elegir visitar vs contactado; eso se hace en matchCtaCanalByKeywords.
+ */
+export function matchCtaPrimarioByKeywords(
+    messageText: string
+): 'visitar' | 'contactado' | null {
+    const n = normalizeForMatch(messageText);
+    const isVisitar = matchesAny(n, VISITAR_TERMS);
+    const isContactado = matchesAny(n, CONTACTADO_TERMS);
+    if (isVisitar && !isContactado) return 'visitar';
+    if (isContactado && !isVisitar) return 'contactado';
+    if (isVisitar && isContactado) return 'contactado'; // ambiguedad: priorizar contactado para preguntar canal
+    return null;
+}
+
+/**
+ * CTA canal: detecta si el usuario prefiere contacto por WhatsApp o por llamada.
+ * Solo tiene sentido cuando preferred_action === 'contactado'.
+ */
+export function matchCtaCanalByKeywords(
+    messageText: string
+): 'whatsapp' | 'llamada' | null {
+    const n = normalizeForMatch(messageText);
+    const isWhatsApp = matchesAny(n, WHATSAPP_TERMS);
+    const isLlamada = matchesAny(n, LLAMADA_TERMS);
+    if (isWhatsApp && !isLlamada) return 'whatsapp';
+    if (isLlamada && !isWhatsApp) return 'llamada';
+    if (isWhatsApp && isLlamada) return 'llamada'; // ambiguedad: priorizar llamada
+    return null;
 }

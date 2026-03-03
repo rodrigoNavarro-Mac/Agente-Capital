@@ -244,3 +244,85 @@ Clasificación:`,
         return null;
     }
 }
+
+/**
+ * Clasifica CTA primario: visitar el desarrollo o ser contactado por un agente.
+ * Usar primero matchCtaPrimarioByKeywords; el LLM es fallback.
+ */
+export async function classifyCtaPrimario(
+    userMessage: string
+): Promise<'visitar' | 'contactado' | null> {
+    try {
+        const messages: LMStudioMessage[] = [
+            {
+                role: 'system',
+                content: `Clasifica la respuesta del usuario en UNA de estas opciones:
+
+- visitar: quiere visitar el desarrollo, ir a ver, agendar visita, conocer las instalaciones.
+- contactado: quiere que un agente lo contacte (por llamada, WhatsApp, etc.), que lo llamen, contacto con asesor.
+
+Responde SOLO: "visitar" o "contactado".`,
+            },
+            {
+                role: 'user',
+                content: `Respuesta del usuario: "${userMessage}"
+
+Clasificación:`,
+            },
+        ];
+
+        const response = await runLLM(messages, {
+            temperature: 0,
+            max_tokens: 10,
+        });
+
+        const classification = response.toLowerCase().trim();
+        if (classification.includes('visitar')) return 'visitar';
+        if (classification.includes('contactado')) return 'contactado';
+        return null;
+    } catch (error) {
+        logger.error('Error classifying CTA primario', error, { userMessage }, 'intent-classifier');
+        return null;
+    }
+}
+
+/**
+ * Clasifica canal de contacto: WhatsApp o llamada (solo cuando el usuario eligió "ser contactado").
+ * Usar primero matchCtaCanalByKeywords; el LLM es fallback.
+ */
+export async function classifyCtaCanal(
+    userMessage: string
+): Promise<'whatsapp' | 'llamada' | null> {
+    try {
+        const messages: LMStudioMessage[] = [
+            {
+                role: 'system',
+                content: `Clasifica cómo quiere ser contactado el usuario:
+
+- whatsapp: por WhatsApp, por aquí, por mensaje, por este chat.
+- llamada: por llamada telefónica, que lo llamen, por teléfono.
+
+Responde SOLO: "whatsapp" o "llamada".`,
+            },
+            {
+                role: 'user',
+                content: `Respuesta del usuario: "${userMessage}"
+
+Clasificación:`,
+            },
+        ];
+
+        const response = await runLLM(messages, {
+            temperature: 0,
+            max_tokens: 10,
+        });
+
+        const classification = response.toLowerCase().trim();
+        if (classification.includes('whatsapp') || classification.includes('wa')) return 'whatsapp';
+        if (classification.includes('llamada') || classification.includes('telefono')) return 'llamada';
+        return null;
+    } catch (error) {
+        logger.error('Error classifying CTA canal', error, { userMessage }, 'intent-classifier');
+        return null;
+    }
+}
