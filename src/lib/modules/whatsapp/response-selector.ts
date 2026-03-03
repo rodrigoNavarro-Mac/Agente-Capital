@@ -17,6 +17,7 @@ export type ResponseKey = keyof DevelopmentMessages;
 
 const VALID_RESPONSE_KEYS: ResponseKey[] = [
     'BIENVENIDA',
+    'FILTRO_PREGUNTA',
     'CONFIRMACION_COMPRA',
     'CONFIRMACION_INVERSION',
     'CTA_AYUDA',
@@ -61,6 +62,7 @@ export interface ResponseSelectionResult {
 
 const RESPONSE_KEY_DESCRIPTIONS: Record<ResponseKey, string> = {
     BIENVENIDA: 'Saludo inicial y pregunta si busca invertir o construir.',
+    FILTRO_PREGUNTA: 'Re-pregunta corta de intención (invertir o construir) cuando el usuario solo saluda.',
     CONFIRMACION_COMPRA: 'Confirma que busca construir/vivir; ventajas para vivienda.',
     CONFIRMACION_INVERSION: 'Confirma que busca invertir; plusvalía y rentabilidad.',
     CTA_AYUDA: 'Pregunta si prefiere visita o llamada con asesor.',
