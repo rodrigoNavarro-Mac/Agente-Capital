@@ -287,22 +287,22 @@ Clasificación:`,
 }
 
 /**
- * Clasifica canal de contacto: WhatsApp o llamada (solo cuando el usuario eligió "ser contactado").
+ * Clasifica canal de contacto: llamada telefónica o videollamada (solo cuando el usuario eligió "ser contactado").
  * Usar primero matchCtaCanalByKeywords; el LLM es fallback.
  */
 export async function classifyCtaCanal(
     userMessage: string
-): Promise<'whatsapp' | 'llamada' | null> {
+): Promise<'videollamada' | 'llamada' | null> {
     try {
         const messages: LMStudioMessage[] = [
             {
                 role: 'system',
                 content: `Clasifica cómo quiere ser contactado el usuario:
 
-- whatsapp: por WhatsApp, por aquí, por mensaje, por este chat.
-- llamada: por llamada telefónica, que lo llamen, por teléfono.
+- videollamada: videollamada, video llamada, zoom, meet, por video.
+- llamada: llamada telefónica, que lo llamen, por teléfono, llamada normal.
 
-Responde SOLO: "whatsapp" o "llamada".`,
+Responde SOLO: "videollamada" o "llamada".`,
             },
             {
                 role: 'user',
@@ -314,11 +314,11 @@ Clasificación:`,
 
         const response = await runLLM(messages, {
             temperature: 0,
-            max_tokens: 10,
+            max_tokens: 15,
         });
 
         const classification = response.toLowerCase().trim();
-        if (classification.includes('whatsapp') || classification.includes('wa')) return 'whatsapp';
+        if (classification.includes('video') || classification.includes('zoom') || classification.includes('meet')) return 'videollamada';
         if (classification.includes('llamada') || classification.includes('telefono')) return 'llamada';
         return null;
     } catch (error) {

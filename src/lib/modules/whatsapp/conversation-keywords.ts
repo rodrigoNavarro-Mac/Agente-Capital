@@ -147,21 +147,24 @@ const VISITAR_TERMS = [
 
 const CONTACTADO_TERMS = [
     'contacten', 'que me contacten', 'contacto', 'contactame',
+    'contactar', 'contactar un agente', 'que un agente me contacte',
+    'que me contacte', 'contacte un agente', 'agente me contacte',
+    'contacto con agente', 'ser contactado', 'que me contacte un asesor',
     'que un agente', 'que me llame', 'llamada', 'llamada con asesor',
     'por telefono', 'por llamada', 'asesor me contacte',
 ];
 
 /* =====================================================
-   CTA CANAL: WHATSAPP vs LLAMADA
+   CTA CANAL: LLAMADA TELEFÓNICA vs VIDEOLlamada
 ===================================================== */
-const WHATSAPP_TERMS = [
-    'whatsapp', 'wa', 'por aqui', 'por este medio',
-    'por mensaje', 'mensaje', 'escrito',
+const VIDEOLLAMADA_TERMS = [
+    'videollamada', 'video llamada', 'llamada por video',
+    'video', 'zoom', 'meet', 'teams',
 ];
 
 const LLAMADA_TERMS = [
     'llamada', 'llamada telefonica', 'por telefono', 'telefono',
-    'que me llamen', 'llamen', 'por llamada',
+    'que me llamen', 'llamen', 'por llamada', 'llamada normal',
 ];
 
 /* =====================================================
@@ -234,17 +237,17 @@ export function matchCtaPrimarioByKeywords(
 }
 
 /**
- * CTA canal: detecta si el usuario prefiere contacto por WhatsApp o por llamada.
+ * CTA canal: detecta si el usuario prefiere llamada telefónica o videollamada.
  * Solo tiene sentido cuando preferred_action === 'contactado'.
  */
 export function matchCtaCanalByKeywords(
     messageText: string
-): 'whatsapp' | 'llamada' | null {
+): 'videollamada' | 'llamada' | null {
     const n = normalizeForMatch(messageText);
-    const isWhatsApp = matchesAny(n, WHATSAPP_TERMS);
+    const isVideo = matchesAny(n, VIDEOLLAMADA_TERMS);
     const isLlamada = matchesAny(n, LLAMADA_TERMS);
-    if (isWhatsApp && !isLlamada) return 'whatsapp';
-    if (isLlamada && !isWhatsApp) return 'llamada';
-    if (isWhatsApp && isLlamada) return 'llamada'; // ambiguedad: priorizar llamada
+    if (isVideo && !isLlamada) return 'videollamada';
+    if (isLlamada && !isVideo) return 'llamada';
+    if (isVideo && isLlamada) return 'videollamada'; // "videollamada" más específico
     return null;
 }

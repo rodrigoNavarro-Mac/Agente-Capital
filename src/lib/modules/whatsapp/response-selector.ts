@@ -23,6 +23,7 @@ const VALID_RESPONSE_KEYS: ResponseKey[] = [
     'CTA_VISITA_O_CONTACTO',
     'CTA_CANAL',
     'SOLICITUD_HORARIO',
+    'SOLICITUD_FECHA_HORARIO',
     'SOLICITUD_NOMBRE',
     'INFO_REINTENTO',
     'HANDOVER_EXITOSO',
@@ -64,8 +65,9 @@ const RESPONSE_KEY_DESCRIPTIONS: Record<ResponseKey, string> = {
     CONFIRMACION_INVERSION: 'Confirma que busca invertir; plusvalía y rentabilidad.',
     CTA_AYUDA: 'Pregunta si prefiere visita o llamada con asesor.',
     CTA_VISITA_O_CONTACTO: 'Pregunta si quiere visitar el desarrollo o que un agente lo contacte.',
-    CTA_CANAL: 'Pregunta por WhatsApp o por llamada (solo si eligió ser contactado).',
+    CTA_CANAL: 'Pregunta por llamada telefónica o videollamada (solo si eligió ser contactado).',
     SOLICITUD_HORARIO: 'Pide horario preferido para ser contactado o realizar la llamada.',
+    SOLICITUD_FECHA_HORARIO: 'Pide día y horario para agendar videollamada.',
     SOLICITUD_NOMBRE: 'Pide nombre completo para asignar asesor.',
     INFO_REINTENTO: 'Usuario solo info o no claro; dar datos y preguntar invertir o vivir.',
     HANDOVER_EXITOSO: 'Despedida tras dar nombre; conectar con asesor.',
@@ -114,7 +116,7 @@ Reglas:
 2. Usuario quiere COMPRAR/CONSTRUIR/VIVIR -> CONFIRMACION_COMPRA, nextState CTA_PRIMARIO.
 3. Usuario solo INFO/PRECIO (primera vez) -> INFO_REINTENTO, nextState INFO_REINTENTO.
 4. En estado CTA_PRIMARIO: solo nextState SOLICITUD_HORARIO (visita o canal ya elegido), CTA_CANAL (ser contactado sin canal) o SALIDA_ELEGANTE. NUNCA CONFIRMACION_* ni volver a FILTRO.
-5. En estado CTA_CANAL: solo nextState SOLICITUD_HORARIO o SALIDA_ELEGANTE.
+5. En estado CTA_CANAL: llamada -> SOLICITUD_NOMBRE (sin horario); videollamada -> SOLICITUD_HORARIO (fecha/horario). Solo nextState SOLICITUD_HORARIO, SOLICITUD_NOMBRE o SALIDA_ELEGANTE.
 6. Usuario acepta visita/llamada/contacto (sí, agendar, etc.) -> SOLICITUD_HORARIO, nextState SOLICITUD_HORARIO.
 7. En estado SOLICITUD_HORARIO, usuario indica horario (cualquier texto) -> SOLICITUD_NOMBRE, nextState SOLICITUD_NOMBRE.
 8. Usuario rechaza (no gracias, luego) -> SALIDA_ELEGANTE, nextState SALIDA_ELEGANTE.

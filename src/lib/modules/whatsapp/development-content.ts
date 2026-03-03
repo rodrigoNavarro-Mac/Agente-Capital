@@ -17,9 +17,11 @@ export interface DevelopmentMessages {
     CTA_AYUDA: string;
     /** Primera pregunta CTA: visitar desarrollo o ser contactado por agente */
     CTA_VISITA_O_CONTACTO: string;
-    /** Si eligió contactado: por WhatsApp o por llamada */
+    /** Si eligió contactado: por llamada telefónica o por videollamada */
     CTA_CANAL: string;
     SOLICITUD_HORARIO: string;
+    /** Fecha y horario para agendar videollamada */
+    SOLICITUD_FECHA_HORARIO: string;
     SOLICITUD_NOMBRE: string;
     INFO_REINTENTO: string;
     HANDOVER_EXITOSO: string;
@@ -73,11 +75,15 @@ Es una inversión sólida y con respaldo real.`,
 
 ¿Quieres visitar el desarrollo 🏡 o que un agente te contacte?`,
 
-    CTA_CANAL: `¿Por WhatsApp o por llamada 📞?`,
+    CTA_CANAL: `¿Por llamada telefónica 📞 o por videollamada?`,
 
     SOLICITUD_HORARIO: `Perfecto 🙌
 
 ¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
+
+    SOLICITUD_FECHA_HORARIO: `Perfecto 🙌
+
+¿En qué día y horario te gustaría agendar la videollamada?`,
 
     SOLICITUD_NOMBRE: `Perfecto 🙌
 
@@ -142,11 +148,15 @@ AMURA es una oportunidad sólida de inversión con alta proyección de plusvalí
 
 ¿Quieres visitar el desarrollo o que un agente te contacte?`,
 
-    CTA_CANAL: `¿Por WhatsApp o por llamada?`,
+    CTA_CANAL: `¿Por llamada telefónica o por videollamada?`,
 
     SOLICITUD_HORARIO: `Perfecto 👍  
 
 ¿En qué horario te gustaría que te contactemos para la llamada o visita? 🕒`,
+
+    SOLICITUD_FECHA_HORARIO: `Perfecto 👍  
+
+¿En qué día y horario te gustaría agendar la videollamada? 🕒`,
 
     SOLICITUD_NOMBRE: `Con gusto lo coordinamos 🤝  
 
@@ -184,8 +194,9 @@ Soy el asistente de Punto Tierra.
     CONFIRMACION_INVERSION: `Excelente. Punto Tierra ofrece oportunidades de inversión.`,
     CTA_AYUDA: `¿Te gustaría agendar una visita o una llamada con un asesor?`,
     CTA_VISITA_O_CONTACTO: `¿Quieres visitar el desarrollo o que un agente te contacte?`,
-    CTA_CANAL: `¿Por WhatsApp o por llamada?`,
+    CTA_CANAL: `¿Por llamada telefónica o por videollamada?`,
     SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
+    SOLICITUD_FECHA_HORARIO: `¿En qué día y horario te gustaría agendar la videollamada?`,
     SOLICITUD_NOMBRE: `¿Cuál es tu nombre completo para el asesor?`,
     INFO_REINTENTO: `¿Estás buscando esta oportunidad para invertir o para vivir?`,
     HANDOVER_EXITOSO: `Gracias, {NOMBRE}. Un asesor de Punto Tierra te contactará.`,

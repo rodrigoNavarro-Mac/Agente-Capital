@@ -49,7 +49,7 @@ export interface UserData {
     urgencia?: string;            // '0-3m' | '3-6m' | '6-12m' | 'explorando'
     /** Macro: 'visita' = ir al desarrollo | 'contactado' = que un agente lo contacte */
     preferred_action?: string;    // 'visita' | 'contactado' (legacy: 'cita' | 'cotizacion')
-    /** Solo si preferred_action === 'contactado': 'whatsapp' | 'llamada' */
+    /** Solo si preferred_action === 'contactado': 'llamada' (sin horario) | 'videollamada' (se pide fecha/horario) */
     preferred_channel?: string;
     horario_preferido?: string;   // Respuesta libre: a qué hora le gustaría ser contactado
     lead_quality?: LeadQuality;   // Scoring automático

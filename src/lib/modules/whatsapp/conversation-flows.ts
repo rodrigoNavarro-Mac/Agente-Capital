@@ -81,8 +81,8 @@ const ALLOWED_NEXT_STATES_BY_STATE: Record<ConversationState, ConversationState[
     INICIO: ['FILTRO_INTENCION'],
     FILTRO_INTENCION: ['CTA_PRIMARIO', 'INFO_REINTENTO', 'SALIDA_ELEGANTE'],
     INFO_REINTENTO: ['CTA_PRIMARIO', 'SALIDA_ELEGANTE'],
-    CTA_PRIMARIO: ['SOLICITUD_HORARIO', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
-    CTA_CANAL: ['SOLICITUD_HORARIO', 'SALIDA_ELEGANTE'],
+    CTA_PRIMARIO: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
+    CTA_CANAL: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],
     SOLICITUD_HORARIO: ['SOLICITUD_NOMBRE'],
     SOLICITUD_NOMBRE: ['CLIENT_ACCEPTA', 'SOLICITUD_NOMBRE'],
     CLIENT_ACCEPTA: [],
@@ -307,10 +307,16 @@ async function processState(
                 const allowlistOk = !allowed || allowed.length === 0 || allowed.includes(nextState);
                 const repeatKeys = REPEAT_RESPONSE_KEYS_BY_STATE[state];
                 const isRepeat = nextState === state && repeatKeys?.includes(responseKey);
+                // En CTA_PRIMARIO no aceptar CONFIRMACION_*: repetiría el mensaje de confirmación (contexto de FILTRO_INTENCION)
+                const wrongResponseForState =
+                    state === 'CTA_PRIMARIO' &&
+                    (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION');
                 if (!allowlistOk) {
                     logger.warn('LLM nextState not in allowlist, using FSM fallback', { state, nextState, responseKey }, 'conversation-flows');
                 } else if (isRepeat) {
                     logger.info('Anti-repeat: same state + repeat responseKey, using FSM fallback', { state, responseKey }, 'conversation-flows');
+                } else if (wrongResponseForState) {
+                    logger.warn('LLM returned CONFIRMACION_* in CTA_PRIMARIO (would repeat confirmation), using FSM fallback', { state, responseKey }, 'conversation-flows');
                 } else {
                 if (responseKey === 'HANDOVER_EXITOSO' && nextState === 'CLIENT_ACCEPTA') {
                     const userName =
@@ -374,9 +380,12 @@ async function processState(
                         ...(channel && { preferred_channel: channel }),
                     });
                 }
-                if (state === 'CTA_CANAL' && nextState === 'SOLICITUD_HORARIO') {
+                if (state === 'CTA_CANAL' && (nextState === 'SOLICITUD_HORARIO' || nextState === 'SOLICITUD_NOMBRE')) {
                     const channel = await classifyCtaCanal(messageText).catch(() => null) ?? matchCtaCanalByKeywords(messageText);
-                    await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: channel || 'whatsapp' });
+                    await mergeUserData(userPhone, development, {
+                        preferred_action: 'contactado',
+                        preferred_channel: nextState === 'SOLICITUD_NOMBRE' ? 'llamada' : (channel || 'videollamada'),
+                    });
                 }
                 logger.info('Flow driven by LLM response selector', { responseKey, nextState }, 'conversation-flows');
                 return { outboundMessages, nextState };
@@ -574,14 +583,23 @@ async function handleCtaPrimario(
         };
     }
 
-    // 3. Short-circuit: ya dijo canal (WhatsApp o llamada) -> saltar CTA_CANAL
+    // 3. Short-circuit: ya dijo canal (llamada o videollamada) -> saltar CTA_CANAL
     const canalKeywords = matchCtaCanalByKeywords(messageText);
     const canalLLM = canalKeywords ?? await classifyCtaCanal(messageText);
-    if (canalLLM === 'whatsapp' || canalLLM === 'llamada') {
-        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: canalLLM });
-        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+    if (canalLLM === 'llamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'llamada' });
+        await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
         return {
-            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
+            nextState: 'SOLICITUD_NOMBRE',
+        };
+    }
+    if (canalLLM === 'videollamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
+        return {
+            outboundMessages: [{ type: 'text', text: textHorario }],
             nextState: 'SOLICITUD_HORARIO',
         };
     }
@@ -590,7 +608,7 @@ async function handleCtaPrimario(
     if (ctaPrimLLM === 'contactado' || matchAffirmativeByKeywords(messageText)) {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado' });
         await updateState(userPhone, development, 'CTA_CANAL');
-        const ctaCanalText = messages.CTA_CANAL ?? 'Por WhatsApp o por llamada?';
+        const ctaCanalText = messages.CTA_CANAL ?? 'Por llamada telefónica o por videollamada?';
         return {
             outboundMessages: [{ type: 'text', text: ctaCanalText }],
             nextState: 'CTA_CANAL',
@@ -614,21 +632,35 @@ async function handleCtaCanal(
 
     const canalKeywords = matchCtaCanalByKeywords(messageText);
     const canal = canalKeywords ?? await classifyCtaCanal(messageText);
-    if (canal === 'whatsapp' || canal === 'llamada') {
-        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: canal });
-        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+
+    // Llamada telefónica: sin horario, directo a pedir nombre y crear lead
+    if (canal === 'llamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'llamada' });
+        await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
         return {
-            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
+            nextState: 'SOLICITUD_NOMBRE',
+        };
+    }
+
+    // Videollamada: pedir fecha y horario, luego nombre
+    if (canal === 'videollamada') {
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
+        await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
+        return {
+            outboundMessages: [{ type: 'text', text: textHorario }],
             nextState: 'SOLICITUD_HORARIO',
         };
     }
 
-    // Afirmativo genérico (ej. "sí") sin canal -> default WhatsApp
+    // Afirmativo genérico (ej. "sí") sin canal -> default videollamada (pedir fecha/horario)
     if (matchAffirmativeByKeywords(messageText)) {
-        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'whatsapp' });
+        await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
         return {
-            outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
+            outboundMessages: [{ type: 'text', text: textHorario }],
             nextState: 'SOLICITUD_HORARIO',
         };
     }
@@ -727,13 +759,13 @@ function getIntencionForCliq(userData: UserData | undefined): string {
     return '';
 }
 
-/** Human-readable label for preferred_action + preferred_channel (visita | contactado + whatsapp/llamada). */
+/** Human-readable label for preferred_action + preferred_channel (visita | contactado + llamada/videollamada). */
 function formatAccionPreferidaForCliq(userData: UserData | undefined): string {
     const action = (userData?.preferred_action ?? '').toLowerCase();
     const channel = (userData?.preferred_channel ?? '').toLowerCase();
     if (action === 'visita') return 'Visita al desarrollo';
-    if (action === 'contactado' && channel === 'whatsapp') return 'Contacto: WhatsApp';
-    if (action === 'contactado' && channel === 'llamada') return 'Contacto: Llamada';
+    if (action === 'contactado' && channel === 'llamada') return 'Contacto: Llamada telefónica';
+    if (action === 'contactado' && channel === 'videollamada') return 'Contacto: Videollamada';
     if (action === 'contactado') return 'Contacto (canal no indicado)';
     if (action === 'cita' || action.includes('llamada')) return 'Llamada';
     if (action === 'cotizacion' || action.includes('cotiz')) return 'Cotización';
