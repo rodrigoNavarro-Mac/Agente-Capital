@@ -8,7 +8,9 @@
  */
 
 /**
- * Conjunto de mensajes para un desarrollo
+ * Conjunto de mensajes para un desarrollo.
+ * Si agregas una nueva clave aquí, añade su descripción en response-selector.ts
+ * (RESPONSE_KEY_DESCRIPTIONS) para que el LLM pueda elegirla correctamente.
  */
 export interface DevelopmentMessages {
     BIENVENIDA: string;

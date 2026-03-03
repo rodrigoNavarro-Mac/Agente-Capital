@@ -15,23 +15,13 @@ import { logger } from '@/lib/utils/logger';
 /** Claves del banco de respuestas por desarrollo */
 export type ResponseKey = keyof DevelopmentMessages;
 
-const VALID_RESPONSE_KEYS: ResponseKey[] = [
-    'BIENVENIDA',
-    'FILTRO_PREGUNTA',
-    'CONFIRMACION_COMPRA',
-    'CONFIRMACION_INVERSION',
-    'CTA_AYUDA',
-    'CTA_VISITA_O_CONTACTO',
-    'CTA_CANAL',
-    'SOLICITUD_HORARIO',
-    'SOLICITUD_FECHA_HORARIO',
-    'SOLICITUD_NOMBRE',
-    'INFO_REINTENTO',
-    'HANDOVER_EXITOSO',
-    'CONFIRMACION_FINAL',
-    'SALIDA_ELEGANTE',
-    'FUERA_HORARIO',
-];
+/**
+ * Lista de claves válidas derivada del banco de contenido (development-content).
+ * Si agregas o quitas una clave en DevelopmentMessages, esta lista se actualiza sola.
+ */
+const VALID_RESPONSE_KEYS: ResponseKey[] = Object.keys(
+    getMessagesForDevelopment('FUEGO')
+) as ResponseKey[];
 
 const VALID_STATES: ConversationState[] = [
     'INICIO',
