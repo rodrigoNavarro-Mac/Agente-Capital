@@ -4642,6 +4642,38 @@ export async function getWhatsAppMetrics(): Promise<WhatsAppMetrics> {
   }
 }
 
+/**
+ * Intenta reclamar atómicamente un mensaje de WhatsApp para procesamiento.
+ * Usa ON CONFLICT DO NOTHING sobre la PRIMARY KEY para garantizar que solo
+ * una instancia del webhook procese cada message_id, incluso con duplicados simultáneos.
+ *
+ * @returns true si el mensaje fue reclamado (debe procesarse), false si ya fue procesado.
+ */
+export async function claimWhatsAppMessage(messageId: string): Promise<boolean> {
+    try {
+        // Limpiar entradas viejas (> 24h) de forma best-effort para mantener la tabla pequeña
+        query(
+            `DELETE FROM whatsapp_message_dedup WHERE created_at < NOW() - INTERVAL '24 hours'`,
+            []
+        ).catch(() => {});
+
+        const result = await query(
+            `INSERT INTO whatsapp_message_dedup (message_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+            [messageId]
+        );
+
+        // rowCount > 0 → insertó → nosotros lo procesamos primero
+        return (result.rowCount ?? 0) > 0;
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        // Si la tabla aún no existe (migración 045 pendiente), fail-open para no bloquear el bot
+        if (msg.includes('whatsapp_message_dedup') && msg.includes('does not exist')) {
+            return true;
+        }
+        logger.warn('claimWhatsAppMessage failed, allowing processing', { error: msg, messageId: messageId.substring(0, 20) }, 'postgres');
+        return true;
+    }
+}
 
 
 

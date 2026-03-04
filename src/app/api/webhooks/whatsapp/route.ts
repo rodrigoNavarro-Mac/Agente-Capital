@@ -21,7 +21,7 @@ import { sendTextMessage, sendImageMessage, sendDocumentMessage } from '@/lib/mo
 import { handleIncomingMessage, sendInitialContextIfNeeded } from '@/lib/modules/whatsapp/conversation-flows';
 import { getConversation } from '@/lib/modules/whatsapp/conversation-state';
 import { logger } from '@/lib/utils/logger';
-import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId } from '@/lib/db/postgres';
+import { saveWhatsAppLog, updateWhatsAppLogSeenByOutboundMessageId, claimWhatsAppMessage } from '@/lib/db/postgres';
 import { getCliqThreadByUserAndDev } from '@/lib/db/whatsapp-cliq';
 import { postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 
@@ -155,6 +155,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const ts = parseInt(messageTimestamp, 10);
         const receivedAt = Number.isFinite(ts) ? new Date(ts * 1000) : new Date();
         console.log('[WhatsApp Webhook] messageData ok', { phoneNumberId, userPhonePrefix: userPhone.substring(0, 6) + '***', messageLen: message.length });
+
+        // 3b. DEDUPLICACIÓN: reclamar atómicamente el message_id antes de cualquier procesamiento.
+        // WhatsApp reintenta el webhook si no responde a tiempo (o por errores de red), lo que puede
+        // generar el mismo mensaje procesado 2-6 veces. ON CONFLICT DO NOTHING garantiza que solo
+        // una instancia procese cada mensaje, incluso con llamadas simultáneas.
+        const claimed = await claimWhatsAppMessage(incomingMessageId);
+        if (!claimed) {
+            logger.info('Duplicate webhook event ignored', { messageId: incomingMessageId.substring(0, 20) }, 'whatsapp-webhook');
+            console.log('[WhatsApp Webhook] duplicate messageId ignored:', incomingMessageId.substring(0, 20));
+            return NextResponse.json({ status: 'ok' }, { status: 200 });
+        }
 
         // 4. Resolver desarrollo y zona
         const routing = getRouting(phoneNumberId);
