@@ -288,6 +288,33 @@ async function processState(
 ): Promise<FlowResult> {
     const { development, userPhone } = context;
 
+    // ANTI-LOOP: si el usuario lleva 3+ mensajes sin avanzar de estado -> forzar SALIDA_ELEGANTE
+    const stuckCount = (userData.stuck_in_state_count as number) ?? 0;
+    if (stuckCount >= 3) {
+        logger.warn('Anti-loop: stuck_in_state_count >= 3, forcing SALIDA_ELEGANTE', { state, stuckCount, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
+        await mergeUserData(userPhone, development, { stuck_in_state_count: 0 });
+        return await handleSalidaElegante(development, userPhone, 'loop_detected');
+    }
+
+    const result = await processStateCore(state, messageText, context, userData);
+
+    // Actualizar contador de atasco: incrementar si el estado no avanzó, resetear si avanzó
+    const stuckPatch = result.nextState === state
+        ? { stuck_in_state_count: stuckCount + 1 }
+        : { stuck_in_state_count: 0 };
+    await mergeUserData(userPhone, development, stuckPatch);
+
+    return result;
+}
+
+async function processStateCore(
+    state: ConversationState,
+    messageText: string,
+    context: IncomingMessageContext,
+    userData: UserData
+): Promise<FlowResult> {
+    const { development, userPhone } = context;
+
     logger.info('Processing state', { state, development, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
 
     // Opción: usar LLM para elegir respuesta del banco y siguiente estado (con contexto de mensajes si se agrega después)

@@ -35,6 +35,48 @@ const VALID_STATES: ConversationState[] = [
     'SALIDA_ELEGANTE',
 ];
 
+/**
+ * Configuración por estado activo: opciones válidas para el LLM selector.
+ * Reduce las opciones que ve el LLM de 15+ a 3-5 por estado, evitando que
+ * elija estados o claves legacy/inválidos para el contexto actual.
+ */
+const STATE_LLM_CONFIG: Partial<Record<ConversationState, {
+    validResponseKeys: ResponseKey[];
+    validNextStates: ConversationState[];
+    stateContext: string;
+}>> = {
+    FILTRO_INTENCION: {
+        validResponseKeys: ['CONFIRMACION_COMPRA', 'CONFIRMACION_INVERSION', 'INFO_REINTENTO', 'SALIDA_ELEGANTE'],
+        validNextStates: ['CTA_PRIMARIO', 'INFO_REINTENTO', 'SALIDA_ELEGANTE'],
+        stateContext: 'El bot preguntó qué le interesa al usuario (comprar, invertir, o solo información).',
+    },
+    INFO_REINTENTO: {
+        validResponseKeys: ['CONFIRMACION_COMPRA', 'CONFIRMACION_INVERSION', 'CTA_VISITA_O_CONTACTO', 'SALIDA_ELEGANTE'],
+        validNextStates: ['CTA_PRIMARIO', 'SALIDA_ELEGANTE'],
+        stateContext: 'El bot dio información adicional y preguntó si hay interés en avanzar.',
+    },
+    CTA_PRIMARIO: {
+        validResponseKeys: ['CTA_CANAL', 'SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],
+        validNextStates: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
+        stateContext: 'El bot preguntó si el usuario quiere visitar el desarrollo o que un asesor lo contacte.',
+    },
+    CTA_CANAL: {
+        validResponseKeys: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],
+        validNextStates: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],
+        stateContext: 'El bot preguntó si prefiere llamada telefónica o videollamada.',
+    },
+    SOLICITUD_HORARIO: {
+        validResponseKeys: ['SOLICITUD_NOMBRE'],
+        validNextStates: ['SOLICITUD_NOMBRE'],
+        stateContext: 'El bot pidió el horario o fecha preferida de contacto/visita.',
+    },
+    SOLICITUD_NOMBRE: {
+        validResponseKeys: ['HANDOVER_EXITOSO', 'SOLICITUD_NOMBRE'],
+        validNextStates: ['CLIENT_ACCEPTA', 'SOLICITUD_NOMBRE'],
+        stateContext: 'El bot pidió el nombre completo del usuario.',
+    },
+};
+
 export interface ResponseSelectionInput {
     development: string;
     currentState: ConversationState;
@@ -93,29 +135,31 @@ export async function selectResponseAndState(
             ? `Datos del usuario: ${JSON.stringify(userData)}\n\n`
             : '';
 
+    const stateConfig = STATE_LLM_CONFIG[currentState];
+    const effectiveResponseKeys = stateConfig?.validResponseKeys ?? VALID_RESPONSE_KEYS;
+    const effectiveNextStates = stateConfig?.validNextStates ?? VALID_STATES;
+    const stateContextLine = stateConfig?.stateContext
+        ? `Contexto del estado: ${stateConfig.stateContext}`
+        : '';
+
     const systemPrompt = `Eres un selector de respuestas para un bot de WhatsApp de bienes raíces.
 Desarrollo: ${development}. Estado actual: ${currentState}.
+${stateContextLine}
 
-Elige UNA clave de respuesta y el siguiente estado.
+El usuario acaba de responder. Elige UNA clave de respuesta y el siguiente estado.
 
-Claves disponibles:
-${VALID_RESPONSE_KEYS.map(k => `- ${k}: ${RESPONSE_KEY_DESCRIPTIONS[k]}`).join('\n')}
+Claves disponibles para este estado:
+${effectiveResponseKeys.map(k => `- ${k}: ${RESPONSE_KEY_DESCRIPTIONS[k]}`).join('\n')}
 
-Estados posibles: ${VALID_STATES.join(', ')}
+Estados posibles para este estado: ${effectiveNextStates.join(', ')}
 
 Reglas:
-1. Usuario quiere INVERTIR -> CONFIRMACION_INVERSION, nextState CTA_PRIMARIO.
-2. Usuario quiere COMPRAR/CONSTRUIR/VIVIR -> CONFIRMACION_COMPRA, nextState CTA_PRIMARIO.
-3. Usuario solo INFO/PRECIO (primera vez) -> INFO_REINTENTO, nextState INFO_REINTENTO.
-4. En estado CTA_PRIMARIO: solo nextState SOLICITUD_HORARIO (visita o canal ya elegido), CTA_CANAL (ser contactado sin canal) o SALIDA_ELEGANTE. NUNCA CONFIRMACION_* ni volver a FILTRO.
-5. En estado CTA_CANAL: llamada -> SOLICITUD_NOMBRE (sin horario); videollamada -> SOLICITUD_HORARIO (fecha/horario). Solo nextState SOLICITUD_HORARIO, SOLICITUD_NOMBRE o SALIDA_ELEGANTE.
-6. Usuario acepta visita/llamada/contacto (sí, agendar, etc.) -> SOLICITUD_HORARIO, nextState SOLICITUD_HORARIO.
-7. En estado SOLICITUD_HORARIO, usuario indica horario (cualquier texto) -> SOLICITUD_NOMBRE, nextState SOLICITUD_NOMBRE.
-8. Usuario rechaza (no gracias, luego) -> SALIDA_ELEGANTE, nextState SALIDA_ELEGANTE.
-9. Usuario da su nombre (varias palabras) -> HANDOVER_EXITOSO, nextState CLIENT_ACCEPTA.
-10. Mensaje ambiguo en FILTRO_INTENCION -> INFO_REINTENTO, nextState INFO_REINTENTO.
-11. Primer mensaje solo saludo (hola) -> BIENVENIDA, nextState FILTRO_INTENCION.
-12. NUNCA inventes ni menciones disponibilidad de lotes; solo usa las claves del banco.
+- Si el usuario da su nombre (2+ palabras o texto con nombre propio) -> HANDOVER_EXITOSO, CLIENT_ACCEPTA.
+- Si el usuario rechaza o dice "no gracias" -> SALIDA_ELEGANTE.
+- Si el usuario indica visita -> el nextState asociado a horario.
+- Si el usuario da un horario/fecha -> siguiente estado de nombre.
+- En SOLICITUD_NOMBRE, si el texto < 3 caracteres -> re-pedir nombre (SOLICITUD_NOMBRE, SOLICITUD_NOMBRE).
+- Elige SOLO entre las opciones listadas arriba. No inventes claves ni estados.
 
 Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextState":"ESTADO"}`;
 
@@ -140,12 +184,13 @@ Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextS
         if (
             !key ||
             !next ||
-            !VALID_RESPONSE_KEYS.includes(key as ResponseKey) ||
-            !VALID_STATES.includes(next as ConversationState)
+            !effectiveResponseKeys.includes(key as ResponseKey) ||
+            !effectiveNextStates.includes(next as ConversationState)
         ) {
             logger.warn('Response selector invalid key or state', {
                 responseKey: key,
                 nextState: next,
+                currentState,
                 development,
             }, 'response-selector');
             return null;
