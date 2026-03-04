@@ -332,6 +332,228 @@ function HistoryWAButton({
 const FULL_ACCESS_ROLES = ['admin', 'ceo'];
 const DEFAULT_DEVELOPMENTS = ['FUEGO', 'AMURA', 'PUNTO_TIERRA'];
 
+interface ZohoDebugDryRunSteps {
+    phone_valid: boolean;
+    wa_id: string | null;
+    business_hours: boolean;
+    template_name: string | null;
+    template_language: string | null;
+    phone_number_id: string | null;
+    expected_path: string;
+}
+
+interface ZohoDebugLiveResult {
+    success: boolean;
+    status: string;
+    reason?: string;
+}
+
+interface ZohoDebugResponse {
+    ok: boolean;
+    dry_run: boolean;
+    steps?: ZohoDebugDryRunSteps;
+    result?: ZohoDebugLiveResult;
+    error?: string;
+}
+
+function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
+    const [open, setOpen] = useState(false);
+    const [phone, setPhone] = useState('');
+    const [development, setDevelopment] = useState(DEFAULT_DEVELOPMENTS[0]);
+    const [leadId, setLeadId] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [dryRun, setDryRun] = useState(true);
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<ZohoDebugResponse | null>(null);
+
+    if (!userRole || !FULL_ACCESS_ROLES.includes(userRole)) return null;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setResult(null);
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+            const res = await fetch('/api/debug/zoho-lead-activation', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    user_phone: phone,
+                    development,
+                    lead_id: leadId || undefined,
+                    full_name: fullName || undefined,
+                    dry_run: dryRun,
+                }),
+            });
+            const data: ZohoDebugResponse = await res.json();
+            setResult(data);
+        } catch (err) {
+            setResult({ ok: false, dry_run: dryRun, error: String(err) });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const inputCls = 'rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500';
+
+    return (
+        <div className="mb-4 rounded-xl border border-[#153356]/20 bg-white shadow-sm">
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-5 py-3 text-left"
+            >
+                <span className="text-sm font-semibold text-[#153356]">Simular activación Zoho CRM</span>
+                <span className="text-xs text-gray-400">{open ? '▲ Ocultar' : '▼ Mostrar'}</span>
+            </button>
+
+            {open && (
+                <div className="border-t border-gray-100 px-5 py-4">
+                    <p className="mb-4 text-xs text-gray-500">
+                        Prueba el flujo <code className="rounded bg-gray-100 px-1">handleZohoLeadCreated</code> sin necesitar un webhook real.
+                    </p>
+                    <form onSubmit={handleSubmit}>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-gray-500">Teléfono *</label>
+                                <input
+                                    type="text"
+                                    value={phone}
+                                    onChange={(e) => setPhone(e.target.value)}
+                                    placeholder="5219991234567"
+                                    required
+                                    className={inputCls}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-gray-500">Desarrollo *</label>
+                                <select
+                                    value={development}
+                                    onChange={(e) => setDevelopment(e.target.value)}
+                                    className={inputCls}
+                                >
+                                    {DEFAULT_DEVELOPMENTS.map((d) => (
+                                        <option key={d} value={d}>{d}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-gray-500">Nombre (opcional)</label>
+                                <input
+                                    type="text"
+                                    value={fullName}
+                                    onChange={(e) => setFullName(e.target.value)}
+                                    placeholder="Juan Pérez"
+                                    className={inputCls}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-gray-500">Lead ID (opcional)</label>
+                                <input
+                                    type="text"
+                                    value={leadId}
+                                    onChange={(e) => setLeadId(e.target.value)}
+                                    placeholder="zoho-abc"
+                                    className={inputCls}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-4">
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="runMode"
+                                    checked={dryRun}
+                                    onChange={() => setDryRun(true)}
+                                />
+                                <span>Dry run <span className="text-xs text-gray-400">(solo validar, sin enviar)</span></span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="runMode"
+                                    checked={!dryRun}
+                                    onChange={() => setDryRun(false)}
+                                />
+                                <span>Live <span className="text-xs text-red-400">(ejecuta completo)</span></span>
+                            </label>
+                            <button
+                                type="submit"
+                                disabled={loading || !phone}
+                                className="rounded-lg bg-[#153356] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#1a3d66] disabled:opacity-50 transition-colors"
+                            >
+                                {loading ? 'Ejecutando...' : 'Ejecutar'}
+                            </button>
+                        </div>
+                    </form>
+
+                    {result && (
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+                            {result.error && (
+                                <p className="text-red-700">❌ Error: {result.error}</p>
+                            )}
+                            {result.ok && result.dry_run && result.steps && (
+                                <div className="space-y-1.5">
+                                    <p className="font-medium text-gray-700 mb-2">Resultado dry run:</p>
+                                    <p>
+                                        {result.steps.phone_valid
+                                            ? <span className="text-green-700">✅ Teléfono válido {result.steps.wa_id ? <span className="text-gray-500 text-xs">(wa_id: {result.steps.wa_id})</span> : ''}</span>
+                                            : <span className="text-red-700">❌ Teléfono inválido o no encontrado en WhatsApp</span>
+                                        }
+                                    </p>
+                                    {result.steps.phone_valid && (
+                                        <>
+                                            <p>
+                                                {result.steps.business_hours
+                                                    ? <span className="text-blue-700">🏢 En horario laboral</span>
+                                                    : <span className="text-amber-700">⏰ Fuera de horario laboral</span>
+                                                }
+                                            </p>
+                                            {result.steps.template_name && (
+                                                <p className="text-gray-700">
+                                                    📋 Template: <code className="rounded bg-white border border-gray-200 px-1">{result.steps.template_name}</code>
+                                                    {result.steps.template_language && <span className="text-gray-400 text-xs ml-1">({result.steps.template_language})</span>}
+                                                </p>
+                                            )}
+                                            <p className="text-gray-700">
+                                                🔀 Ruta esperada: <span className="font-medium text-[#153356]">{result.steps.expected_path}</span>
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                            {result.ok && !result.dry_run && result.result && (
+                                <div className="space-y-1.5">
+                                    <p className="font-medium text-gray-700 mb-2">Resultado live run:</p>
+                                    <p>
+                                        {result.result.success
+                                            ? <span className="text-green-700">✅ Éxito</span>
+                                            : <span className="text-red-700">❌ Falló</span>
+                                        }
+                                    </p>
+                                    <p className="text-gray-700">
+                                        Status: <span className="font-medium text-[#153356]">{result.result.status}</span>
+                                    </p>
+                                    {result.result.reason && (
+                                        <p className="text-gray-500 text-xs">Razón: {result.result.reason}</p>
+                                    )}
+                                </div>
+                            )}
+                            {!result.ok && !result.error && (
+                                <p className="text-red-700">❌ Error desconocido</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 interface ConversationKPIs {
     total: number;
     active: number;
@@ -681,6 +903,9 @@ export default function ConversacionesPage() {
                         </div>
                     </div>
                 )}
+
+                {/* Panel de debug: Simular activación Zoho CRM */}
+                <ZohoActivationDebugPanel userRole={userRole} />
 
                 {/* Header card */}
                 <div className="mb-6 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
