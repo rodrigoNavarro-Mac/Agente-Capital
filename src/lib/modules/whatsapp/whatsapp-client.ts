@@ -276,6 +276,144 @@ export async function sendDocumentMessage(
     }
 }
 
+// =====================================================
+// TEMPLATE & PHONE VALIDATION
+// =====================================================
+
+interface WhatsAppContactsResponse {
+    contacts: Array<{
+        input: string;
+        status: string;
+        wa_id?: string;
+    }>;
+}
+
+export interface WhatsAppPhoneValidationResult {
+    valid: boolean;
+    wa_id?: string;
+}
+
+/**
+ * Verifica si un número de teléfono está registrado en WhatsApp usando la Contacts API.
+ * @param phoneNumberId - ID del número de WhatsApp Business emisor
+ * @param phone - Número de teléfono del destinatario (formato internacional sin +)
+ */
+export async function validateWhatsAppPhone(
+    phoneNumberId: string,
+    phone: string
+): Promise<WhatsAppPhoneValidationResult> {
+    try {
+        const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/contacts`;
+        const phoneWithPlus = phone.startsWith('+') ? phone : `+${phone}`;
+
+        const response = await withTimeout(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    blocking: 'wait',
+                    contacts: [phoneWithPlus],
+                    force_check: false,
+                }),
+            }),
+            TIMEOUTS.EXTERNAL_API,
+            'WhatsApp phone validation exceeded timeout'
+        );
+
+        if (!response.ok) {
+            logger.warn('WhatsApp phone validation request failed', { status: response.status }, 'whatsapp-client');
+            return { valid: false };
+        }
+
+        const data: WhatsAppContactsResponse = await response.json();
+        const contact = data.contacts?.[0];
+        const valid = contact?.status === 'valid' && !!contact?.wa_id;
+        return { valid, wa_id: contact?.wa_id };
+    } catch (error) {
+        logger.error('Error validating WhatsApp phone', error, {}, 'whatsapp-client');
+        return { valid: false };
+    }
+}
+
+/**
+ * Envía un mensaje de plantilla (template) por WhatsApp Cloud API.
+ * @param phoneNumberId - ID del número de WhatsApp Business emisor
+ * @param to - Número de teléfono del destinatario (formato internacional sin +)
+ * @param templateName - Nombre de la plantilla registrada en WhatsApp Business Manager
+ * @param languageCode - Código de idioma BCP 47 (ej. 'es_MX', 'es')
+ */
+export async function sendTemplateMessage(
+    phoneNumberId: string,
+    to: string,
+    templateName: string,
+    languageCode: string
+): Promise<WhatsAppSendMessageResponse | null> {
+    try {
+        const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
+
+        const body = {
+            messaging_product: 'whatsapp',
+            to,
+            type: 'template',
+            template: {
+                name: templateName,
+                language: { code: languageCode },
+            },
+        };
+
+        logger.debug('Sending WhatsApp template message', {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+            templateName,
+        }, 'whatsapp-client');
+
+        const response = await withTimeout(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }),
+            TIMEOUTS.EXTERNAL_API,
+            'WhatsApp template send exceeded timeout'
+        );
+
+        if (!response.ok) {
+            const bodyText = await response.text();
+            let errorData: WhatsAppApiError | null = null;
+            try {
+                errorData = bodyText ? (JSON.parse(bodyText) as WhatsAppApiError) : null;
+            } catch {
+                logger.error('WhatsApp template API error (body not JSON)', undefined, {
+                    status: response.status,
+                    bodyPreview: bodyText?.slice(0, 200),
+                }, 'whatsapp-client');
+                return null;
+            }
+            logger.error('WhatsApp template API error', undefined, {
+                status: response.status,
+                error: errorData?.error ?? bodyText,
+            }, 'whatsapp-client');
+            return null;
+        }
+
+        const data: WhatsAppSendMessageResponse = await response.json();
+        logger.debug('WhatsApp template sent successfully', { messageId: data.messages?.[0]?.id }, 'whatsapp-client');
+        return data;
+    } catch (error) {
+        logger.error('Error sending WhatsApp template', error, {
+            phoneNumberId,
+            to: to.substring(0, 5) + '***',
+        }, 'whatsapp-client');
+        return null;
+    }
+}
+
 /**
  * Valida el formato de un número de teléfono
  * @param phone - Número de teléfono

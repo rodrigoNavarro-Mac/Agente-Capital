@@ -112,7 +112,7 @@ const REPEAT_RESPONSE_KEYS_BY_STATE: Partial<Record<ConversationState, string[]>
 // CONFIGURACIÓN HORARIA
 // =====================================================
 
-function isBusinessHours(): boolean {
+export function isBusinessHours(): boolean {
     // Horario laboral: 09:00 - 18:00 (Cancún Time - America/Cancun)
     const now = new Date();
     const cancunTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Cancun' }));

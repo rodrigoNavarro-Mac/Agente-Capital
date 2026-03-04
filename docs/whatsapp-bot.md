@@ -191,6 +191,10 @@ La tabla se crea al importar el módulo (`initConversationsTable()`), con `CREAT
 
 El flujo está implementado como una **máquina de estados** en `conversation-flows.ts`. El estado se guarda en `whatsapp_conversations.state`.
 
+**Documento detallado de transiciones:** [fsm-transiciones-detalle.md](./fsm-transiciones-detalle.md) — allí se describe cada estado, qué respuesta del usuario se detecta y a qué estado se puede pasar (allowlist y flujos por handler).
+
+**Diagrama de arquitectura del motor conversacional:** [conversational-engine-architecture.md](./conversational-engine-architecture.md) — flujo completo: LLM selector, fallback FSM, allowlist, persistencia (DB) y handover a Zoho/Cliq. Recomendado para devs nuevos en el proyecto.
+
 ### Estados activos (en uso)
 
 | Estado | Descripción |
@@ -198,7 +202,9 @@ El flujo está implementado como una **máquina de estados** en `conversation-fl
 | **INICIO** | Punto de partida; en la práctica se transiciona de inmediato a FILTRO_INTENCION mostrando bienvenida. |
 | **FILTRO_INTENCION** | Se espera que el usuario indique si quiere comprar, invertir o solo información. |
 | **INFO_REINTENTO** | Segunda oportunidad si el usuario fue clasificado como "solo info" o no claro; se pregunta de nuevo si busca invertir o vivir. |
-| **CTA_PRIMARIO** | Se ofrece visita o llamada; se espera aceptación o rechazo. |
+| **CTA_PRIMARIO** | Se ofrece visita o que un agente contacte; se espera visitar, llamada, videollamada, contactado o rechazo. |
+| **CTA_CANAL** | Si eligió "ser contactado" sin canal: se pregunta llamada telefónica o videollamada. |
+| **SOLICITUD_HORARIO** | Se pide horario (visita) o día y horario (videollamada). |
 | **SOLICITUD_NOMBRE** | Se pide el nombre completo antes del handover. |
 | **CLIENT_ACCEPTA** | Lead calificado; handover a asesor; el bot ya no responde automáticamente. |
 | **SALIDA_ELEGANTE** | Usuario descalificado (solo info persistente, rechazo explícito, etc.); mensaje de cierre. Si el usuario escribe de nuevo, se reinicia a INICIO. |
