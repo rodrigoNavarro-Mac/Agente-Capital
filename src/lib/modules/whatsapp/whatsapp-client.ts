@@ -298,13 +298,27 @@ export interface WhatsAppPhoneValidationResult {
  * @param phoneNumberId - ID del número de WhatsApp Business emisor
  * @param phone - Número de teléfono del destinatario (formato internacional sin +)
  */
+/**
+ * Normaliza un número de teléfono a formato internacional mexicano.
+ * - 10 dígitos → agrega prefijo 52 (México)
+ * - 12 dígitos iniciando con 521 → quita el 1 intermedio (521XXXXXXXXXX → 52XXXXXXXXXX)
+ * - Ya tiene + → lo quita para consistencia interna
+ */
+export function normalizePhoneToInternational(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10) return `52${digits}`;
+    if (digits.length === 13 && digits.startsWith('521')) return `52${digits.slice(3)}`;
+    return digits;
+}
+
 export async function validateWhatsAppPhone(
     phoneNumberId: string,
     phone: string
 ): Promise<WhatsAppPhoneValidationResult> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/contacts`;
-        const phoneWithPlus = phone.startsWith('+') ? phone : `+${phone}`;
+        const normalized = normalizePhoneToInternational(phone);
+        const phoneWithPlus = `+${normalized}`;
 
         const response = await withTimeout(
             fetch(url, {
