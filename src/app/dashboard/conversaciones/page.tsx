@@ -341,12 +341,10 @@ function DeleteConversationButton({
     onError: (message: string) => void;
 }) {
     const [loading, setLoading] = useState(false);
-    const [confirming, setConfirming] = useState(false);
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!confirming) { setConfirming(true); return; }
-        setConfirming(false);
+        if (!window.confirm(`¿Eliminar conversación de ${maskPhone(userPhone)} (${development})?\n\nSe borrará la conversación, logs, y el canal de Cliq.`)) return;
         setLoading(true);
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         fetch('/api/whatsapp/conversations/delete', {
@@ -365,16 +363,6 @@ function DeleteConversationButton({
             .catch(() => onError('Error de red al eliminar conversación'))
             .finally(() => setLoading(false));
     };
-
-    if (confirming) {
-        return (
-            <div className="flex items-center gap-1">
-                <span className="text-xs text-red-700">¿Confirmar?</span>
-                <button type="button" onClick={handleClick} className={`${retryButtonClass} bg-red-100 text-red-800 hover:bg-red-200`}>Sí, eliminar</button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); setConfirming(false); }} className={`${retryButtonClass} bg-gray-100 text-gray-600 hover:bg-gray-200`}>No</button>
-            </div>
-        );
-    }
 
     return (
         <button
