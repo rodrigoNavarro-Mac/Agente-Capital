@@ -490,13 +490,34 @@ export async function resetConversation(
     development: string
 ): Promise<boolean> {
     try {
-        const _result = await query(
-            `DELETE FROM whatsapp_conversations
-       WHERE user_phone = $1 AND development = $2`,
+        // LOG: estado justo antes del DELETE
+        const beforeRows = await query<{ state: string; user_data: unknown }>(
+            `SELECT state, user_data FROM whatsapp_conversations WHERE user_phone = $1 AND development = $2`,
             [userPhone, development]
         );
+        const stateBefore = beforeRows.rows[0]?.state ?? 'NO_ROW';
+        const userDataBefore = beforeRows.rows[0]?.user_data
+            ? JSON.stringify(beforeRows.rows[0].user_data).substring(0, 200)
+            : 'null';
+        console.log('[resetConversation] PRE-DELETE state=', stateBefore, '| userData=', userDataBefore);
+        logger.info('resetConversation: pre-delete', { stateBefore, userDataBefore, userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-state');
 
-        logger.info('Conversation reset', { userPhone, development }, 'conversation-state');
+        const result = await query(
+            `DELETE FROM whatsapp_conversations WHERE user_phone = $1 AND development = $2`,
+            [userPhone, development]
+        );
+        console.log('[resetConversation] DELETE rowCount=', result.rowCount);
+        logger.info('resetConversation: deleted', { rowCount: result.rowCount }, 'conversation-state');
+
+        // LOG: verificar que la fila desapareció
+        const afterRows = await query<{ state: string }>(
+            `SELECT state FROM whatsapp_conversations WHERE user_phone = $1 AND development = $2`,
+            [userPhone, development]
+        );
+        const stateAfter = afterRows.rows[0]?.state ?? 'GONE';
+        console.log('[resetConversation] POST-DELETE verify: remaining=', afterRows.rowCount, '| state=', stateAfter);
+        logger.info('resetConversation: post-delete verify', { rowsRemaining: afterRows.rowCount, stateAfter }, 'conversation-state');
+
         return true;
     } catch (error) {
         logger.error('Error resetting conversation', error, { userPhone, development }, 'conversation-state');

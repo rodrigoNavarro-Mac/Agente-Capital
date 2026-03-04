@@ -188,7 +188,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // Diagnóstico: estado guardado en DB (si siempre es null, falta migración 037)
         const conversationBefore = await getConversation(userPhone, development);
         const stateLabel = conversationBefore?.state ?? 'NEW (sin fila en whatsapp_conversations)';
-        console.log('[WhatsApp Webhook] conversation state=', stateLabel, '| Si siempre NEW, ejecuta migracion 037 en Supabase');
+        const userDataPreview = conversationBefore?.user_data
+            ? JSON.stringify(conversationBefore.user_data).substring(0, 200)
+            : 'null';
+        console.log('[WhatsApp Webhook] PRE-FLOW state=', stateLabel, '| userData=', userDataPreview, '| msg=', message.substring(0, 40));
+        logger.info('Webhook pre-flow snapshot', {
+            state: stateLabel,
+            userDataPreview,
+            messagePreview: message.substring(0, 40),
+            userPhone: userPhone.substring(0, 6) + '***',
+            development,
+        }, 'whatsapp-webhook');
 
         logger.info('Processing WhatsApp message', {
             development,

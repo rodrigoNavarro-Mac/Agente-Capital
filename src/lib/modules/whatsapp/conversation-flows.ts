@@ -173,7 +173,11 @@ export async function handleIncomingMessage(
 
     // 1. DESARROLLO: Detectar comando /reset
     if (messageText.trim().toLowerCase() === '/reset') {
-        await resetConversation(userPhone, development);
+        console.log('[handleIncomingMessage] /reset received for', development, userPhone.substring(0, 6) + '***');
+        logger.info('/reset command: calling resetConversation', { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+        const resetOk = await resetConversation(userPhone, development);
+        console.log('[handleIncomingMessage] /reset done, resetOk=', resetOk);
+        logger.info('/reset command: done', { resetOk }, 'conversation-flows');
         return {
             outboundMessages: [{ type: 'text', text: '🔄 Conversación reiniciada (Modo Humanizado + Nombre).' }]
         };
@@ -181,6 +185,15 @@ export async function handleIncomingMessage(
 
     // 2. Obtener conversación
     let conversation = await getConversation(userPhone, development);
+    console.log('[handleIncomingMessage] getConversation result: state=', conversation?.state ?? 'NULL', '| userData=', conversation?.user_data ? JSON.stringify(conversation.user_data).substring(0, 150) : 'null');
+    logger.info('handleIncomingMessage: conversation loaded', {
+        found: !!conversation,
+        state: conversation?.state ?? 'NULL',
+        isQualified: conversation?.is_qualified ?? false,
+        stuck: (conversation?.user_data as Record<string, unknown>)?.stuck_in_state_count ?? 0,
+        userPhone: userPhone.substring(0, 6) + '***',
+        development,
+    }, 'conversation-flows');
 
     logger.info('Conversation state loaded', {
         userPhone: userPhone.substring(0, 5) + '***',
