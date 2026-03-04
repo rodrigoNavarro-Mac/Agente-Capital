@@ -343,7 +343,8 @@ function DeleteConversationButton({
     const [loading, setLoading] = useState(false);
     const [confirming, setConfirming] = useState(false);
 
-    const handleClick = () => {
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
         if (!confirming) { setConfirming(true); return; }
         setConfirming(false);
         setLoading(true);
@@ -370,7 +371,7 @@ function DeleteConversationButton({
             <div className="flex items-center gap-1">
                 <span className="text-xs text-red-700">¿Confirmar?</span>
                 <button type="button" onClick={handleClick} className={`${retryButtonClass} bg-red-100 text-red-800 hover:bg-red-200`}>Sí, eliminar</button>
-                <button type="button" onClick={() => setConfirming(false)} className={`${retryButtonClass} bg-gray-100 text-gray-600 hover:bg-gray-200`}>No</button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setConfirming(false); }} className={`${retryButtonClass} bg-gray-100 text-gray-600 hover:bg-gray-200`}>No</button>
             </div>
         );
     }
