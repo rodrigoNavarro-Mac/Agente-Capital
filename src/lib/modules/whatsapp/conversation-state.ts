@@ -540,28 +540,41 @@ export async function deleteConversationFull(
             [userPhone, development]
         );
         result.cliq_channel_id = threadRow.rows[0]?.cliq_channel_id ?? null;
+    } catch (error) {
+        logger.warn('Could not fetch cliq_channel_id before delete', { userPhone, development }, 'conversation-state');
+    }
 
-        // Eliminar bridge logs
+    // Cada DELETE es independiente para que un fallo en una tabla opcional
+    // (ej. whatsapp_bridge_logs no migrada) no bloquee las demás.
+    try {
         await query(`DELETE FROM whatsapp_bridge_logs WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
         result.deleted.bridge_logs = true;
+    } catch (error) {
+        logger.warn('Error deleting bridge_logs (tabla puede no existir)', { userPhone, development, error: String(error) }, 'conversation-state');
+    }
 
-        // Eliminar cliq thread
+    try {
         await query(`DELETE FROM whatsapp_cliq_threads WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
         result.deleted.cliq_thread = true;
+    } catch (error) {
+        logger.error('Error deleting cliq_threads', error, { userPhone, development }, 'conversation-state');
+    }
 
-        // Eliminar logs de WhatsApp
+    try {
         await query(`DELETE FROM whatsapp_logs WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
         result.deleted.logs = true;
+    } catch (error) {
+        logger.error('Error deleting whatsapp_logs', error, { userPhone, development }, 'conversation-state');
+    }
 
-        // Eliminar conversación principal
+    try {
         await query(`DELETE FROM whatsapp_conversations WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
         result.deleted.conversation = true;
-
         result.success = true;
         logger.info('Conversation deleted fully', { userPhone, development, cliq_channel_id: result.cliq_channel_id }, 'conversation-state');
     } catch (error) {
         result.error = error instanceof Error ? error.message : String(error);
-        logger.error('Error deleting conversation fully', error, { userPhone, development }, 'conversation-state');
+        logger.error('Error deleting whatsapp_conversations', error, { userPhone, development }, 'conversation-state');
     }
 
     return result;
