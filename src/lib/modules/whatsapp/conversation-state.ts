@@ -540,7 +540,7 @@ export async function deleteConversationFull(
             [userPhone, development]
         );
         result.cliq_channel_id = threadRow.rows[0]?.cliq_channel_id ?? null;
-    } catch (error) {
+    } catch {
         logger.warn('Could not fetch cliq_channel_id before delete', { userPhone, development }, 'conversation-state');
     }
 
