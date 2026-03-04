@@ -491,7 +491,7 @@ export async function resetConversation(
 ): Promise<boolean> {
     try {
         const _result = await query(
-            `DELETE FROM whatsapp_conversations 
+            `DELETE FROM whatsapp_conversations
        WHERE user_phone = $1 AND development = $2`,
             [userPhone, development]
         );
@@ -502,4 +502,67 @@ export async function resetConversation(
         logger.error('Error resetting conversation', error, { userPhone, development }, 'conversation-state');
         return false;
     }
+}
+
+export interface DeleteConversationResult {
+    success: boolean;
+    deleted: {
+        conversation: boolean;
+        cliq_thread: boolean;
+        logs: boolean;
+        bridge_logs: boolean;
+    };
+    cliq_channel_deleted: boolean;
+    cliq_channel_id: string | null;
+    error?: string;
+}
+
+/**
+ * Elimina una conversación completa y todo lo relacionado en la BD.
+ * Devuelve el cliq_channel_id encontrado para que el caller pueda
+ * eliminar el canal en Zoho Cliq si lo desea.
+ */
+export async function deleteConversationFull(
+    userPhone: string,
+    development: string
+): Promise<DeleteConversationResult> {
+    const result: DeleteConversationResult = {
+        success: false,
+        deleted: { conversation: false, cliq_thread: false, logs: false, bridge_logs: false },
+        cliq_channel_deleted: false,
+        cliq_channel_id: null,
+    };
+
+    try {
+        // Obtener cliq_channel_id antes de eliminar
+        const threadRow = await query<{ cliq_channel_id: string }>(
+            `SELECT cliq_channel_id FROM whatsapp_cliq_threads WHERE user_phone = $1 AND development = $2`,
+            [userPhone, development]
+        );
+        result.cliq_channel_id = threadRow.rows[0]?.cliq_channel_id ?? null;
+
+        // Eliminar bridge logs
+        await query(`DELETE FROM whatsapp_bridge_logs WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
+        result.deleted.bridge_logs = true;
+
+        // Eliminar cliq thread
+        await query(`DELETE FROM whatsapp_cliq_threads WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
+        result.deleted.cliq_thread = true;
+
+        // Eliminar logs de WhatsApp
+        await query(`DELETE FROM whatsapp_logs WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
+        result.deleted.logs = true;
+
+        // Eliminar conversación principal
+        await query(`DELETE FROM whatsapp_conversations WHERE user_phone = $1 AND development = $2`, [userPhone, development]);
+        result.deleted.conversation = true;
+
+        result.success = true;
+        logger.info('Conversation deleted fully', { userPhone, development, cliq_channel_id: result.cliq_channel_id }, 'conversation-state');
+    } catch (error) {
+        result.error = error instanceof Error ? error.message : String(error);
+        logger.error('Error deleting conversation fully', error, { userPhone, development }, 'conversation-state');
+    }
+
+    return result;
 }

@@ -329,6 +329,64 @@ function HistoryWAButton({
     );
 }
 
+function DeleteConversationButton({
+    userPhone,
+    development,
+    onDone,
+    onError,
+}: {
+    userPhone: string;
+    development: string;
+    onDone: () => void;
+    onError: (message: string) => void;
+}) {
+    const [loading, setLoading] = useState(false);
+    const [confirming, setConfirming] = useState(false);
+
+    const handleClick = () => {
+        if (!confirming) { setConfirming(true); return; }
+        setConfirming(false);
+        setLoading(true);
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        fetch('/api/whatsapp/conversations/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ user_phone: userPhone, development }),
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (!data.success) { onError(data.error || 'Error al eliminar'); return; }
+                onDone();
+            })
+            .catch(() => onError('Error de red al eliminar conversación'))
+            .finally(() => setLoading(false));
+    };
+
+    if (confirming) {
+        return (
+            <div className="flex items-center gap-1">
+                <span className="text-xs text-red-700">¿Confirmar?</span>
+                <button type="button" onClick={handleClick} className={`${retryButtonClass} bg-red-100 text-red-800 hover:bg-red-200`}>Sí, eliminar</button>
+                <button type="button" onClick={() => setConfirming(false)} className={`${retryButtonClass} bg-gray-100 text-gray-600 hover:bg-gray-200`}>No</button>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={handleClick}
+            disabled={loading}
+            className={`${retryButtonClass} bg-red-50 text-red-700 hover:bg-red-100`}
+        >
+            {loading ? '...' : 'Eliminar'}
+        </button>
+    );
+}
+
 const FULL_ACCESS_ROLES = ['admin', 'ceo'];
 const DEFAULT_DEVELOPMENTS = ['FUEGO', 'AMURA', 'PUNTO_TIERRA'];
 
@@ -1393,6 +1451,16 @@ export default function ConversacionesPage() {
                                                                 {c.cliq_channel_id && (
                                                                     <div className="border-b border-gray-100 px-2 py-1.5 last:border-0">
                                                                         <ResendContextButton userPhone={c.user_phone} development={c.development} onDone={fetchConversations} onError={(msg) => setError(msg)} />
+                                                                    </div>
+                                                                )}
+                                                                {fullAccess && (
+                                                                    <div className="px-2 py-1.5 mt-0.5 border-t border-red-100">
+                                                                        <DeleteConversationButton
+                                                                            userPhone={c.user_phone}
+                                                                            development={c.development}
+                                                                            onDone={() => { fetchConversations(); setOpenActionsRowId(null); }}
+                                                                            onError={(msg) => { setError(msg); setOpenActionsRowId(null); }}
+                                                                        />
                                                                     </div>
                                                                 )}
                                                             </div>

@@ -277,6 +277,35 @@ export async function addBotToCliqChannel(channelUniqueName: string): Promise<bo
  * Send a message to Cliq by POSTing to the bot's Incoming Webhook URL.
  * Deluge handler will post to the given channel_unique_name.
  */
+/**
+ * Elimina un canal de Zoho Cliq por su channel_id.
+ * Requiere scope ZohoCliq.Channels.DELETE en el refresh_token.
+ * Retorna true si se eliminó (200/204) o si ya no existía (404).
+ */
+export async function deleteCliqChannel(channelId: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+  try {
+    const token = await getCliqAccessToken();
+    const url = `${ZOHO_CLIQ_API_URL}/channels/${encodeURIComponent(channelId)}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'DELETE',
+        headers: { 'Authorization': `Zoho-oauthtoken ${token}` },
+      },
+      CLIQ_REQUEST_TIMEOUT
+    );
+    if (response.ok || response.status === 404) {
+      return { ok: true, status: response.status };
+    }
+    const text = await response.text();
+    logger.warn('deleteCliqChannel failed', { status: response.status, channelId, text }, 'zoho-cliq');
+    return { ok: false, status: response.status, error: text };
+  } catch (error) {
+    logger.error('deleteCliqChannel error', error, { channelId }, 'zoho-cliq');
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function postMessageToCliqViaWebhook(payload: CliqWebhookPayload): Promise<{ ok: boolean }> {
   if (!CLIQ_BOT_INCOMING_WEBHOOK_URL) {
     logger.warn('postMessageToCliqViaWebhook: CLIQ_BOT_INCOMING_WEBHOOK_URL not set', {}, 'zoho-cliq');
