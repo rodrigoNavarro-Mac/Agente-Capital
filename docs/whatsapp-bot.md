@@ -217,7 +217,7 @@ Estados legacy (ENVIO_BROCHURE, REVALIDACION_INTERES, etc.) siguen en el tipo pe
 
 - **Comando /reset**: si el mensaje es exactamente `/reset` (case-insensitive), se hace `resetConversation` y se envía un mensaje de confirmación de reinicio. No se usa la FSM.
 - **Horario laboral**: `isBusinessHours()` está actualmente **desactivado** (siempre retorna `false`). Cuando esté activo, en horario laboral se enviará el mensaje FUERA_HORARIO y no se ejecutará la FSM (salvo si ya está calificado o en CLIENT_ACCEPTA, en cuyo caso no se envía nada).
-- **Sin conversación**: si no existe fila para (user_phone, development), se hace upsert en estado INICIO y se ejecuta **handleInicio** (bienvenida + opcionalmente imagen hero).
+- **Sin conversación**: si no existe fila para (user_phone, development), se hace upsert en estado INICIO. Si el primer mensaje es solo un saludo (`isOnlyGreeting`), se envía la bienvenida directamente. Si ya expresa intención (comprar/invertir/solo_info), se clasifica y se ejecuta **processState('FILTRO_INTENCION', ...)**. En caso contrario, se ejecuta **handleInicio** (bienvenida + opcionalmente imagen hero).
 - **CLIENT_ACCEPTA o is_qualified**: se devuelve lista de mensajes vacía (el bot no responde).
 - **SALIDA_ELEGANTE**: se actualiza estado a INICIO y se ejecuta handleInicio (reanudar conversación).
 
@@ -246,10 +246,21 @@ Estados legacy (ENVIO_BROCHURE, REVALIDACION_INTERES, etc.) siguen en el tipo pe
 
 #### handleCtaPrimario(messageText, development, userPhone)
 
-- Se clasifica la acción con **classifyAccion(messageText)** (LLM).
-- **Negativo explícito** (no puedo, no gracias, no quiero, ahora no, luego, ocupado, "no" muy corto, etc.) -> **handleSalidaElegante** (rechazo_cta_explicito).
-- **Afirmativo** (si, claro, agendar, visita, llama, ok, va, bueno, o acción clara del LLM) -> estado **SOLICITUD_NOMBRE** y mensaje SOLICITUD_NOMBRE.
-- **Ambiguo** -> **handleSalidaElegante** (rechazo_cta_ambiguo).
+- Se clasifica la acción con **classifyCtaPrimario(messageText)** (LLM) y keywords.
+- Orden de evaluación:
+  1. **Negativo** (no gracias, luego, ahora no, etc.) -> **handleSalidaElegante** (rechazo_cta_explicito).
+  2. **Visitar** (visita, ir a ver, conocer el desarrollo) -> estado **SOLICITUD_HORARIO**, `preferred_action: 'visita'`.
+  3. **Canal explícito llamada** (por teléfono, que me llamen) -> short-circuit a **SOLICITUD_NOMBRE** (sin pedir horario), `preferred_channel: 'llamada'`.
+  4. **Canal explícito videollamada** (video, zoom, meet) -> **SOLICITUD_HORARIO** (pide día+hora), `preferred_channel: 'videollamada'`.
+  5. **Contactado genérico** (que me contacte un agente, sí sin canal) -> estado **CTA_CANAL**.
+  6. **Ambiguo** -> **handleSalidaElegante** (rechazo_cta_ambiguo).
+
+#### handleCtaCanal(messageText, development, userPhone)
+
+- Solo se entra desde CTA_CANAL. El bot acaba de preguntar "¿Por llamada telefónica o por videollamada?".
+- **Llamada** -> estado **SOLICITUD_NOMBRE** (short-circuit sin horario), `preferred_channel: 'llamada'`.
+- **Videollamada** o afirmativo genérico -> estado **SOLICITUD_HORARIO**, `preferred_channel: 'videollamada'`.
+- **Negativo** o **ambiguo** -> **handleSalidaElegante**.
 
 #### handleSolicitudNombre(messageText, development, userPhone, userData)
 
@@ -275,10 +286,16 @@ Estados legacy (ENVIO_BROCHURE, REVALIDACION_INTERES, etc.) siguen en el tipo pe
 - INICIO -> (automático) FILTRO_INTENCION (con bienvenida).
 - FILTRO_INTENCION -> CTA_PRIMARIO (alta intención), INFO_REINTENTO (solo info o no claro), SALIDA_ELEGANTE (reintento agotado).
 - INFO_REINTENTO -> CTA_PRIMARIO (recuperado), SALIDA_ELEGANTE (insiste solo info).
-- CTA_PRIMARIO -> SOLICITUD_NOMBRE (acepta), SALIDA_ELEGANTE (rechaza o ambiguo).
-- SOLICITUD_NOMBRE -> CLIENT_ACCEPTA (nombre válido) o se mantiene (nombre corto).
+- CTA_PRIMARIO -> SOLICITUD_HORARIO (visitar/videollamada), SOLICITUD_NOMBRE (llamada, short-circuit), CTA_CANAL (contactado sin canal), SALIDA_ELEGANTE (negativo/ambiguo).
+- CTA_CANAL -> SOLICITUD_NOMBRE (llamada), SOLICITUD_HORARIO (videollamada/sí), SALIDA_ELEGANTE (negativo/ambiguo).
+- SOLICITUD_HORARIO -> SOLICITUD_NOMBRE (cualquier texto).
+- SOLICITUD_NOMBRE -> CLIENT_ACCEPTA (nombre válido, 3+ chars) o se mantiene (nombre muy corto).
 - CLIENT_ACCEPTA: sin transición (bot no responde).
 - SALIDA_ELEGANTE: en el siguiente mensaje del usuario se fuerza INICIO y se muestra bienvenida de nuevo.
+
+### Mecanismo anti-loop (stuck_in_state_count)
+
+El campo `stuck_in_state_count` en `user_data` cuenta cuántos mensajes consecutivos no han avanzado el estado. Si llega a **3**, el sistema fuerza **SALIDA_ELEGANTE** con razón `'loop_detected'`, independientemente de lo que diga el LLM o el FSM. El contador se resetea a 0 cada vez que el estado sí avanza. Esto evita que usuarios queden atrapados indefinidamente en un estado.
 
 ---
 
@@ -460,7 +477,7 @@ Almacena el mapeo (user_phone, development) -> canal Cliq y `phone_number_id` pa
 
 - **Solo mensajes de texto entrantes**: imagen, audio, video, documento del usuario se ignoran (no se transcriben ni se procesan).
 - **Un solo mensaje por webhook**: si el payload trae varios mensajes de texto, solo se procesa el primero.
-- **Deduplicación en memoria**: `webhook-handler` tiene un Set de IDs de mensajes procesados con límite de tamaño; no hay deduplicación persistente (p. ej. Redis), por lo que en reinicios o múltiples instancias podría procesarse dos veces el mismo mensaje.
+- **Deduplicación de webhooks**: implementada en base de datos mediante la tabla `whatsapp_message_dedup` (migración 045). La función `claimWhatsAppMessage(messageId)` hace `INSERT ... ON CONFLICT DO NOTHING`; si el INSERT no inserta ninguna fila, el mensaje ya fue procesado y se descarta. Esto es atómico y funciona en múltiples instancias serverless. Si la tabla no existe, el sistema es fail-open (procesa igual).
 - **Log de respuesta**: solo se persiste el primer mensaje de la respuesta en saveWhatsAppLog.
 - **Zoho**: createZohoLead está implementado (createZohoLeadRecord + GET Lead); el bridge con Cliq requiere configurar Cliq (bot, OAuth, webhooks) y las variables de entorno correspondientes.
 - **Horario laboral**: isBusinessHours() está desactivado (siempre false).
@@ -471,7 +488,6 @@ Almacena el mapeo (user_phone, development) -> canal Cliq y `phone_number_id` pa
 - Soportar mensajes entrantes de tipo imagen/audio (transcripción o análisis) y reutilizar el mismo flujo.
 - Bridge opcional con Zoho Cliq (canal por lead, mensajes WA <-> Cliq) ya implementado; ver sección 11.
 - Activar y afinar horario laboral (mensaje fuera de horario, posible handover diferido).
-- Deduplicación por message_id en base de datos o Redis.
 - Guardar en log todos los mensajes enviados en una misma respuesta.
 - Limpiar estados legacy del tipo y de la FSM si no se van a usar.
 - Añadir más desarrollos: nuevo phone_number_id en channel-router, mensajes en development-content y medios en media-handler.

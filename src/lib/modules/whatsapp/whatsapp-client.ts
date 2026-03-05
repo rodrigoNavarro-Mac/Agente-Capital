@@ -395,7 +395,6 @@ export async function validateWhatsAppPhone(
                 body: JSON.stringify({
                     blocking: 'wait',
                     contacts: [phoneWithPlus],
-                    force_check: true,
                 }),
             }),
             TIMEOUTS.EXTERNAL_API,
@@ -403,7 +402,8 @@ export async function validateWhatsAppPhone(
         );
 
         if (!response.ok) {
-            logger.warn('WhatsApp phone validation request failed', { status: response.status }, 'whatsapp-client');
+            const errBody = await response.text().catch(() => '');
+            logger.warn('WhatsApp phone validation request failed', { status: response.status, body: errBody.substring(0, 200) }, 'whatsapp-client');
             return { valid: false };
         }
 

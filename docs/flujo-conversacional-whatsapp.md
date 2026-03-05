@@ -88,6 +88,7 @@ HORARIO    NOMBRE     HORARIO    "¿Llamada   ELEGANTE
 - **preferred_channel**: `llamada` | `videollamada` (solo si preferred_action = contactado)
 - **horario_preferido**: texto libre (solo si pasó por SOLICITUD_HORARIO)
 - **nombre** / **name**: nombre completo antes del handover
+- **stuck_in_state_count**: contador interno de mensajes consecutivos sin avanzar de estado; al llegar a 3 se fuerza SALIDA_ELEGANTE (anti-loop).
 
 ---
 

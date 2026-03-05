@@ -6,7 +6,7 @@ Simplemente envía `/reset` por WhatsApp y la conversación se reiniciará autom
 
 ```
 Tú: /reset
-Bot: 🔄 Conversación reiniciada. Envía cualquier mensaje para empezar de nuevo.
+Bot: 🔄 Conversación reiniciada (Modo Humanizado + Nombre).
 Tú: Hola
 Bot: [Mensaje de bienvenida FUEGO]
 ```
