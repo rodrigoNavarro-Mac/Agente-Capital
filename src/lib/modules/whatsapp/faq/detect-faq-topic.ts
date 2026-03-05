@@ -53,7 +53,7 @@ const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
     // Tiene menor prioridad que todos los topics específicos (va al final).
     {
         topic: 'GENERAL',
-        keywords: ['informacion', 'mas info', 'dame info', 'quiero saber', 'que tiene', 'que ofrece'],
+        keywords: ['informacion', 'info', 'mas info', 'dame info', 'quiero saber', 'que tiene', 'que ofrece'],
     },
 ];
 

@@ -26,7 +26,7 @@ Superficies: de 300 a 401 m².
         PLURIFAMILIAR: `Zona plurifamiliar para desarrolladores: terreno ~1483.38 m², 35 viviendas, COS máx 70%, altura máx 26 m (PB + 5).
 ¿Te contacto con un asesor para ver esquema?`,
 
-        PRECIOS: `Del brochure no viene una tabla de precios.
+        PRECIOS: `
 Para cotizar: ¿qué superficie te interesa (300–401 m²) o cuál es tu rango de presupuesto?`,
 
         GENERAL: `Te comparto la info que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
