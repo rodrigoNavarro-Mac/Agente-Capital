@@ -14,7 +14,7 @@ Superficies: de 300 a 401 m².
         FINANCIAMIENTO: `En AMURA manejan plazos de pago de hasta 12 meses sin intereses.
 ¿Prefieres que un asesor te contacte o agendamos visita?`,
 
-        ENTREGA: `Son lotes de entrega inmediata con una casa club y amenidades.
+        ENTREGA: `Son lotes de entrega inmediata con una casa club y amenidades 100% disponibles.
 ¿Te interesa invertir o construir?`,
 
         UBICACION: `AMURA está dentro de Soluna (zona Temozón Norte, Mérida).

@@ -113,7 +113,7 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'cuando es la entrega?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('ENTREGA');
-        expect(result.response).toContain('2026');
+        expect(result.response).toMatch(/entrega|lote|casa club/i);
     });
 
     it('AMURA + "ubicacion" => handled + UBICACION response', async () => {
