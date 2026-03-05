@@ -290,11 +290,15 @@ function buildOutboundFromSelection(
     const outbound: OutboundMessage[] = [];
 
     const text = getResponseText(development, responseKey, userName);
-    outbound.push({ type: 'text', text });
 
     if (responseKey === 'BIENVENIDA') {
         const heroUrl = getHeroImage(development);
-        if (heroUrl) outbound.push({ type: 'image', imageUrl: heroUrl, caption: undefined });
+        // Hero con texto como caption → un solo mensaje
+        outbound.push(heroUrl
+            ? { type: 'image', imageUrl: heroUrl, caption: text }
+            : { type: 'text', text });
+    } else {
+        outbound.push({ type: 'text', text });
     }
 
     if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
@@ -485,17 +489,12 @@ async function handleInicio(development: string, userPhone: string): Promise<Flo
     await updateState(userPhone, development, 'FILTRO_INTENCION');
 
     const messages = getMessagesForDevelopment(development);
-    const outboundMessages: OutboundMessage[] = [{ type: 'text', text: messages.BIENVENIDA }];
 
-    // Si el desarrollo tiene imagen hero, enviarla después de la bienvenida
+    // Hero image con BIENVENIDA como caption → texto + imagen en un solo mensaje
     const heroImageUrl = getHeroImage(development);
-    if (heroImageUrl) {
-        outboundMessages.push({
-            type: 'image',
-            imageUrl: heroImageUrl,
-            caption: undefined,
-        });
-    }
+    const outboundMessages: OutboundMessage[] = heroImageUrl
+        ? [{ type: 'image', imageUrl: heroImageUrl, caption: messages.BIENVENIDA }]
+        : [{ type: 'text', text: messages.BIENVENIDA }];
 
     return {
         outboundMessages,
@@ -514,11 +513,10 @@ async function handleFiltroIntencion(
 
     // Si solo manda saludo (ej. "Holaaa" tras reset o race), responder con BIENVENIDA como inicio desde cero
     if (isOnlyGreeting(text)) {
-        const outboundMessages: OutboundMessage[] = [{ type: 'text', text: messages.BIENVENIDA }];
         const heroImageUrl = getHeroImage(development);
-        if (heroImageUrl) {
-            outboundMessages.push({ type: 'image', imageUrl: heroImageUrl, caption: undefined });
-        }
+        const outboundMessages: OutboundMessage[] = heroImageUrl
+            ? [{ type: 'image', imageUrl: heroImageUrl, caption: messages.BIENVENIDA }]
+            : [{ type: 'text', text: messages.BIENVENIDA }];
         return { outboundMessages, nextState: 'FILTRO_INTENCION' };
     }
 

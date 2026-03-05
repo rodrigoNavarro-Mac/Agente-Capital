@@ -243,7 +243,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         userPhone,
                         outboundMessage.imageUrl,
                         outboundMessage.caption,
-                        incomingMessageId
+                        undefined  // sin reply context: las imágenes no se mandan como respuesta
                     );
 
                     if (!imageResult) {
