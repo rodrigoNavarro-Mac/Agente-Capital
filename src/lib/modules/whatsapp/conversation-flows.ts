@@ -236,6 +236,11 @@ export async function handleIncomingMessage(
         }
 
         // Si el primer mensaje ya expresa intención (invertir/comprar/info), responder a eso en vez de solo bienvenida
+        // Pero si es solo un saludo, enviar bienvenida directamente sin clasificar
+        if (isOnlyGreeting(messageText)) {
+            logger.info('New conversation: greeting-first, sending welcome', { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-flows');
+            return await handleInicio(development, userPhone);
+        }
         const firstMessageIntent = matchIntentByKeywords(messageText);
         const firstIntent = firstMessageIntent ?? await classifyIntent(messageText);
         const firstIsAlta = firstIntent === 'comprar' || firstIntent === 'invertir' || firstIntent === 'mixto';
