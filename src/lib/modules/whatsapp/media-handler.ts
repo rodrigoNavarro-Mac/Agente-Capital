@@ -58,7 +58,7 @@ export const DEVELOPMENT_MEDIA: Record<string, DevelopmentMedia> = {
         mapsUrl: 'https://maps.app.goo.gl/ZmbGprLz6Wp6651Y7',
     },
     AMURA: {
-        heroImageUrl: undefined,
+        heroImageUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/AmuraHero',
         brochureUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Brochure_AMURA_2026.pdf',
     },
     PUNTO_TIERRA: {

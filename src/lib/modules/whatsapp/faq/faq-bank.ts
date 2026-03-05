@@ -11,7 +11,7 @@ export const FAQ_BANK: Record<DevelopmentKey, Partial<Record<FaqTopic, string>>>
 Superficies: de 300 a 401 m².
 ¿Lo estás viendo para invertir o para construir?`,
 
-        FINANCIAMIENTO: `En AMURA manejan financiamiento hasta 9 meses.
+        FINANCIAMIENTO: `En AMURA manejan plazos de pago de hasta 12 meses.
 ¿Prefieres que un asesor te contacte o agendamos visita?`,
 
         ENTREGA: `La entrega está programada para marzo de 2026.
