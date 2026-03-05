@@ -24,7 +24,7 @@ const CHANNEL_CONFIG: ChannelConfig = {
     '980541871814181': 'FUEGO',
     // Ejemplos para cuando tengas los números de AMURA y PUNTO_TIERRA:
     '913257945213997': 'AMURA',
-    // '<phone_number_id_punto_tierra>': 'PUNTO_TIERRA',
+    '1049033564953396': 'PUNTO_TIERRA',
 };
 
 /**

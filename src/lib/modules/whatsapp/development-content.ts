@@ -203,28 +203,79 @@ En breve un asesor de AMURA continuará contigo para brindarte atención persona
  * Mensajes PUNTO TIERRA - Placeholder para tercer desarrollo
  */
 const PUNTO_TIERRA_MESSAGES: DevelopmentMessages = {
-    BIENVENIDA: `Hola
-Soy el asistente de Punto Tierra.
 
-¿Te interesa invertir o construir?`,
-
-    FILTRO_PREGUNTA: `¿Te interesa invertir o construir?`,
-
-    CONFIRMACION_COMPRA: `Perfecto. Punto Tierra puede ser una buena opción para ti.`,
-    CONFIRMACION_INVERSION: `Excelente. Punto Tierra ofrece oportunidades de inversión.`,
-    CTA_AYUDA: `¿Te gustaría agendar una visita o una llamada con un asesor?`,
-    CTA_VISITA_O_CONTACTO: `¿Quieres visitar el desarrollo o que un agente te contacte?`,
-    CTA_CANAL: `¿Por llamada telefónica o por videollamada?`,
-    SOLICITUD_HORARIO: `¿A qué hora te gustaría que te contactemos o que realicemos la llamada?`,
-    SOLICITUD_FECHA_HORARIO: `¿En qué día y horario te gustaría agendar la videollamada?`,
-    SOLICITUD_NOMBRE: `¿Cuál es tu nombre completo para el asesor?`,
-    INFO_REINTENTO: `¿Estás buscando esta oportunidad para invertir o para vivir?`,
-    HANDOVER_EXITOSO: `Gracias, {NOMBRE}. Un asesor de Punto Tierra te contactará.`,
-    CONFIRMACION_FINAL: `¿Confirmamos visita o llamada?`,
-    SALIDA_ELEGANTE: `Gracias por tu interés. Aquí estaré si decides avanzar.`,
-    FUERA_HORARIO: `Gracias por escribir. Un asesor de Punto Tierra continúa contigo.`,
-};
-
+    BIENVENIDA: `Hola 👋
+    Soy el asistente de Punto Tierra.
+    
+    Tenemos distintas opciones inmobiliarias como casas, departamentos, terrenos y macrolotes para desarrollo.
+    
+    Para orientarte mejor:
+    ¿Qué tipo de propiedad estás buscando?`,
+    
+    FILTRO_PREGUNTA: `Para ayudarte mejor:
+    
+    ¿Qué tipo de propiedad te interesa?
+    
+    • Casa
+    • Departamento
+    • Terreno
+    • Macrolote / desarrollo`,
+    
+    CONFIRMACION_COMPRA: `Perfecto.
+    En Punto Tierra contamos con distintas opciones que podrían ajustarse a lo que buscas.`,
+    
+    CONFIRMACION_INVERSION: `Excelente.
+    Tenemos oportunidades interesantes tanto para inversión patrimonial como para desarrollo.`,
+    
+    CTA_AYUDA: `Para ayudarte mejor:
+    
+    ¿Te gustaría conocer algunas opciones disponibles
+    o prefieres que un asesor te explique las alternativas?`,
+    
+    CTA_VISITA_O_CONTACTO: `Perfecto.
+    
+    ¿Prefieres visitar alguna propiedad
+    o que un asesor te contacte para explicarte las opciones?`,
+    
+    CTA_CANAL: `¿Prefieres que te contactemos por llamada telefónica
+    o por videollamada?`,
+    
+    SOLICITUD_HORARIO: `Perfecto.
+    
+    ¿En qué horario te gustaría que coordinemos la llamada o la visita?`,
+    
+    SOLICITUD_FECHA_HORARIO: `Perfecto.
+    
+    ¿En qué día y horario te gustaría agendar la videollamada?`,
+    
+    SOLICITUD_NOMBRE: `Con gusto lo coordinamos.
+    
+    ¿Me compartes tu nombre completo para asignarte con un asesor?`,
+    
+    INFO_REINTENTO: `Antes de continuar, solo para entender mejor:
+    
+    ¿Estás buscando una propiedad para vivir
+    o una oportunidad de inversión?`,
+    
+    HANDOVER_EXITOSO: `Perfecto, {NOMBRE}.
+    
+    Un asesor de Punto Tierra te contactará para mostrarte las opciones que mejor se adapten a lo que buscas.`,
+    
+    CONFIRMACION_FINAL: `Solo para confirmar:
+    
+    ¿Agendamos una visita a la propiedad
+    o prefieres una llamada con un asesor?`,
+    
+    SALIDA_ELEGANTE: `Gracias por tu interés en Punto Tierra.
+    
+    Cuando quieras explorar opciones inmobiliarias, aquí estaré para ayudarte.`,
+    
+    FUERA_HORARIO: `Gracias por escribir.
+    
+    En breve un asesor de Punto Tierra continuará contigo para brindarte atención personalizada.`
+    
+    };
+    
 const CONTENT_BY_DEVELOPMENT: Record<string, DevelopmentMessages> = {
     FUEGO: FUEGO_MESSAGES,
     AMURA: AMURA_MESSAGES,
