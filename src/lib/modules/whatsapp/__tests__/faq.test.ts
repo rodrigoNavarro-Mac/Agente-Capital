@@ -142,6 +142,21 @@ describe('maybeHandleFaq', () => {
         expect(result.topic).toBe('PRECIOS');
     });
 
+    // REGRESION: "Quiero información" en CTA_PRIMARIO no debe saltar a SOLICITUD_NOMBRE
+    it('"Quiero información" genérica => GENERAL topic interceptado por FAQ', async () => {
+        const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'Quiero información' });
+        expect(result.handled).toBe(true);
+        expect(result.topic).toBe('GENERAL');
+        // La respuesta debe preguntar qué info específica quiere, sin mutar estado
+        expect(result.response).toContain('m²');
+    });
+
+    it('"mas informacion" => GENERAL (case/accent insensitive)', async () => {
+        const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'mas información del proyecto' });
+        expect(result.handled).toBe(true);
+        expect(result.topic).toBe('GENERAL');
+    });
+
     // Prueba de integración: el FAQ interceptor NO llama a updateState ni a ninguna función de persistencia
     it('no muta estado: maybeHandleFaq no importa updateState', async () => {
         // Esta prueba verifica que maybeHandleFaq retorna { handled, response, topic }

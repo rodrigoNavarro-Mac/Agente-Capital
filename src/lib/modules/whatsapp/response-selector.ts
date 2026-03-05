@@ -56,9 +56,11 @@ const STATE_LLM_CONFIG: Partial<Record<ConversationState, {
         stateContext: 'El bot dio información adicional y preguntó si hay interés en avanzar.',
     },
     CTA_PRIMARIO: {
-        validResponseKeys: ['CTA_CANAL', 'SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],
-        validNextStates: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
-        stateContext: 'El bot preguntó si el usuario quiere visitar el desarrollo o que un asesor lo contacte.',
+        // SOLICITUD_NOMBRE eliminado: el LLM no debe saltarse CTA_CANAL.
+        // El short-circuit llamada→SOLICITUD_NOMBRE lo maneja el FSM fallback (matchCtaCanalByKeywords).
+        validResponseKeys: ['CTA_CANAL', 'SOLICITUD_HORARIO', 'SALIDA_ELEGANTE'],
+        validNextStates: ['SOLICITUD_HORARIO', 'CTA_CANAL', 'SALIDA_ELEGANTE'],
+        stateContext: 'El bot preguntó si el usuario quiere visitar el desarrollo o que un asesor lo contacte. Opciones: visitar (→ SOLICITUD_HORARIO) o ser contactado (→ CTA_CANAL). Si rechaza → SALIDA_ELEGANTE.',
     },
     CTA_CANAL: {
         validResponseKeys: ['SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', 'SALIDA_ELEGANTE'],

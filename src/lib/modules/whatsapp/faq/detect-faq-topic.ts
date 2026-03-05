@@ -49,6 +49,12 @@ const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
         topic: 'PLURIFAMILIAR',
         keywords: ['plurifamiliar', 'desarrollador', 'desarrolladores', 'cos', 'niveles', 'viviendas', 'altura'],
     },
+    // GENERAL: fallback cuando el usuario pide "información" genérica sin especificar topic.
+    // Tiene menor prioridad que todos los topics específicos (va al final).
+    {
+        topic: 'GENERAL',
+        keywords: ['informacion', 'mas info', 'dame info', 'quiero saber', 'que tiene', 'que ofrece'],
+    },
 ];
 
 export function detectFaqTopic(messageText: string): FaqTopic | null {
