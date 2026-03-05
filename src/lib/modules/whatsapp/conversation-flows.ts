@@ -37,6 +37,7 @@ import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } f
 import { upsertWhatsAppCliqThread, getCliqThreadByUserAndDev, markContextSent } from '@/lib/db/whatsapp-cliq';
 import { saveBridgeLog } from '@/lib/db/postgres';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
+import { maybeHandleFaq } from './faq/faq-router';
 
 // Imports Legacy (reservados para uso futuro)
 // import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
@@ -264,6 +265,12 @@ export async function handleIncomingMessage(
     if (conversation.state === 'SALIDA_ELEGANTE') {
         await updateState(userPhone, development, 'INICIO');
         return await handleInicio(development, userPhone);
+    }
+
+    // FAQ INTERCEPTOR: responde preguntas informativas sin mutar el estado FSM
+    const faqResult = await maybeHandleFaq({ development, messageText });
+    if (faqResult.handled && faqResult.response) {
+        return { outboundMessages: [{ type: 'text', text: faqResult.response }] };
     }
 
     return await processState(conversation.state, messageText, context, conversation.user_data);

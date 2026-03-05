@@ -339,9 +339,10 @@ describe('conversation-flows', () => {
   });
 
   describe('FILTRO_INTENCION -> INFO_REINTENTO (solo info)', () => {
-    it('on "solo precios" sends INFO_REINTENTO', async () => {
+    it('on "solo estoy viendo" sends INFO_REINTENTO', async () => {
       setState('FILTRO_INTENCION');
-      const res = await handleIncomingMessage(ctx('solo quiero ver precios'));
+      // Usa un mensaje de "solo info" que no dispara el FAQ router
+      const res = await handleIncomingMessage(ctx('solo estoy viendo opciones'));
       expect(res.nextState).toBe('INFO_REINTENTO');
       expect(firstText(res)).toMatch(/precio|invertir|vivir/i);
     });
