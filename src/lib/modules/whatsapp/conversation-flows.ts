@@ -38,6 +38,7 @@ import { upsertWhatsAppCliqThread, getCliqThreadByUserAndDev, markContextSent } 
 import { saveBridgeLog } from '@/lib/db/postgres';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 import { maybeHandleFaq } from './faq/faq-router';
+import { tryExtractContext } from './context-extractor';
 
 // Imports Legacy (reservados para uso futuro)
 // import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
@@ -267,8 +268,18 @@ export async function handleIncomingMessage(
         return await handleInicio(development, userPhone);
     }
 
-    // FAQ INTERCEPTOR: responde preguntas informativas sin mutar el estado FSM
-    const faqResult = await maybeHandleFaq({ development, messageText });
+    // FAQ INTERCEPTOR + extracción de contexto (en paralelo, sin bloquear respuesta)
+    const [faqResult, contextNote] = await Promise.all([
+        maybeHandleFaq({ development, messageText }),
+        tryExtractContext(messageText),
+    ]);
+
+    if (contextNote) {
+        const existing = conversation.user_data?.notas_contexto;
+        const merged = existing ? `${existing} | ${contextNote}` : contextNote;
+        mergeUserData(userPhone, development, { notas_contexto: merged }).catch(() => {});
+    }
+
     if (faqResult.handled && faqResult.response) {
         return { outboundMessages: [{ type: 'text', text: faqResult.response }] };
     }
@@ -785,11 +796,14 @@ async function handleSolicitudNombre(
     return result;
 }
 
-/** Construye el texto para el campo Datos del lead (horario preferido y otras respuestas) */
+/** Construye el texto para el campo Datos del lead (horario preferido, contexto personal) */
 function buildDatosFromUserData(userData: UserData): string | undefined {
     const parts: string[] = [];
     if (userData.horario_preferido && userData.horario_preferido.trim() && userData.horario_preferido !== 'No indicado') {
         parts.push(`Horario preferido de contacto: ${userData.horario_preferido.trim()}`);
+    }
+    if (userData.notas_contexto?.trim()) {
+        parts.push(`Contexto: ${userData.notas_contexto.trim()}`);
     }
     return parts.length > 0 ? parts.join('. ') : undefined;
 }
@@ -885,6 +899,11 @@ function buildHandoverMessageForCliq(
     lines.push(`Acción preferida: ${accion}`);
     const horario = (userData?.horario_preferido || '').trim();
     lines.push(`Horario sugerido: ${horario || '(no indicado)'}`);
+    if (userData?.notas_contexto) {
+        lines.push('');
+        lines.push('Contexto del cliente:');
+        lines.push(userData.notas_contexto);
+    }
     lines.push('');
     const triggerText = (triggerTextOverride ?? (userData as { trigger_text?: string })?.trigger_text ?? '').trim();
     if (triggerText) {

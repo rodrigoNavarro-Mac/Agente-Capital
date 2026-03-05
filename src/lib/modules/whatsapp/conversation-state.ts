@@ -52,6 +52,7 @@ export interface UserData {
     /** Solo si preferred_action === 'contactado': 'llamada' (sin horario) | 'videollamada' (se pide fecha/horario) */
     preferred_channel?: string;
     horario_preferido?: string;   // Respuesta libre: a qué hora le gustaría ser contactado
+    notas_contexto?: string;      // Contexto personal extraído automáticamente para el asesor
     lead_quality?: LeadQuality;   // Scoring automático
     disqualified_reason?: string; // Razón de descalificación
     [key: string]: any;

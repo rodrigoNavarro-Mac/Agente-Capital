@@ -43,7 +43,7 @@ const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
     },
     {
         topic: 'UBICACION',
-        keywords: ['ubicacion', 'donde', 'temozon', 'soluna', 'merida', 'progreso'],
+        keywords: ['ubicacion', 'donde esta', 'como llego', 'como se llega', 'como llegar', 'temozon', 'soluna'],
     },
     {
         topic: 'PLURIFAMILIAR',
