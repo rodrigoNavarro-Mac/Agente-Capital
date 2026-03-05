@@ -1,4 +1,4 @@
-import { validateWhatsAppPhone, sendTemplateMessage } from './whatsapp-client';
+import { validateMexicanPhone, validateWhatsAppPhone, sendTemplateMessage } from './whatsapp-client';
 import { getConversation, upsertConversation, updateState, mergeUserData } from './conversation-state';
 import { isBusinessHours } from './conversation-flows';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
@@ -16,6 +16,7 @@ export interface ZohoLeadActivationParams {
 
 export type ZohoLeadActivationStatus =
     | 'invalid_phone'
+    | 'suspicious_phone'
     | 'template_sent_business_hours'
     | 'template_sent_after_hours'
     | 'unreachable';
@@ -86,10 +87,31 @@ function buildCliqActivationMessage(params: ZohoLeadActivationParams, assignedAg
 export async function handleZohoLeadCreated(params: ZohoLeadActivationParams): Promise<ZohoLeadActivationResult> {
     const { userPhone, phoneNumberId, development, leadId, fullName } = params;
 
-    // 1. Validate WhatsApp phone
+    // 1a. Validación local de formato y detección de números basura (sin llamada a API)
+    const formatCheck = validateMexicanPhone(userPhone);
+    if (formatCheck.result === 'INVALIDO') {
+        logger.info('Lead phone failed local format validation', { development, reason: formatCheck.reason }, 'zoho-lead-activation');
+        await upsertConversation(userPhone, development, {
+            state: 'SALIDA_ELEGANTE',
+            user_data: { source: 'zoho_crm', disqualified_reason: 'invalid_phone_format', format_reason: formatCheck.reason },
+            is_qualified: false,
+        });
+        return { success: false, status: 'invalid_phone', reason: `Invalid phone format: ${formatCheck.reason}` };
+    }
+    if (formatCheck.result === 'SOSPECHOSO') {
+        logger.warn('Lead phone is suspicious, skipping activation', { development, reason: formatCheck.reason }, 'zoho-lead-activation');
+        await upsertConversation(userPhone, development, {
+            state: 'SALIDA_ELEGANTE',
+            user_data: { source: 'zoho_crm', lead_quality: 'BAJO', disqualified_reason: 'telefono_sospechoso', format_reason: formatCheck.reason },
+            is_qualified: false,
+        });
+        return { success: false, status: 'suspicious_phone', reason: `Suspicious phone: ${formatCheck.reason}` };
+    }
+
+    // 1b. Validación en WhatsApp Contacts API (force_check: true, solo si formato OK)
     const validation = await validateWhatsAppPhone(phoneNumberId, userPhone);
     if (!validation.valid) {
-        logger.info('Lead phone not WhatsApp-capable, persisting disqualified_reason', { development }, 'zoho-lead-activation');
+        logger.info('Lead phone not WhatsApp-capable', { development }, 'zoho-lead-activation');
         await upsertConversation(userPhone, development, {
             state: 'SALIDA_ELEGANTE',
             user_data: { source: 'zoho_crm', disqualified_reason: 'invalid_phone' },

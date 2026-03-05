@@ -293,24 +293,89 @@ export interface WhatsAppPhoneValidationResult {
     wa_id?: string;
 }
 
+export type MexicanPhoneLocalResult = 'VALIDO' | 'SOSPECHOSO' | 'INVALIDO';
+
+export interface MexicanPhoneValidation {
+    result: MexicanPhoneLocalResult;
+    normalizedNumber: string;
+    isMexicanNumber: boolean;
+    isValidLength: boolean;
+    isSuspicious: boolean;
+    reason?: string;
+}
+
 /**
- * Verifica si un número de teléfono está registrado en WhatsApp usando la Contacts API.
- * @param phoneNumberId - ID del número de WhatsApp Business emisor
- * @param phone - Número de teléfono del destinatario (formato internacional sin +)
- */
-/**
- * Normaliza un número de teléfono a formato internacional mexicano.
+ * Normaliza un número de teléfono a formato internacional mexicano (sin +).
  * - 10 dígitos → agrega prefijo 52 (México)
- * - 12 dígitos iniciando con 521 → quita el 1 intermedio (521XXXXXXXXXX → 52XXXXXXXXXX)
- * - Ya tiene + → lo quita para consistencia interna
+ * - 13 dígitos iniciando con 521 → quita el 1 intermedio (521XXXXXXXXXX → 52XXXXXXXXXX)
+ * - 12 dígitos iniciando con 52 → ya normalizado, devuelve tal cual
+ * - Cualquier otro caso → devuelve solo dígitos (validateMexicanPhone lo marcará INVALIDO)
  */
 export function normalizePhoneToInternational(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.length === 10) return `52${digits}`;
     if (digits.length === 13 && digits.startsWith('521')) return `52${digits.slice(3)}`;
+    if (digits.length === 12 && digits.startsWith('52')) return digits;
     return digits;
 }
 
+/**
+ * Valida el formato de un número mexicano y detecta números basura o de prueba.
+ * No hace ninguna llamada a la API — es una validación local.
+ *
+ * Reglas:
+ * - INVALIDO: longitud incorrecta, no empieza con 52, o número conocido de prueba
+ * - SOSPECHOSO: >70% dígitos repetidos o secuencia ascendente/descendente de 8+ dígitos
+ * - VALIDO: pasa todos los filtros
+ */
+export function validateMexicanPhone(phone: string): MexicanPhoneValidation {
+    const normalized = normalizePhoneToInternational(phone);
+    const normalizedNumber = `+${normalized}`;
+    const isMexicanNumber = normalized.startsWith('52');
+    const isValidLength = normalized.length === 12;
+
+    if (!isMexicanNumber || !isValidLength) {
+        return { result: 'INVALIDO', normalizedNumber, isMexicanNumber, isValidLength, isSuspicious: false, reason: 'invalid_format' };
+    }
+
+    const localPart = normalized.slice(2); // 10 dígitos locales
+
+    // Números claramente de prueba / placeholder → INVALIDO
+    const clearlyFake = ['1234567890', '0123456789', '0000000000'];
+    if (clearlyFake.includes(localPart)) {
+        return { result: 'INVALIDO', normalizedNumber, isMexicanNumber, isValidLength, isSuspicious: true, reason: 'known_test_number' };
+    }
+
+    // Dígito más repetido > 70% del total
+    const counts: Record<string, number> = {};
+    for (const d of localPart) counts[d] = (counts[d] || 0) + 1;
+    const maxCount = Math.max(...Object.values(counts));
+    if (maxCount / localPart.length > 0.7) {
+        return { result: 'SOSPECHOSO', normalizedNumber, isMexicanNumber, isValidLength, isSuspicious: true, reason: 'repeated_digits' };
+    }
+
+    // Secuencia ascendente o descendente de 8+ dígitos consecutivos
+    let seqLen = 1;
+    for (let i = 1; i < localPart.length; i++) {
+        const diff = parseInt(localPart[i]) - parseInt(localPart[i - 1]);
+        if (diff === 1 || diff === -1) {
+            seqLen++;
+            if (seqLen >= 8) {
+                return { result: 'SOSPECHOSO', normalizedNumber, isMexicanNumber, isValidLength, isSuspicious: true, reason: 'sequential_pattern' };
+            }
+        } else {
+            seqLen = 1;
+        }
+    }
+
+    return { result: 'VALIDO', normalizedNumber, isMexicanNumber, isValidLength, isSuspicious: false };
+}
+
+/**
+ * Verifica si un número está registrado en WhatsApp usando la Contacts API.
+ * Solo llamar tras pasar validateMexicanPhone con result=VALIDO.
+ * Usa force_check: true para evitar resultados cacheados obsoletos.
+ */
 export async function validateWhatsAppPhone(
     phoneNumberId: string,
     phone: string
@@ -330,7 +395,7 @@ export async function validateWhatsAppPhone(
                 body: JSON.stringify({
                     blocking: 'wait',
                     contacts: [phoneWithPlus],
-                    force_check: false,
+                    force_check: true,
                 }),
             }),
             TIMEOUTS.EXTERNAL_API,

@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { handleZohoLeadCreated } from '@/lib/modules/whatsapp/zoho-lead-activation';
-import { validateWhatsAppPhone } from '@/lib/modules/whatsapp/whatsapp-client';
+import { validateMexicanPhone, validateWhatsAppPhone } from '@/lib/modules/whatsapp/whatsapp-client';
 import { isBusinessHours } from '@/lib/modules/whatsapp/conversation-flows';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
@@ -66,12 +66,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
         if (dry_run) {
             // Solo validar sin efectos secundarios
-            const phoneResult = await validateWhatsAppPhone(phoneNumberId, user_phone);
             const businessHours = isBusinessHours();
             const template = BIENVENIDA_TEMPLATE_BY_DEVELOPMENT[development.toUpperCase()] ?? null;
 
+            // Paso 1: validación local de formato
+            const formatCheck = validateMexicanPhone(user_phone);
+
+            // Paso 2: si formato OK, verificar en WhatsApp Contacts API
+            let wa_valid: boolean | null = null;
+            let wa_id: string | null = null;
+            if (formatCheck.result === 'VALIDO') {
+                const phoneResult = await validateWhatsAppPhone(phoneNumberId, user_phone);
+                wa_valid = phoneResult.valid;
+                wa_id = phoneResult.wa_id ?? null;
+            }
+
             let expected_path: string;
-            if (!phoneResult.valid) {
+            if (formatCheck.result === 'INVALIDO') {
+                expected_path = 'invalid_phone';
+            } else if (formatCheck.result === 'SOSPECHOSO') {
+                expected_path = 'suspicious_phone';
+            } else if (wa_valid === false) {
                 expected_path = 'invalid_phone';
             } else if (businessHours) {
                 expected_path = 'template_sent_business_hours';
@@ -83,8 +98,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 ok: true,
                 dry_run: true,
                 steps: {
-                    phone_valid: phoneResult.valid,
-                    wa_id: phoneResult.wa_id ?? null,
+                    format_result: formatCheck.result,
+                    normalized_number: formatCheck.normalizedNumber,
+                    format_reason: formatCheck.reason ?? null,
+                    wa_valid,
+                    wa_id,
                     business_hours: businessHours,
                     template_name: template?.name ?? null,
                     template_language: template?.language ?? null,

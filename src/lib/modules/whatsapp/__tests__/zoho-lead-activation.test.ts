@@ -16,10 +16,14 @@ vi.mock('@/lib/utils/logger', () => ({
 const mockValidateWhatsAppPhone = vi.fn();
 const mockSendTemplateMessage = vi.fn();
 
-vi.mock('../whatsapp-client', () => ({
-    validateWhatsAppPhone: (...args: unknown[]) => mockValidateWhatsAppPhone(...args),
-    sendTemplateMessage: (...args: unknown[]) => mockSendTemplateMessage(...args),
-}));
+vi.mock('../whatsapp-client', async (importOriginal) => {
+    const actual = await importOriginal() as Record<string, unknown>;
+    return {
+        ...actual, // mantiene la implementación real de validateMexicanPhone y normalizePhoneToInternational
+        validateWhatsAppPhone: (...args: unknown[]) => mockValidateWhatsAppPhone(...args),
+        sendTemplateMessage: (...args: unknown[]) => mockSendTemplateMessage(...args),
+    };
+});
 
 const mockGetConversation = vi.fn();
 const mockUpsertConversation = vi.fn();
