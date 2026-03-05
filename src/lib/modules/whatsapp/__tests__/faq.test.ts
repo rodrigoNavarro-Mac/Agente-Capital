@@ -106,7 +106,7 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'tienen financiamiento?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('FINANCIAMIENTO');
-        expect(result.response).toContain('9 meses');
+        expect(result.response).toContain('plazos');
     });
 
     it('AMURA + "entrega" => handled + ENTREGA response', async () => {

@@ -31,7 +31,7 @@ const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
     },
     {
         topic: 'FINANCIAMIENTO',
-        keywords: ['financ', 'meses', 'mensual', 'enganche', 'pagos', 'credito'],
+        keywords: ['financ', 'plazo', 'plazos', 'meses', 'mensual', 'enganche', 'pagos', 'credito'],
     },
     {
         topic: 'ENTREGA',
