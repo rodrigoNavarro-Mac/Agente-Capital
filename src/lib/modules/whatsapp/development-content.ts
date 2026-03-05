@@ -133,62 +133,71 @@ Un asesor continuará contigo a primera hora.`
  * Mensajes AMURA - Placeholder para segundo desarrollo
  */
 const AMURA_MESSAGES: DevelopmentMessages = {
-    BIENVENIDA: `Hola 👋  
-Soy el asistente virtual de AMURA.
 
-Un desarrollo residencial premium diseñado para inversión inteligente y construcción patrimonial 🏡✨  
+    BIENVENIDA: `Hola 👋
+Soy el asistente de AMURA.
 
-Para ayudarte mejor, ¿te interesa invertir o construir?`,
+AMURA es un desarrollo residencial con alta proyección de plusvalía, ideal tanto para inversión como para construir tu patrimonio.
 
-    FILTRO_PREGUNTA: `Para ayudarte mejor, ¿te interesa invertir o construir?`,
+Para ayudarte mejor:
+¿Te interesa invertir o construir?`,
 
-    CONFIRMACION_COMPRA: `Excelente decisión 🏡  
-Si estás buscando construir tu patrimonio, AMURA te ofrece ubicación estratégica, plusvalía y un entorno residencial de alto nivel.`,
+    FILTRO_PREGUNTA: `Para orientarte mejor:
+¿Buscas invertir o construir tu casa?`,
 
-    CONFIRMACION_INVERSION: `Gran elección 📈✨  
-AMURA es una oportunidad sólida de inversión con alta proyección de plusvalía y demanda creciente.`,
+    CONFIRMACION_COMPRA: `Excelente 🏡
+Si buscas construir tu patrimonio, AMURA ofrece una ubicación estratégica, plusvalía proyectada y un entorno residencial de alto nivel.`,
 
-    CTA_AYUDA: `Para orientarte mejor 👇  
+    CONFIRMACION_INVERSION: `Excelente decisión 📈
+AMURA es una oportunidad sólida de inversión con alta proyección de plusvalía y crecimiento en la zona.`,
 
-¿Te gustaría agendar una visita al desarrollo 🏡 o prefieres una llamada breve con un asesor 📞?`,
+    CTA_AYUDA: `Para orientarte mejor:
 
-    CTA_VISITA_O_CONTACTO: `Para orientarte mejor:
+¿Prefieres conocer el desarrollo en una visita
+o que un asesor te explique los detalles en una llamada breve?`,
 
-¿Quieres visitar el desarrollo o que un agente te contacte?`,
+    CTA_VISITA_O_CONTACTO: `Perfecto.
 
-    CTA_CANAL: `¿Por llamada telefónica o por videollamada?`,
+¿Te gustaría visitar el desarrollo
+o prefieres que un asesor te contacte por llamada?`,
 
-    SOLICITUD_HORARIO: `Perfecto 👍  
+    CTA_CANAL: `¿Prefieres que te contactemos por llamada telefónica
+o por videollamada?`,
 
-¿En qué horario te gustaría que te contactemos para la llamada o visita? 🕒`,
+    SOLICITUD_HORARIO: `Perfecto 👍
 
-    SOLICITUD_FECHA_HORARIO: `Perfecto 👍  
+¿En qué horario te gustaría que coordinemos la visita o la llamada?`,
 
-¿En qué día y horario te gustaría agendar la videollamada? 🕒`,
+    SOLICITUD_FECHA_HORARIO: `Perfecto 👍
 
-    SOLICITUD_NOMBRE: `Con gusto lo coordinamos 🤝  
+¿En qué día y horario te gustaría agendar la videollamada?`,
+
+    SOLICITUD_NOMBRE: `Con gusto lo coordinamos.
 
 ¿Me compartes tu nombre completo para asignarte con un asesor?`,
 
-    INFO_REINTENTO: `Claro 👍  
+    INFO_REINTENTO: `Claro.
 
-Antes de avanzar, ¿estás buscando esta oportunidad para invertir 📈 o para vivir 🏡?`,
+Antes de avanzar, solo para entender mejor:
+¿Estás buscando esta oportunidad para invertir o para construir tu casa?`,
 
-    HANDOVER_EXITOSO: `Gracias, {NOMBRE} 🙌  
+    HANDOVER_EXITOSO: `Perfecto, {NOMBRE}.
 
-Te voy a conectar con un asesor de AMURA para coordinar los siguientes pasos y resolver cualquier duda.`,
+Un asesor de AMURA te contactará en breve para continuar con los siguientes pasos y resolver cualquier duda.`,
 
-    CONFIRMACION_FINAL: `Solo para confirmar 👇  
+    CONFIRMACION_FINAL: `Solo para confirmar:
 
-¿Agendamos visita 🏡 o llamada 📞?`,
+¿Agendamos una visita al desarrollo
+o prefieres una llamada con un asesor?`,
 
-    SALIDA_ELEGANTE: `Gracias por tu interés en AMURA ✨  
+    SALIDA_ELEGANTE: `Gracias por tu interés en AMURA.
 
-Cuando decidas dar el siguiente paso, aquí estaré para apoyarte.`,
+Cuando decidas explorar esta oportunidad con más detalle, aquí estaré para ayudarte.`,
 
-    FUERA_HORARIO: `Gracias por escribir 🙌  
+    FUERA_HORARIO: `Gracias por escribir.
 
 En breve un asesor de AMURA continuará contigo para brindarte atención personalizada.`
+
 };
 /**
  * Mensajes PUNTO TIERRA - Placeholder para tercer desarrollo
