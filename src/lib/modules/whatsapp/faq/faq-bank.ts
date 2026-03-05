@@ -29,14 +29,14 @@ Superficies: de 300 a 401 m².
         PRECIOS: `
 Para cotizar: ¿qué superficie te interesa (300–401 m²) o cuál es tu rango de presupuesto?`,
 
-        GENERAL: `Te comparto la info que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
+        GENERAL: `Te comparto la información que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
     },
 
     FUEGO: {
-        GENERAL: `Te comparto la info que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
+        GENERAL: `Te comparto la información que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
     },
 
     PUNTO_TIERRA: {
-        GENERAL: `Te comparto la info que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
+        GENERAL: `Te comparto la información que tengo. ¿Qué te interesa: m², amenidades, ubicación, entrega, financiamiento o precios?`,
     },
 };
