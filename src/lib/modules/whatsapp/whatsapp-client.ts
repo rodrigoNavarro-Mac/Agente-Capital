@@ -172,9 +172,10 @@ export async function sendImageMessage(
 
         if (!response.ok) {
             const errorData: WhatsAppApiError = await response.json();
-            logger.error('WhatsApp API error sending image', undefined, {
+            logger.error('WhatsApp API error sending image (check file size < 5MB and public URL)', undefined, {
                 status: response.status,
                 error: errorData.error,
+                imageUrl: imageUrl.substring(0, 80),
             }, 'whatsapp-client');
             return null;
         }
