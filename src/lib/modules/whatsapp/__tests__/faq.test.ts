@@ -82,9 +82,10 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'cuanto cuesta?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('PRECIOS');
-        expect(result.response).toContain('brochure');
         // No debe inventar cifras
         expect(result.response).not.toMatch(/\$\d/);
+        // Debe pedir superficie o presupuesto para cotizar
+        expect(result.response).toMatch(/superficie|presupuesto|cotizar/i);
     });
 
     it('AMURA + "m2" => handled + M2 response con superficies', async () => {
