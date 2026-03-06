@@ -313,6 +313,8 @@ export async function handleIncomingMessage(
     }
 
     if (faqResult.handled && faqResult.response) {
+        // Guardar el topic FAQ en userData para que el FSM tenga contexto en el siguiente mensaje
+        mergeUserData(userPhone, development, { last_faq_topic: faqResult.topic }).catch(() => {});
         return withPersonalization(messageText, { outboundMessages: [{ type: 'text', text: faqResult.response }] });
     }
 

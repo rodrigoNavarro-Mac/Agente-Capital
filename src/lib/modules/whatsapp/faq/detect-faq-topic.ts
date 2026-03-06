@@ -23,27 +23,39 @@ function matchesAny(normalized: string, keywords: string[]): boolean {
 const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
     {
         topic: 'PRECIOS',
-        keywords: ['precio', 'precios', 'cuesta', 'costo', 'cotiz', 'desde cuanto', 'cuanto vale', 'valor'],
+        keywords: [
+            'precio', 'precios', 'cuesta', 'cuanto sale', 'cuanto estan', 'cuanto valen',
+            'costo', 'cotiz', 'desde cuanto', 'cuanto vale', 'valor', 'cuanto es',
+            'cuanto cuesta', 'a cuanto', 'rango de precio',
+        ],
     },
     {
         topic: 'M2',
-        keywords: ['m2', 'm²', 'metros', 'metraje', 'superficie', 'medidas', 'desde que m'],
+        keywords: ['m2', 'm²', 'metros', 'metraje', 'superficie', 'medidas', 'desde que m', 'tamano', 'tamanio', 'que tan grande'],
     },
     {
         topic: 'FINANCIAMIENTO',
-        keywords: ['financ', 'plazo', 'plazos', 'meses', 'mensual', 'enganche', 'pagos', 'credito'],
+        keywords: [
+            'financ', 'plazo', 'plazos', 'meses', 'mensual', 'mensualidad',
+            'enganche', 'pagos', 'credito', 'forma de pago', 'como se paga',
+            'contado', 'abonos', 'apartado', 'separar', 'como funciona el pago',
+        ],
     },
     {
         topic: 'ENTREGA',
-        keywords: ['entrega', 'marzo', '2026', 'cuando entregan'],
+        keywords: ['entrega', 'cuando entregan', 'cuando esta listo', 'disponibilidad', 'inmediata', 'ya esta'],
     },
     {
         topic: 'AMENIDADES',
-        keywords: ['amenidades', 'casa club', 'gimnasio', 'padel', 'piscina', 'sauna', 'ludoteca', 'yoga'],
+        keywords: ['amenidades', 'casa club', 'gimnasio', 'padel', 'piscina', 'alberca', 'sauna', 'ludoteca', 'yoga', 'areas comunes', 'instalaciones'],
     },
     {
         topic: 'UBICACION',
-        keywords: ['ubicacion', 'donde esta', 'como llego', 'como se llega', 'como llegar', 'temozon', 'soluna'],
+        keywords: [
+            'ubicacion', 'donde esta', 'donde queda', 'donde se encuentra',
+            'como llego', 'como se llega', 'como llegar', 'direccion',
+            'temozon', 'soluna', 'huayacan', 'terraquia',
+        ],
     },
     {
         topic: 'PLURIFAMILIAR',
@@ -53,7 +65,7 @@ const TOPIC_RULES: Array<{ topic: FaqTopic; keywords: string[] }> = [
     // Tiene menor prioridad que todos los topics específicos (va al final).
     {
         topic: 'GENERAL',
-        keywords: ['informacion', 'info', 'mas info', 'dame info', 'quiero saber', 'que tiene', 'que ofrece'],
+        keywords: ['informacion', 'info', 'mas info', 'dame info', 'quiero saber', 'que tiene', 'que ofrece', 'cuentame'],
     },
 ];
 

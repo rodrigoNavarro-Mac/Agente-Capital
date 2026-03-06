@@ -99,14 +99,14 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'amenidades?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('AMENIDADES');
-        expect(result.response).toContain('piscina');
+        expect(result.response).toContain('Piscina');
     });
 
     it('AMURA + "financiamiento" => handled + FINANCIAMIENTO response', async () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'tienen financiamiento?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('FINANCIAMIENTO');
-        expect(result.response).toContain('plazos');
+        expect(result.response).toContain('12 meses');
     });
 
     it('AMURA + "entrega" => handled + ENTREGA response', async () => {
@@ -127,14 +127,14 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'zona plurifamiliar?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('PLURIFAMILIAR');
-        expect(result.response).toContain('1483');
+        expect(result.response).toContain('1,483');
     });
 
-    it('FUEGO + "amenidades" => usa GENERAL fallback (no hay amenidades en FUEGO)', async () => {
+    it('FUEGO + "amenidades" => responde con info de FUEGO', async () => {
         const result = await maybeHandleFaq({ development: 'FUEGO', messageText: 'amenidades?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('AMENIDADES');
-        expect(result.response).toContain('m²');
+        expect(result.response).toContain('Terraquia');
     });
 
     it('development en minúsculas es normalizado correctamente', async () => {
