@@ -134,12 +134,8 @@ Un asesor continuará contigo a primera hora.`
  */
 const AMURA_MESSAGES: DevelopmentMessages = {
 
-    BIENVENIDA: `Hola 👋
-Soy el asistente de AMURA.
+    BIENVENIDA: `Hola 👋 Soy el asistente de AMURA.
 
-AMURA es un desarrollo residencial con alta proyección de plusvalía, ideal tanto para inversión como para construir tu patrimonio.
-
-Para ayudarte mejor:
 ¿Te interesa invertir o construir?`,
 
     FILTRO_PREGUNTA: `Para orientarte mejor:

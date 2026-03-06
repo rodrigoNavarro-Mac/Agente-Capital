@@ -1,8 +1,8 @@
 import { runLLM } from '@/lib/services/llm';
 
 const TRIGGER_WORDS = [
-  'hijo', 'familia', 'patrimonio', 'retiro',
-  'invertir', 'casar', 'construir casa',
+  'hijo', 'hija', 'familia', 'esposa', 'esposo', 'patrimonio', 'retiro',
+  'casar', 'casaron', 'mudarse', 'mudo', 'regalo', 'heredar',
 ];
 
 function hasEmotionalSignal(message: string): boolean {
