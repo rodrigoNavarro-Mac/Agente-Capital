@@ -149,6 +149,9 @@ vi.mock('@/lib/db/postgres', () => ({
 vi.mock('../channel-router', () => ({
   getPhoneNumberIdByDevelopment: vi.fn(() => 'phone-id-1'),
 }));
+vi.mock('../response-personalizer', () => ({
+  personalizeResponse: vi.fn(async (_msg: string, base: string) => base),
+}));
 
 // ---------------------------------------------------------------------------
 // Test context

@@ -279,7 +279,7 @@ export async function handleIncomingMessage(
         if (firstIsAlta || firstIntent === 'solo_info') {
             logTransition(userPhone, development, null, 'FILTRO_INTENCION', messageText, undefined, 'system', 'Nueva conversación - primer mensaje con intención');
             await updateState(userPhone, development, 'FILTRO_INTENCION');
-            return await processState('FILTRO_INTENCION', messageText, context, conversation.user_data || {});
+            return withPersonalization(messageText, await processState('FILTRO_INTENCION', messageText, context, conversation.user_data || {}));
         }
 
         logger.info('New conversation created', { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-flows');
@@ -313,10 +313,25 @@ export async function handleIncomingMessage(
     }
 
     if (faqResult.handled && faqResult.response) {
-        return { outboundMessages: [{ type: 'text', text: faqResult.response }] };
+        return withPersonalization(messageText, { outboundMessages: [{ type: 'text', text: faqResult.response }] });
     }
 
-    return await processState(conversation.state, messageText, context, conversation.user_data);
+    return withPersonalization(messageText, await processState(conversation.state, messageText, context, conversation.user_data));
+}
+
+/**
+ * Aplica personalización emocional al primer mensaje de un FlowResult.
+ * No modifica mensajes vacíos ni estados de handover.
+ */
+async function withPersonalization(messageText: string, result: FlowResult): Promise<FlowResult> {
+    const msg = result.outboundMessages[0];
+    if (!msg) return result;
+    if (msg.type === 'text' && msg.text) {
+        msg.text = await personalizeResponse(messageText, msg.text);
+    } else if (msg.type === 'image' && msg.caption) {
+        msg.caption = await personalizeResponse(messageText, msg.caption);
+    }
+    return result;
 }
 
 /**
@@ -463,16 +478,6 @@ async function processStateCore(
                     nextState,
                     state === 'SOLICITUD_NOMBRE' ? messageText.trim() : userData?.nombre
                 );
-
-                // Personalización emocional: solo modifica el texto del primer mensaje
-                const firstMsg = outboundMessages[0];
-                if (firstMsg) {
-                    if (firstMsg.type === 'text' && firstMsg.text) {
-                        firstMsg.text = await personalizeResponse(messageText, firstMsg.text);
-                    } else if (firstMsg.type === 'image' && firstMsg.caption) {
-                        firstMsg.caption = await personalizeResponse(messageText, firstMsg.caption);
-                    }
-                }
 
                 if (responseKey === 'SALIDA_ELEGANTE') {
                     await mergeUserData(userPhone, development, {
