@@ -92,7 +92,7 @@ describe('maybeHandleFaq', () => {
         const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'que superficie tienen?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('M2');
-        expect(result.response).toContain('300');
+        expect(result.response).toContain('250');
     });
 
     it('AMURA + "amenidades" => handled + AMENIDADES response', async () => {
