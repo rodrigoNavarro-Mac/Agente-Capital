@@ -7,7 +7,7 @@ import type { DevelopmentKey, FaqTopic } from './faq-types';
 
 export const FAQ_BANK: Record<DevelopmentKey, Partial<Record<FaqTopic, string>>> = {
     AMURA: {
-        M2: `*AMURA* maneja lotes residenciales dentro de Soluna con superficies de *300 a 401 m²*.
+        M2: `*AMURA* maneja lotes residenciales dentro de Soluna con superficies de *250 a 400 m²*.
 
 Son lotes escriturables con todos los servicios incluidos.
 
@@ -56,7 +56,7 @@ Todo 100% operativo desde el primer día.
 
         PRECIOS: `Los precios en AMURA varían según superficie y ubicación del lote.
 
-Para enviarte una cotización precisa: ¿qué superficie te interesa (*300–401 m²*) o cuál es tu rango de presupuesto?`,
+Para enviarte una cotización precisa: ¿qué superficie te interesa (*250–400 m²*) o cuál es tu rango de presupuesto?`,
 
         GENERAL: `Con gusto te oriento. ¿Qué te interesa conocer de AMURA?
 

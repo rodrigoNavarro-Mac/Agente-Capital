@@ -145,7 +145,7 @@ const AMURA_MESSAGES: DevelopmentMessages = {
 
 *AMURA* es un desarrollo de lotes residenciales dentro de Soluna, en Temozón Norte — una de las zonas de mayor crecimiento en Mérida.
 
-✔ Lotes de 300 a 401 m²
+✔ Lotes de 250 a 400 m²
 ✔ Entrega inmediata
 ✔ Casa club y amenidades 100% operativas
 ✔ Plusvalía proyectada sostenida
@@ -155,7 +155,7 @@ const AMURA_MESSAGES: DevelopmentMessages = {
 
 *AMURA* en Soluna (Temozón Norte, Mérida) es una oportunidad de inversión sólida con alta proyección de plusvalía.
 
-✔ Lotes escriturables de 300 a 401 m²
+✔ Lotes escriturables de 250 a 400 m²
 ✔ Entrega inmediata — plusvalía desde el primer día
 ✔ Zona en crecimiento acelerado
 ✔ Amenidades 100% operativas que sostienen el valor`,
