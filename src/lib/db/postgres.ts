@@ -4649,6 +4649,88 @@ export async function getWhatsAppMetrics(): Promise<WhatsAppMetrics> {
  *
  * @returns true si el mensaje fue reclamado (debe procesarse), false si ya fue procesado.
  */
+// =====================================================
+// WHATSAPP STATE TRANSITIONS
+// =====================================================
+
+export interface StateTransitionRow {
+    id: number;
+    user_phone: string;
+    development: string;
+    from_state: string | null;
+    to_state: string;
+    trigger_message: string | null;
+    response_key: string | null;
+    triggered_by: string;
+    reasoning: string | null;
+    created_at: string;
+}
+
+export async function saveStateTransition(data: {
+    user_phone: string;
+    development: string;
+    from_state: string | null;
+    to_state: string;
+    trigger_message?: string | null;
+    response_key?: string | null;
+    triggered_by: string;
+    reasoning?: string | null;
+}): Promise<void> {
+    try {
+        await query(
+            `INSERT INTO whatsapp_state_transitions
+               (user_phone, development, from_state, to_state, trigger_message, response_key, triggered_by, reasoning)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                data.user_phone,
+                data.development,
+                data.from_state ?? null,
+                data.to_state,
+                data.trigger_message ?? null,
+                data.response_key ?? null,
+                data.triggered_by,
+                data.reasoning ?? null,
+            ]
+        );
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('whatsapp_state_transitions') && msg.includes('does not exist')) {
+            // Tabla aún no existe (migración 046 pendiente) — ignorar silenciosamente
+            return;
+        }
+        logger.warn('saveStateTransition failed', { error: msg, user_phone: data.user_phone.substring(0, 6) + '***' }, 'postgres');
+    }
+}
+
+export async function getStateTransitions(
+    user_phone: string,
+    development: string,
+    limit = 50
+): Promise<StateTransitionRow[]> {
+    try {
+        const result = await query<StateTransitionRow>(
+            `SELECT id, user_phone, development, from_state, to_state, trigger_message, response_key,
+                    triggered_by, reasoning, created_at
+             FROM whatsapp_state_transitions
+             WHERE user_phone = $1 AND development = $2
+             ORDER BY created_at ASC
+             LIMIT $3`,
+            [user_phone, development, Math.min(limit, 200)]
+        );
+        return result.rows.map((r) => ({
+            ...r,
+            created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+        }));
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('whatsapp_state_transitions') && msg.includes('does not exist')) {
+            return [];
+        }
+        logger.warn('getStateTransitions failed', { error: msg }, 'postgres');
+        return [];
+    }
+}
+
 export async function claimWhatsAppMessage(messageId: string): Promise<boolean> {
     try {
         // Limpiar entradas viejas (> 24h) de forma best-effort para mantener la tabla pequeña

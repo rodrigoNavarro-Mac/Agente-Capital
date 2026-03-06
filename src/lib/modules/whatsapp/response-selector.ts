@@ -93,6 +93,7 @@ export interface ResponseSelectionInput {
 export interface ResponseSelectionResult {
     responseKey: ResponseKey;
     nextState: ConversationState;
+    reasoning?: string;
 }
 
 const RESPONSE_KEY_DESCRIPTIONS: Record<ResponseKey, string> = {
@@ -164,7 +165,7 @@ Reglas:
 - En SOLICITUD_NOMBRE, si el texto < 3 caracteres -> re-pedir nombre (SOLICITUD_NOMBRE, SOLICITUD_NOMBRE).
 - Elige SOLO entre las opciones listadas arriba. No inventes claves ni estados.
 
-Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextState":"ESTADO"}`;
+Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextState":"ESTADO","reasoning":"1 frase corta"}`;
 
     const userContent = `${contextBlock}${userDataBlock}Mensaje del usuario: "${userMessage}"\nEstado actual: ${currentState}.\nJSON:`;
 
@@ -174,15 +175,16 @@ Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextS
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userContent },
             ],
-            { temperature: 0, max_tokens: 80 }
+            { temperature: 0, max_tokens: 150 }
         );
 
         const trimmed = response.trim();
         const jsonStr = trimmed.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-        const parsed = JSON.parse(jsonStr) as { responseKey?: string; nextState?: string };
+        const parsed = JSON.parse(jsonStr) as { responseKey?: string; nextState?: string; reasoning?: string };
 
         const key = parsed.responseKey;
         const next = parsed.nextState;
+        const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning.trim().substring(0, 300) : undefined;
 
         if (
             !key ||
@@ -202,6 +204,7 @@ Responde SOLO un JSON en una línea, sin markdown: {"responseKey":"CLAVE","nextS
         return {
             responseKey: key as ResponseKey,
             nextState: next as ConversationState,
+            reasoning,
         };
     } catch (error) {
         logger.error('Error in selectResponseAndState', error, {

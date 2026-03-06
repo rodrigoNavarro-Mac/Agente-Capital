@@ -35,7 +35,7 @@ import { logger } from '@/lib/utils/logger';
 import { createZohoLeadRecord, searchZohoLeadsByPhone, getZohoLeadById } from '@/lib/services/zoho-crm';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 import { upsertWhatsAppCliqThread, getCliqThreadByUserAndDev, markContextSent } from '@/lib/db/whatsapp-cliq';
-import { saveBridgeLog } from '@/lib/db/postgres';
+import { saveBridgeLog, saveStateTransition } from '@/lib/db/postgres';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 import { maybeHandleFaq } from './faq/faq-router';
 import { tryExtractContext } from './context-extractor';
@@ -75,6 +75,32 @@ export interface IncomingMessageContext {
     phoneNumberId: string;
     userPhone: string;
     messageText: string;
+}
+
+// =====================================================
+// HELPER: Registrar transición de estado (fire-and-forget)
+// =====================================================
+
+function logTransition(
+    userPhone: string,
+    development: string,
+    fromState: string | null,
+    toState: string,
+    triggerMessage: string | undefined,
+    responseKey: string | undefined,
+    triggeredBy: 'llm' | 'keyword' | 'fsm' | 'anti_loop' | 'reset' | 'system',
+    reasoning?: string
+): void {
+    saveStateTransition({
+        user_phone: userPhone,
+        development,
+        from_state: fromState,
+        to_state: toState,
+        trigger_message: triggerMessage ?? null,
+        response_key: responseKey ?? null,
+        triggered_by: triggeredBy,
+        reasoning: reasoning ?? null,
+    }).catch(() => {});
 }
 
 // =====================================================
@@ -177,7 +203,9 @@ export async function handleIncomingMessage(
     if (messageText.trim().toLowerCase() === '/reset') {
         console.log('[handleIncomingMessage] /reset received for', development, userPhone.substring(0, 6) + '***');
         logger.info('/reset command: calling resetConversation', { userPhone: userPhone.substring(0, 6) + '***', development }, 'conversation-flows');
+        const convBefore = await getConversation(userPhone, development);
         const resetOk = await resetConversation(userPhone, development);
+        logTransition(userPhone, development, convBefore?.state ?? null, 'INICIO', messageText, undefined, 'reset', 'Comando /reset manual');
         console.log('[handleIncomingMessage] /reset done, resetOk=', resetOk);
         logger.info('/reset command: done', { resetOk }, 'conversation-flows');
         return {
@@ -241,12 +269,14 @@ export async function handleIncomingMessage(
         // Pero si es solo un saludo, enviar bienvenida directamente sin clasificar
         if (isOnlyGreeting(messageText)) {
             logger.info('New conversation: greeting-first, sending welcome', { userPhone: userPhone.substring(0, 5) + '***', development }, 'conversation-flows');
+            logTransition(userPhone, development, null, 'FILTRO_INTENCION', messageText, 'BIENVENIDA', 'system', 'Nueva conversación - saludo inicial');
             return await handleInicio(development, userPhone);
         }
         const firstMessageIntent = matchIntentByKeywords(messageText);
         const firstIntent = firstMessageIntent ?? await classifyIntent(messageText);
         const firstIsAlta = firstIntent === 'comprar' || firstIntent === 'invertir' || firstIntent === 'mixto';
         if (firstIsAlta || firstIntent === 'solo_info') {
+            logTransition(userPhone, development, null, 'FILTRO_INTENCION', messageText, undefined, 'system', 'Nueva conversación - primer mensaje con intención');
             await updateState(userPhone, development, 'FILTRO_INTENCION');
             return await processState('FILTRO_INTENCION', messageText, context, conversation.user_data || {});
         }
@@ -264,6 +294,7 @@ export async function handleIncomingMessage(
     }
 
     if (conversation.state === 'SALIDA_ELEGANTE') {
+        logTransition(userPhone, development, 'SALIDA_ELEGANTE', 'FILTRO_INTENCION', messageText, 'BIENVENIDA', 'system', 'Nuevo mensaje tras salida elegante - reinicio automático');
         await updateState(userPhone, development, 'INICIO');
         return await handleInicio(development, userPhone);
     }
@@ -333,6 +364,7 @@ async function processState(
     if (stuckCount >= 3) {
         logger.warn('Anti-loop: stuck_in_state_count >= 3, forcing SALIDA_ELEGANTE', { state, stuckCount, userPhone: userPhone.substring(0, 5) + '***' }, 'conversation-flows');
         await mergeUserData(userPhone, development, { stuck_in_state_count: 0 });
+        logTransition(userPhone, development, state, 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'anti_loop', `Anti-loop activado tras ${stuckCount} mensajes sin avanzar`);
         return await handleSalidaElegante(development, userPhone, 'loop_detected');
     }
 
@@ -394,6 +426,7 @@ async function processStateCore(
                     if (state === 'SOLICITUD_NOMBRE' && userName) {
                         await mergeUserData(userPhone, development, { name: userName });
                     }
+                    logTransition(userPhone, development, state, 'CLIENT_ACCEPTA', messageText, 'HANDOVER_EXITOSO', 'llm', selection.reasoning ?? `Nombre recibido: ${userName ? userName.substring(0, 30) : 'no indicado'}`);
                     const brochureUrl = getBrochure(development);
                     const brochureMessages: OutboundMessage[] = brochureUrl
                         ? [{
@@ -409,7 +442,8 @@ async function processStateCore(
                         messageText.trim() || 'nombre_proporcionado',
                         userName,
                         context.phoneNumberId,
-                        userData
+                        userData,
+                        true // skipTransitionLog: ya se registró arriba con triggered_by='llm'
                     );
                     handoverResult.outboundMessages = [...brochureMessages, ...handoverResult.outboundMessages];
                     return handoverResult;
@@ -418,6 +452,7 @@ async function processStateCore(
                     await mergeUserData(userPhone, development, { horario_preferido: messageText.trim() || 'No indicado' });
                 }
                 await updateState(userPhone, development, nextState);
+                logTransition(userPhone, development, state, nextState, messageText, responseKey, 'llm', selection.reasoning);
                 if (state === 'SOLICITUD_NOMBRE' && messageText.trim().length >= 3 && nextState === 'CLIENT_ACCEPTA') {
                     await mergeUserData(userPhone, development, { name: messageText.trim() });
                 }
@@ -498,6 +533,7 @@ async function processStateCore(
 
 async function handleInicio(development: string, userPhone: string): Promise<FlowResult> {
     await updateState(userPhone, development, 'FILTRO_INTENCION');
+    logTransition(userPhone, development, 'INICIO', 'FILTRO_INTENCION', undefined, 'BIENVENIDA', 'system', 'Inicio de conversación - bienvenida enviada');
 
     const messages = getMessagesForDevelopment(development);
 
@@ -547,6 +583,9 @@ async function handleFiltroIntencion(
         const perfil_compra = effectiveIntent === 'invertir' ? 'inversion' : 'construir_casa';
         await mergeUserData(userPhone, development, { intencion: effectiveIntent, perfil_compra });
         await updateState(userPhone, development, 'CTA_PRIMARIO');
+        logTransition(userPhone, development, 'FILTRO_INTENCION', 'CTA_PRIMARIO', messageText,
+            effectiveIntent === 'invertir' ? 'CONFIRMACION_INVERSION' : 'CONFIRMACION_COMPRA',
+            'keyword', `Intención detectada por keywords: ${effectiveIntent}`);
 
         const outboundMessages: OutboundMessage[] = [
             {
@@ -566,11 +605,13 @@ async function handleFiltroIntencion(
     // 2. Solo Info -> REINTENTO SUAVE
     if (intent === 'solo_info' || text.includes('info') || text.includes('precio') || text.includes('informacion') || text.includes('información') || text.includes('cotiz') || text.includes('cuesta')) {
         if (userData.retry_count && userData.retry_count >= 1) {
+            logTransition(userPhone, development, 'FILTRO_INTENCION', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'fsm', 'Segundo intento de solo_info - salida elegante');
             return await handleSalidaElegante(development, userPhone, 'info_loop');
         }
 
         await mergeUserData(userPhone, development, { intencion: 'solo_info', retry_count: 1 });
         await updateState(userPhone, development, 'INFO_REINTENTO');
+        logTransition(userPhone, development, 'FILTRO_INTENCION', 'INFO_REINTENTO', messageText, 'INFO_REINTENTO', 'keyword', 'Intención solo_info - reintento suave');
 
         return {
             outboundMessages: [{ type: 'text', text: messages.INFO_REINTENTO }],
@@ -582,11 +623,13 @@ async function handleFiltroIntencion(
     if (!userData.retry_count) {
         await mergeUserData(userPhone, development, { retry_count: 1 });
         await updateState(userPhone, development, 'INFO_REINTENTO');
+        logTransition(userPhone, development, 'FILTRO_INTENCION', 'INFO_REINTENTO', messageText, 'INFO_REINTENTO', 'fsm', 'Intención no clara - primer reintento');
         return {
             outboundMessages: [{ type: 'text', text: messages.INFO_REINTENTO }],
             nextState: 'INFO_REINTENTO'
         };
     } else {
+        logTransition(userPhone, development, 'FILTRO_INTENCION', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'fsm', 'Intención no clara en segundo intento');
         return await handleSalidaElegante(development, userPhone, 'unclear_intent');
     }
 }
@@ -614,6 +657,7 @@ async function handleInfoReintento(
     if (isAffirmativeIntent) {
         await mergeUserData(userPhone, development, { intencion: 'recuperado_de_info', perfil_compra: 'inversion' });
         await updateState(userPhone, development, 'CTA_PRIMARIO');
+        logTransition(userPhone, development, 'INFO_REINTENTO', 'CTA_PRIMARIO', messageText, 'CONFIRMACION_COMPRA', 'keyword', 'Usuario recuperado tras reintento - intención afirmativa');
 
         const outboundMessages: OutboundMessage[] = [
             { type: 'text', text: messages.CONFIRMACION_COMPRA },
@@ -628,6 +672,7 @@ async function handleInfoReintento(
     }
 
     // Si sigue con info/no/duda -> Salida
+    logTransition(userPhone, development, 'INFO_REINTENTO', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'fsm', 'Insiste en solo_info - salida elegante');
     return await handleSalidaElegante(development, userPhone, 'insiste_solo_info');
 }
 
@@ -640,6 +685,7 @@ async function handleCtaPrimario(
 
     // 1. Negativo -> salida elegante
     if (matchNegativeByKeywords(messageText)) {
+        logTransition(userPhone, development, 'CTA_PRIMARIO', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'keyword', 'Rechazo explícito en CTA primario');
         return await handleSalidaElegante(development, userPhone, 'rechazo_cta_explicito');
     }
 
@@ -649,6 +695,7 @@ async function handleCtaPrimario(
     if (ctaPrimLLM === 'visitar') {
         await mergeUserData(userPhone, development, { preferred_action: 'visita', preferred_channel: undefined });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        logTransition(userPhone, development, 'CTA_PRIMARIO', 'SOLICITUD_HORARIO', messageText, 'SOLICITUD_HORARIO', 'keyword', 'Usuario quiere visitar el desarrollo');
         return {
             outboundMessages: [{ type: 'text', text: messages.SOLICITUD_HORARIO }],
             nextState: 'SOLICITUD_HORARIO',
@@ -661,6 +708,7 @@ async function handleCtaPrimario(
     if (canalLLM === 'llamada') {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'llamada' });
         await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
+        logTransition(userPhone, development, 'CTA_PRIMARIO', 'SOLICITUD_NOMBRE', messageText, 'SOLICITUD_NOMBRE', 'keyword', 'Short-circuit: usuario eligió llamada directamente');
         return {
             outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
             nextState: 'SOLICITUD_NOMBRE',
@@ -669,6 +717,7 @@ async function handleCtaPrimario(
     if (canalLLM === 'videollamada') {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        logTransition(userPhone, development, 'CTA_PRIMARIO', 'SOLICITUD_HORARIO', messageText, 'SOLICITUD_FECHA_HORARIO', 'keyword', 'Short-circuit: usuario eligió videollamada directamente');
         const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
         return {
             outboundMessages: [{ type: 'text', text: textHorario }],
@@ -680,6 +729,7 @@ async function handleCtaPrimario(
     if (ctaPrimLLM === 'contactado' || matchAffirmativeByKeywords(messageText)) {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado' });
         await updateState(userPhone, development, 'CTA_CANAL');
+        logTransition(userPhone, development, 'CTA_PRIMARIO', 'CTA_CANAL', messageText, 'CTA_CANAL', 'keyword', 'Usuario quiere ser contactado - preguntando canal');
         const ctaCanalText = messages.CTA_CANAL ?? 'Por llamada telefónica o por videollamada?';
         return {
             outboundMessages: [{ type: 'text', text: ctaCanalText }],
@@ -688,6 +738,7 @@ async function handleCtaPrimario(
     }
 
     // 5. Ambiguo -> salida elegante
+    logTransition(userPhone, development, 'CTA_PRIMARIO', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'fsm', 'Respuesta ambigua en CTA primario');
     return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
 }
 
@@ -699,6 +750,7 @@ async function handleCtaCanal(
     const messages = getMessagesForDevelopment(development);
 
     if (matchNegativeByKeywords(messageText)) {
+        logTransition(userPhone, development, 'CTA_CANAL', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'keyword', 'Rechazo explícito en selección de canal');
         return await handleSalidaElegante(development, userPhone, 'rechazo_cta_explicito');
     }
 
@@ -709,6 +761,7 @@ async function handleCtaCanal(
     if (canal === 'llamada') {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'llamada' });
         await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
+        logTransition(userPhone, development, 'CTA_CANAL', 'SOLICITUD_NOMBRE', messageText, 'SOLICITUD_NOMBRE', 'keyword', 'Canal elegido: llamada telefónica');
         return {
             outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
             nextState: 'SOLICITUD_NOMBRE',
@@ -719,6 +772,7 @@ async function handleCtaCanal(
     if (canal === 'videollamada') {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        logTransition(userPhone, development, 'CTA_CANAL', 'SOLICITUD_HORARIO', messageText, 'SOLICITUD_FECHA_HORARIO', 'keyword', 'Canal elegido: videollamada');
         const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
         return {
             outboundMessages: [{ type: 'text', text: textHorario }],
@@ -730,6 +784,7 @@ async function handleCtaCanal(
     if (matchAffirmativeByKeywords(messageText)) {
         await mergeUserData(userPhone, development, { preferred_action: 'contactado', preferred_channel: 'videollamada' });
         await updateState(userPhone, development, 'SOLICITUD_HORARIO');
+        logTransition(userPhone, development, 'CTA_CANAL', 'SOLICITUD_HORARIO', messageText, 'SOLICITUD_FECHA_HORARIO', 'fsm', 'Afirmativo genérico - default videollamada');
         const textHorario = messages.SOLICITUD_FECHA_HORARIO ?? messages.SOLICITUD_HORARIO;
         return {
             outboundMessages: [{ type: 'text', text: textHorario }],
@@ -737,6 +792,7 @@ async function handleCtaCanal(
         };
     }
 
+    logTransition(userPhone, development, 'CTA_CANAL', 'SALIDA_ELEGANTE', messageText, 'SALIDA_ELEGANTE', 'fsm', 'Canal no identificado - salida elegante');
     return await handleSalidaElegante(development, userPhone, 'rechazo_cta_ambiguo');
 }
 
@@ -751,6 +807,7 @@ async function handleSolicitudHorario(
     // Aceptamos cualquier respuesta como horario preferido (texto libre)
     await mergeUserData(userPhone, development, { horario_preferido: horario || 'No indicado' });
     await updateState(userPhone, development, 'SOLICITUD_NOMBRE');
+    logTransition(userPhone, development, 'SOLICITUD_HORARIO', 'SOLICITUD_NOMBRE', messageText, 'SOLICITUD_NOMBRE', 'fsm', 'Horario recibido - solicitando nombre');
 
     return {
         outboundMessages: [{ type: 'text', text: messages.SOLICITUD_NOMBRE }],
@@ -769,6 +826,7 @@ async function handleSolicitudNombre(
 
     // Validación mínima de longitud
     if (name.length < 3) {
+        logTransition(userPhone, development, 'SOLICITUD_NOMBRE', 'SOLICITUD_NOMBRE', messageText, 'SOLICITUD_NOMBRE', 'fsm', 'Nombre muy corto - re-solicitando');
         return {
             outboundMessages: [{ type: 'text', text: 'Por favor, ¿me podrías decir tu nombre para decirle al asesor?' }],
             nextState: 'SOLICITUD_NOMBRE'
@@ -935,8 +993,12 @@ async function handleClientAccepta(
     triggerText: string,
     userName?: string,
     phoneNumberId?: string,
-    userData?: UserData
+    userData?: UserData,
+    skipTransitionLog = false
 ): Promise<FlowResult> {
+    if (!skipTransitionLog) {
+        logTransition(userPhone, development, 'SOLICITUD_NOMBRE', 'CLIENT_ACCEPTA', triggerText, 'HANDOVER_EXITOSO', 'fsm', `Nombre recibido: ${userName ? userName.substring(0, 30) : 'no indicado'}`);
+    }
     const messages = getMessagesForDevelopment(development);
     const datos = userData ? buildDatosFromUserData(userData) : undefined;
 

@@ -21,6 +21,17 @@ interface UserDataPreview {
     [key: string]: unknown;
 }
 
+interface StateTransitionRow {
+    id: number;
+    from_state: string | null;
+    to_state: string;
+    trigger_message: string | null;
+    response_key: string | null;
+    triggered_by: string;
+    reasoning: string | null;
+    created_at: string;
+}
+
 interface ConversationRow {
     id: number;
     user_phone: string;
@@ -725,6 +736,9 @@ export default function ConversacionesPage() {
     const [detailRow, setDetailRow] = useState<ConversationRow | null>(null);
     const [detailLogs, setDetailLogs] = useState<HistoryEntry[]>([]);
     const [detailLogsLoading, setDetailLogsLoading] = useState(false);
+    const [stateTransitions, setStateTransitions] = useState<StateTransitionRow[]>([]);
+    const [stateTransitionsLoading, setStateTransitionsLoading] = useState(false);
+    const [showStateHistory, setShowStateHistory] = useState(false);
     const [filterEstado, setFilterEstado] = useState<string>('');
     const [showAlertas, setShowAlertas] = useState(false);
     const [showDebugDrawer, setShowDebugDrawer] = useState(false);
@@ -764,6 +778,8 @@ export default function ConversacionesPage() {
     useEffect(() => {
         if (!detailRow) {
             setDetailLogs([]);
+            setStateTransitions([]);
+            setShowStateHistory(false);
             return;
         }
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -784,6 +800,21 @@ export default function ConversacionesPage() {
             })
             .catch(() => setDetailLogs([]))
             .finally(() => setDetailLogsLoading(false));
+    }, [detailRow]);
+
+    const fetchStateTransitions = useCallback(() => {
+        if (!detailRow) return;
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) return;
+        setStateTransitionsLoading(true);
+        fetch(
+            `/api/whatsapp/conversations/state-history?user_phone=${encodeURIComponent(detailRow.user_phone)}&development=${encodeURIComponent(detailRow.development)}&limit=100`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        )
+            .then((res) => (res.ok ? res.json() : { transitions: [] }))
+            .then((data) => setStateTransitions(data.transitions ?? []))
+            .catch(() => setStateTransitions([]))
+            .finally(() => setStateTransitionsLoading(false));
     }, [detailRow]);
 
     // Scroll drawer to bottom when messages load so user sees latest first
@@ -1146,6 +1177,70 @@ export default function ConversacionesPage() {
                                         </pre>
                                     </div>
                                 )}
+                                <div className="border-t border-gray-100 pt-2">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-xs font-semibold uppercase text-gray-500">Historial de estados</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (!showStateHistory) fetchStateTransitions();
+                                                setShowStateHistory((v) => !v);
+                                            }}
+                                            className="text-xs font-medium text-sky-600 hover:text-sky-800"
+                                        >
+                                            {showStateHistory ? 'Ocultar' : 'Ver timeline'}
+                                        </button>
+                                    </div>
+                                    {showStateHistory && (
+                                        <div className="mt-1">
+                                            {stateTransitionsLoading ? (
+                                                <p className="text-xs text-gray-400">Cargando...</p>
+                                            ) : stateTransitions.length === 0 ? (
+                                                <p className="text-xs text-gray-400">Sin transiciones registradas.</p>
+                                            ) : (
+                                                <div className="relative pl-4 space-y-3">
+                                                    <div className="absolute left-1.5 top-0 bottom-0 w-px bg-gray-200" aria-hidden />
+                                                    {stateTransitions.map((t) => {
+                                                        const byColor: Record<string, string> = {
+                                                            llm: 'bg-violet-100 text-violet-700',
+                                                            keyword: 'bg-sky-100 text-sky-700',
+                                                            fsm: 'bg-gray-100 text-gray-600',
+                                                            anti_loop: 'bg-red-100 text-red-700',
+                                                            reset: 'bg-amber-100 text-amber-700',
+                                                            system: 'bg-emerald-100 text-emerald-700',
+                                                        };
+                                                        const badgeCls = byColor[t.triggered_by] ?? 'bg-gray-100 text-gray-600';
+                                                        return (
+                                                            <div key={t.id} className="relative">
+                                                                <div className="absolute -left-2.5 top-1.5 h-2 w-2 rounded-full bg-gray-300" aria-hidden />
+                                                                <div className="rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-xs">
+                                                                    <div className="flex flex-wrap items-center gap-1 mb-0.5">
+                                                                        <span className="text-gray-400 tabular-nums">{format(new Date(t.created_at), 'dd/MM HH:mm:ss', { locale: es })}</span>
+                                                                        <span className="font-medium text-gray-600">{t.from_state ?? '—'}</span>
+                                                                        <span className="text-gray-400">→</span>
+                                                                        <span className="font-semibold text-gray-800">{t.to_state}</span>
+                                                                        <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${badgeCls}`}>{t.triggered_by}</span>
+                                                                        {t.response_key && (
+                                                                            <span className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-600 font-mono">{t.response_key}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    {t.trigger_message && (
+                                                                        <p className="text-gray-500 truncate" title={t.trigger_message}>
+                                                                            &ldquo;{t.trigger_message.length > 80 ? t.trigger_message.substring(0, 80) + '…' : t.trigger_message}&rdquo;
+                                                                        </p>
+                                                                    )}
+                                                                    {t.reasoning && (
+                                                                        <p className="text-gray-400 italic mt-0.5">{t.reasoning}</p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="border-t border-gray-100 pt-2">
                                     <button
                                         type="button"
