@@ -4719,7 +4719,7 @@ export async function getStateTransitions(
         );
         return result.rows.map((r) => ({
             ...r,
-            created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+            created_at: String(r.created_at),
         }));
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
