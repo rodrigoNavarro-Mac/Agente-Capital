@@ -315,7 +315,21 @@ export async function handleIncomingMessage(
     if (faqResult.handled && faqResult.response) {
         // Guardar el topic FAQ en userData para que el FSM tenga contexto en el siguiente mensaje
         mergeUserData(userPhone, development, { last_faq_topic: faqResult.topic }).catch(() => {});
-        return withPersonalization(messageText, { outboundMessages: [{ type: 'text', text: faqResult.response }] });
+
+        const faqMessages: OutboundMessage[] = [];
+        const { locationMedia } = faqResult;
+
+        if (locationMedia?.imageUrl) {
+            // Imagen de ubicación con texto FAQ como caption
+            faqMessages.push({ type: 'image', imageUrl: locationMedia.imageUrl, caption: faqResult.response });
+        } else {
+            faqMessages.push({ type: 'text', text: faqResult.response });
+        }
+        if (locationMedia?.mapsUrl) {
+            faqMessages.push({ type: 'text', text: `📍 Ver en Maps: ${locationMedia.mapsUrl}` });
+        }
+
+        return withPersonalization(messageText, { outboundMessages: faqMessages });
     }
 
     return withPersonalization(messageText, await processState(conversation.state, messageText, context, conversation.user_data));
