@@ -146,10 +146,23 @@ Para ayudarte mejor:
 ¿Buscas invertir o construir tu casa?`,
 
     CONFIRMACION_COMPRA: `Excelente 🏡
-Si buscas construir tu patrimonio, AMURA ofrece una ubicación estratégica, plusvalía proyectada y un entorno residencial de alto nivel.`,
+
+*AMURA* es un desarrollo de lotes residenciales dentro de Soluna, en Temozón Norte — una de las zonas de mayor crecimiento en Mérida.
+
+✔ Lotes de 300 a 401 m²
+✔ Entrega inmediata
+✔ Casa club y amenidades 100% operativas
+✔ Plusvalía proyectada sostenida
+✔ A minutos de Periférico y Mérida Centro`,
 
     CONFIRMACION_INVERSION: `Excelente decisión 📈
-AMURA es una oportunidad sólida de inversión con alta proyección de plusvalía y crecimiento en la zona.`,
+
+*AMURA* en Soluna (Temozón Norte, Mérida) es una oportunidad de inversión sólida con alta proyección de plusvalía.
+
+✔ Lotes escriturables de 300 a 401 m²
+✔ Entrega inmediata — plusvalía desde el primer día
+✔ Zona en crecimiento acelerado
+✔ Amenidades 100% operativas que sostienen el valor`,
 
     CTA_AYUDA: `Para orientarte mejor:
 

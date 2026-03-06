@@ -232,10 +232,12 @@ describe('conversation-flows', () => {
       expect(getState()).toBe('CTA_PRIMARIO');
     });
 
-    it('on "construir" sends CONFIRMACION_COMPRA and CTA, state CTA_PRIMARIO', async () => {
+    it('on "construir" sends CONFIRMACION_COMPRA and CTA combined, state CTA_PRIMARIO', async () => {
       setState('FILTRO_INTENCION');
       const res = await handleIncomingMessage(ctx('quiero construir'));
-      expect(allTexts(res).length).toBeGreaterThanOrEqual(2);
+      // CONFIRMACION + CTA van en un solo mensaje para evitar desorden de entrega
+      expect(allTexts(res).length).toBeGreaterThanOrEqual(1);
+      expect(allTexts(res).some((t) => t.includes('visitar') || t.includes('contacte') || t.includes('construir') || t.includes('patrimonio'))).toBe(true);
       expect(res.nextState).toBe('CTA_PRIMARIO');
     });
   });

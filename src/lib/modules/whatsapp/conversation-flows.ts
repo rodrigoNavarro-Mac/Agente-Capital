@@ -351,19 +351,21 @@ function buildOutboundFromSelection(
 
     const text = getResponseText(development, responseKey, userName);
 
-    if (responseKey === 'BIENVENIDA' || responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
+    if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
+        // Fusionar confirmación + CTA en un solo mensaje para evitar desorden de entrega
+        const cta = messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA;
+        const combined = `${text}\n\n${cta}`;
         const heroUrl = getHeroImage(development);
-        // Hero con texto como caption → un solo mensaje
+        outbound.push(heroUrl
+            ? { type: 'image', imageUrl: heroUrl, caption: combined }
+            : { type: 'text', text: combined });
+    } else if (responseKey === 'BIENVENIDA') {
+        const heroUrl = getHeroImage(development);
         outbound.push(heroUrl
             ? { type: 'image', imageUrl: heroUrl, caption: text }
             : { type: 'text', text });
     } else {
         outbound.push({ type: 'text', text });
-    }
-
-    if (responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
-        // Primera pregunta CTA: visitar o que te contacte un agente
-        outbound.push({ type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA });
     }
 
     return outbound;
@@ -607,14 +609,14 @@ async function handleFiltroIntencion(
             'keyword', `Intención detectada por keywords: ${effectiveIntent}`);
 
         const confirmText = (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA;
+        const cta = messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA;
+        const combined = `${confirmText}\n\n${cta}`;
         const heroUrl = getHeroImage(development);
         const outboundMessages: OutboundMessage[] = [
             heroUrl
-                ? { type: 'image', imageUrl: heroUrl, caption: confirmText }
-                : { type: 'text', text: confirmText },
+                ? { type: 'image', imageUrl: heroUrl, caption: combined }
+                : { type: 'text', text: combined },
         ];
-        // Primera pregunta CTA: visitar o que te contacte un agente
-        outboundMessages.push({ type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA });
 
         return {
             outboundMessages,
