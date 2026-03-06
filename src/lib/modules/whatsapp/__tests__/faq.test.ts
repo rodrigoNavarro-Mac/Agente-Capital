@@ -21,8 +21,8 @@ describe('detectFaqTopic', () => {
         expect(detectFaqTopic('amenidades?')).toBe('AMENIDADES');
     });
 
-    it('"donde queda?" => UBICACION', () => {
-        expect(detectFaqTopic('donde queda?')).toBe('UBICACION');
+    it('"donde esta?" => UBICACION', () => {
+        expect(detectFaqTopic('donde esta?')).toBe('UBICACION');
     });
 
     it('"financiamiento a meses?" => FINANCIAMIENTO', () => {
@@ -117,7 +117,7 @@ describe('maybeHandleFaq', () => {
     });
 
     it('AMURA + "ubicacion" => handled + UBICACION response', async () => {
-        const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'donde queda?' });
+        const result = await maybeHandleFaq({ development: 'AMURA', messageText: 'donde esta?' });
         expect(result.handled).toBe(true);
         expect(result.topic).toBe('UBICACION');
         expect(result.response).toContain('Mérida');

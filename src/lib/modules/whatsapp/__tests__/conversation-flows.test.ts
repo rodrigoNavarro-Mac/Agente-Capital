@@ -144,6 +144,7 @@ vi.mock('@/lib/db/whatsapp-cliq', () => ({
 vi.mock('@/lib/db/postgres', () => ({
   query: vi.fn(async () => ({ rows: [] })),
   saveBridgeLog: vi.fn(async () => {}),
+  saveStateTransition: vi.fn(async () => {}),
 }));
 vi.mock('../channel-router', () => ({
   getPhoneNumberIdByDevelopment: vi.fn(() => 'phone-id-1'),

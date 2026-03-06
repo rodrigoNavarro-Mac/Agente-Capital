@@ -39,6 +39,7 @@ import { saveBridgeLog, saveStateTransition } from '@/lib/db/postgres';
 import { getPhoneNumberIdByDevelopment } from './channel-router';
 import { maybeHandleFaq } from './faq/faq-router';
 import { tryExtractContext } from './context-extractor';
+import { personalizeResponse } from './response-personalizer';
 
 // Imports Legacy (reservados para uso futuro)
 // import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
@@ -462,6 +463,17 @@ async function processStateCore(
                     nextState,
                     state === 'SOLICITUD_NOMBRE' ? messageText.trim() : userData?.nombre
                 );
+
+                // Personalización emocional: solo modifica el texto del primer mensaje
+                const firstMsg = outboundMessages[0];
+                if (firstMsg) {
+                    if (firstMsg.type === 'text' && firstMsg.text) {
+                        firstMsg.text = await personalizeResponse(messageText, firstMsg.text);
+                    } else if (firstMsg.type === 'image' && firstMsg.caption) {
+                        firstMsg.caption = await personalizeResponse(messageText, firstMsg.caption);
+                    }
+                }
+
                 if (responseKey === 'SALIDA_ELEGANTE') {
                     await mergeUserData(userPhone, development, {
                         lead_quality: 'BAJO',
