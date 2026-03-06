@@ -13,13 +13,16 @@ Documentación extensa y detallada del flujo, arquitectura y comportamiento del 
 5. [Estado de conversación y persistencia](#5-estado-de-conversación-y-persistencia)
 6. [Máquina de estados (FSM)](#6-máquina-de-estados-fsm)
 7. [Clasificación de intenciones (LLM)](#7-clasificación-de-intenciones-llm)
-8. [Contenido y medios por desarrollo](#8-contenido-y-medios-por-desarrollo)
-9. [Envío de mensajes (salida)](#9-envío-de-mensajes-salida)
-10. [Variables de entorno y configuración](#10-variables-de-entorno-y-configuración)
-11. [Bridge WhatsApp-Cliq (Zoho Cliq)](#11-bridge-whatsapp-cliq-zoho-cliq)
-12. [Limitaciones actuales y extensiones futuras](#12-limitaciones-actuales-y-extensiones-futuras)
-13. [Despliegue en Vercel (serverless)](#13-despliegue-en-vercel-serverless)
-14. [Solución de problemas](#14-solución-de-problemas)
+8. [LLM Response Selector](#8-llm-response-selector)
+9. [FAQ Router y keywords](#9-faq-router-y-keywords)
+10. [Context Extractor (Anthropic)](#10-context-extractor-anthropic)
+11. [Historial de transiciones de estado](#11-historial-de-transiciones-de-estado)
+12. [Contenido y medios por desarrollo](#12-contenido-y-medios-por-desarrollo)
+13. [Envío de mensajes (salida)](#13-envío-de-mensajes-salida)
+14. [Bridge WhatsApp-Cliq (Zoho Cliq)](#14-bridge-whatsapp-cliq-zoho-cliq)
+15. [Limitaciones actuales y extensiones futuras](#15-limitaciones-actuales-y-extensiones-futuras)
+16. [Despliegue en Vercel (serverless)](#16-despliegue-en-vercel-serverless)
+17. [Solución de problemas](#17-solución-de-problemas)
 
 ---
 
@@ -90,11 +93,16 @@ route.ts envía cada mensaje por WhatsApp y guarda log
 | Webhook handler | `src/lib/modules/whatsapp/webhook-handler.ts` | Validación del payload, extracción de datos del mensaje (solo texto). |
 | Channel router | `src/lib/modules/whatsapp/channel-router.ts` | Mapeo `phone_number_id` -> desarrollo y desarrollo -> zona. |
 | Conversation state | `src/lib/modules/whatsapp/conversation-state.ts` | CRUD de conversaciones en PostgreSQL (estado, user_data, is_qualified). |
-| Conversation flows | `src/lib/modules/whatsapp/conversation-flows.ts` | FSM del flujo: estados, transiciones y mensajes de respuesta. |
+| Conversation flows | `src/lib/modules/whatsapp/conversation-flows.ts` | Orquestador principal: FSM handlers, logTransition, anti-loop. |
+| Response selector | `src/lib/modules/whatsapp/response-selector.ts` | LLM elige clave de respuesta y siguiente estado; devuelve `reasoning`. |
 | Intent classifier | `src/lib/modules/whatsapp/intent-classifier.ts` | Clasificación con LLM (intención y acción). |
-| Development content | `src/lib/modules/whatsapp/development-content.ts` | Textos (mensajes) por desarrollo. |
+| Context extractor | `src/lib/modules/whatsapp/context-extractor.ts` | Extrae resumen estructurado del lead usando Anthropic Claude. |
+| Conversation keywords | `src/lib/modules/whatsapp/conversation-keywords.ts` | Detección de FAQ keywords y keywords de canal/salida. |
+| Development content | `src/lib/modules/whatsapp/development-content.ts` | Banco de mensajes por desarrollo. |
 | Media handler | `src/lib/modules/whatsapp/media-handler.ts` | URLs de imagen hero y brochure PDF por desarrollo. |
 | WhatsApp client | `src/lib/modules/whatsapp/whatsapp-client.ts` | Llamadas HTTP a WhatsApp Cloud API (texto, imagen, documento). |
+| Zoho lead activation | `src/lib/modules/whatsapp/zoho-lead-activation.ts` | Crea lead en Zoho CRM y canal en Cliq al calificar un lead. |
+| Conversation access | `src/lib/modules/whatsapp/conversation-access.ts` | RBAC: verifica rol y acceso al desarrollo para endpoints del dashboard. |
 | Types | `src/lib/modules/whatsapp/types.ts` | Tipos TypeScript (payload, mensajes, routing, etc.). |
 
 ---
@@ -321,7 +329,172 @@ Otras funciones (classifyPerfilCompra, classifyPresupuesto, classifyUrgencia) es
 
 ---
 
-## 8. Contenido y medios por desarrollo
+## 8. LLM Response Selector
+
+**Archivo:** `src/lib/modules/whatsapp/response-selector.ts`
+
+A partir del estado `FILTRO_INTENCION`, la mayoría de transiciones las decide el **LLM response selector** en lugar de reglas deterministas. Esto permite respuestas más naturales ante variaciones de lenguaje.
+
+### Funcionamiento
+
+Para cada estado con LLM habilitado, el selector:
+1. Construye un prompt con: estado actual, contexto del estado, últimos 6 mensajes de la conversación, datos del usuario acumulados.
+2. Lista solo las **claves de respuesta** y **estados válidos** para ese estado (3–5 opciones, no la lista completa).
+3. Pide al LLM que responda un JSON en una línea:
+   ```json
+   {"responseKey":"CTA_CANAL","nextState":"CTA_CANAL","reasoning":"El usuario quiere ser contactado sin especificar canal."}
+   ```
+4. Valida que `responseKey` y `nextState` estén en las allowlists del estado.
+5. Si la validación falla, retorna `null` y el flujo cae al **FSM fallback** (lógica determinista).
+
+### Estados con LLM selector
+
+| Estado | Claves válidas | Next states válidos |
+|---|---|---|
+| `FILTRO_INTENCION` | CONFIRMACION_COMPRA, CONFIRMACION_INVERSION, INFO_REINTENTO, SALIDA_ELEGANTE | CTA_PRIMARIO, INFO_REINTENTO, SALIDA_ELEGANTE |
+| `INFO_REINTENTO` | CONFIRMACION_COMPRA, CONFIRMACION_INVERSION, CTA_VISITA_O_CONTACTO, SALIDA_ELEGANTE | CTA_PRIMARIO, SALIDA_ELEGANTE |
+| `CTA_PRIMARIO` | CTA_CANAL, SOLICITUD_HORARIO, SOLICITUD_NOMBRE, SALIDA_ELEGANTE | SOLICITUD_HORARIO, CTA_CANAL, SOLICITUD_NOMBRE, SALIDA_ELEGANTE |
+| `CTA_CANAL` | SOLICITUD_HORARIO, SOLICITUD_NOMBRE, SALIDA_ELEGANTE | SOLICITUD_HORARIO, SOLICITUD_NOMBRE, SALIDA_ELEGANTE |
+| `SOLICITUD_HORARIO` | SOLICITUD_NOMBRE | SOLICITUD_NOMBRE |
+| `SOLICITUD_NOMBRE` | HANDOVER_EXITOSO, SOLICITUD_NOMBRE | CLIENT_ACCEPTA, SOLICITUD_NOMBRE |
+
+### Campo `reasoning`
+
+El LLM devuelve una frase corta explicando su decisión. Esta se persiste en `whatsapp_state_transitions.reasoning` (ver sección 11) y es visible en el timeline del dashboard. Útil para depurar por qué el bot tomó cierta decisión.
+
+### Anti-loop (allowlist de siguiente estado)
+
+La constante `ALLOWED_NEXT_STATES_BY_STATE` define qué estados puede alcanzar el LLM desde cada estado. Si el LLM propone un estado fuera de la allowlist, el sistema lo rechaza y aplica FSM fallback. Esto evita que el LLM salte a estados incorrectos.
+
+---
+
+## 9. FAQ Router y keywords
+
+**Archivo:** `src/lib/modules/whatsapp/conversation-keywords.ts`
+
+Antes de invocar al LLM response selector, el flujo revisa si el mensaje del usuario contiene **keywords** que permiten responder determinísticamente sin gastar un call al LLM.
+
+### Tipos de keywords
+
+- **Keywords de FAQ:** preguntas frecuentes sobre ubicación, precio, amenidades, financiamiento, entrega, etc. El bot responde con el texto del FAQ del desarrollo y **no cambia de estado** (la conversación continúa donde estaba).
+- **Keywords de canal:** "llamada", "teléfono", "videollamada", "zoom", "visitar", "ir a ver" — detectadas en CTA_PRIMARIO y CTA_CANAL para hacer short-circuit sin LLM.
+- **Keywords de salida:** "no gracias", "no me interesa", "adiós" — fuerzan SALIDA_ELEGANTE directamente.
+
+### Prioridad de evaluación
+
+```
+1. Comando /reset
+2. Anti-loop (stuck_in_state_count >= 3)
+3. FAQ keywords (si aplica para el estado actual)
+4. LLM response selector
+5. FSM fallback (si LLM falla o devuelve resultado inválido)
+```
+
+Las transiciones por keyword se registran con `triggered_by='keyword'` en el historial de estados.
+
+---
+
+## 10. Context Extractor (Anthropic)
+
+**Archivo:** `src/lib/modules/whatsapp/context-extractor.ts`
+
+Cuando un lead es cualificado, antes de crear el canal en Zoho Cliq, el sistema extrae un **resumen estructurado** de la conversación usando Anthropic Claude.
+
+### Qué extrae
+
+- Nombre del usuario
+- Intención (comprar / invertir)
+- Canal preferido (llamada / videollamada / visita)
+- Horario preferido
+- Notas relevantes del historial de chat
+
+### Para qué se usa
+
+El resumen se postea como **primer mensaje** en el canal de Cliq que ve el asesor, dándole contexto completo del lead sin tener que leer toda la conversación.
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+# Modelo por defecto: claude-haiku-4-5-20251001
+```
+
+---
+
+## 11. Historial de transiciones de estado
+
+**Migración:** `migrations/046_whatsapp_state_transitions.sql`
+**Endpoint:** `GET /api/whatsapp/conversations/state-history`
+**UI:** panel de detalle en `/dashboard/conversaciones`
+
+Cada vez que la FSM cambia de estado, se registra una fila en `whatsapp_state_transitions` con:
+
+| Campo | Descripción |
+|---|---|
+| `from_state` | Estado anterior (NULL = primera transición) |
+| `to_state` | Nuevo estado |
+| `trigger_message` | Texto del mensaje del usuario que causó el cambio |
+| `response_key` | Clave del banco de mensajes enviada |
+| `triggered_by` | `llm` / `keyword` / `fsm` / `anti_loop` / `reset` / `system` |
+| `reasoning` | Justificación del LLM (solo cuando `triggered_by='llm'`) |
+
+### Escritura fire-and-forget
+
+La función `logTransition()` en `conversation-flows.ts` llama a `saveStateTransition()` sin `await`. Esto significa que el registro en BD **no bloquea el flujo** del bot. Si la tabla no existe (migración pendiente), falla silenciosamente.
+
+### API
+
+```
+GET /api/whatsapp/conversations/state-history
+  ?user_phone=521234567890
+  &development=FUEGO
+  &limit=50        # opcional, máx 200
+```
+
+Auth: Bearer token JWT con rol `admin`, `manager` o `asesor` con acceso al desarrollo.
+
+Respuesta:
+```json
+{
+  "transitions": [
+    {
+      "id": 1,
+      "from_state": null,
+      "to_state": "FILTRO_INTENCION",
+      "trigger_message": "Hola",
+      "response_key": "BIENVENIDA",
+      "triggered_by": "system",
+      "reasoning": null,
+      "created_at": "2026-03-06T10:00:00Z"
+    },
+    {
+      "id": 2,
+      "from_state": "FILTRO_INTENCION",
+      "to_state": "CTA_PRIMARIO",
+      "trigger_message": "Quiero comprar un lote",
+      "response_key": "CONFIRMACION_COMPRA",
+      "triggered_by": "llm",
+      "reasoning": "El usuario expresa intención de compra explícita.",
+      "created_at": "2026-03-06T10:01:30Z"
+    }
+  ]
+}
+```
+
+### Timeline en el dashboard
+
+En `/dashboard/conversaciones`, al expandir el detalle de una conversación, aparece el botón "Ver timeline". Al hacer clic carga el historial bajo demanda (lazy fetch) y muestra una línea de tiempo vertical con badges de color por `triggered_by`:
+
+| Color | `triggered_by` |
+|---|---|
+| Violeta | llm |
+| Azul cielo | keyword |
+| Gris | fsm |
+| Rojo | anti_loop |
+| Ámbar | reset |
+| Esmeralda | system |
+
+---
+
+## 12. Contenido y medios por desarrollo
 
 El desarrollo viene del routing; con él se eligen textos y medios.
 
@@ -348,7 +521,7 @@ Cada desarrollo puede tener copy distinto (nombre del desarrollo, tono, CTA); el
 
 ---
 
-## 9. Envío de mensajes (salida)
+## 13. Envío de mensajes (salida)
 
 ### Tipos de mensaje saliente (OutboundMessage)
 
@@ -373,7 +546,7 @@ Todas las llamadas usan **withTimeout** (TIMEOUTS.EXTERNAL_API). En error de API
 
 ---
 
-## 10. Variables de entorno y configuración
+## 14. Variables de entorno y configuración
 
 Relevantes para el bot:
 
@@ -385,7 +558,7 @@ La base de datos PostgreSQL se configura en el resto del proyecto (conexión usa
 
 ---
 
-## 11. Bridge WhatsApp-Cliq (Zoho Cliq)
+## 15. Bridge WhatsApp-Cliq (Zoho Cliq)
 
 Cuando un lead se califica (usuario acepta handover y da su nombre), el backend crea un lead real en Zoho CRM, un canal en Zoho Cliq por lead y un bridge: los mensajes entrantes de WhatsApp se reenvían al canal Cliq y las respuestas del asesor en Cliq se reenvían a WhatsApp.
 
@@ -471,7 +644,7 @@ Almacena el mapeo (user_phone, development) -> canal Cliq y `phone_number_id` pa
 
 ---
 
-## 12. Limitaciones actuales y extensiones futuras
+## 16. Limitaciones actuales y extensiones futuras
 
 ### Limitaciones
 
@@ -494,7 +667,7 @@ Almacena el mapeo (user_phone, development) -> canal Cliq y `phone_number_id` pa
 
 ---
 
-## 13. Despliegue en Vercel (serverless)
+## 17. Despliegue en Vercel (serverless)
 
 **¿Es correcto tener el bot en Vercel en serverless?** Sí, es una opción válida y el bot está preparado para ello (webhook sin rate limit, token y `phone_number_id` validados, timeouts y manejo de errores). Para que **conteste de forma consistente** conviene tener en cuenta lo siguiente.
 
@@ -524,7 +697,7 @@ Sí es correcto tener el bot en Vercel en serverless. Para que **conteste correc
 
 ---
 
-## 14. Solución de problemas
+## 18. Solución de problemas
 
 ### URL del webhook: qué poner en Meta y cómo comprobarla
 
