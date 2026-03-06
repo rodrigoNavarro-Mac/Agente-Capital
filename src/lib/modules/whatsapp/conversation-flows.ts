@@ -334,7 +334,7 @@ function buildOutboundFromSelection(
 
     const text = getResponseText(development, responseKey, userName);
 
-    if (responseKey === 'BIENVENIDA') {
+    if (responseKey === 'BIENVENIDA' || responseKey === 'CONFIRMACION_COMPRA' || responseKey === 'CONFIRMACION_INVERSION') {
         const heroUrl = getHeroImage(development);
         // Hero con texto como caption → un solo mensaje
         outbound.push(heroUrl
@@ -599,11 +599,12 @@ async function handleFiltroIntencion(
             effectiveIntent === 'invertir' ? 'CONFIRMACION_INVERSION' : 'CONFIRMACION_COMPRA',
             'keyword', `Intención detectada por keywords: ${effectiveIntent}`);
 
+        const confirmText = (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA;
+        const heroUrl = getHeroImage(development);
         const outboundMessages: OutboundMessage[] = [
-            {
-                type: 'text',
-                text: (effectiveIntent === 'invertir') ? messages.CONFIRMACION_INVERSION : messages.CONFIRMACION_COMPRA
-            },
+            heroUrl
+                ? { type: 'image', imageUrl: heroUrl, caption: confirmText }
+                : { type: 'text', text: confirmText },
         ];
         // Primera pregunta CTA: visitar o que te contacte un agente
         outboundMessages.push({ type: 'text', text: messages.CTA_VISITA_O_CONTACTO ?? messages.CTA_AYUDA });
