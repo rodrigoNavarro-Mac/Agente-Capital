@@ -60,6 +60,9 @@ export const DEVELOPMENT_MEDIA: Record<string, DevelopmentMedia> = {
     AMURA: {
         heroImageUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Amura_9.jpg',
         brochureUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Brochure_AMURA_2026.pdf',
+        locationImageUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Amura_9.jpg',
+        locationText: 'Amura, desarrollo inmobiliario en Mérida, Yucatán',
+        mapsUrl: 'https://maps.app.goo.gl/KJJX8DME1EBGtkFg7',
     },
     PUNTO_TIERRA: {
         heroImageUrl: undefined,
