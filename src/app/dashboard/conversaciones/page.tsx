@@ -408,11 +408,16 @@ interface ZohoDebugLiveResult {
 
 interface ZohoDebugResponse {
     ok: boolean;
-    dry_run: boolean;
+    dry_run?: boolean;
+    send_template?: boolean;
+    template_name?: string;
+    message_id?: string | null;
     steps?: ZohoDebugDryRunSteps;
     result?: ZohoDebugLiveResult;
     error?: string;
 }
+
+type ZohoDebugMode = 'dry_run' | 'live' | 'send_template';
 
 function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
     const [open, setOpen] = useState(false);
@@ -420,7 +425,7 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
     const [development, setDevelopment] = useState(DEFAULT_DEVELOPMENTS[0]);
     const [leadId, setLeadId] = useState('');
     const [fullName, setFullName] = useState('');
-    const [dryRun, setDryRun] = useState(true);
+    const [mode, setMode] = useState<ZohoDebugMode>('dry_run');
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<ZohoDebugResponse | null>(null);
 
@@ -443,13 +448,14 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
                     development,
                     lead_id: leadId || undefined,
                     full_name: fullName || undefined,
-                    dry_run: dryRun,
+                    dry_run: mode === 'dry_run',
+                    send_template_only: mode === 'send_template',
                 }),
             });
             const data: ZohoDebugResponse = await res.json();
             setResult(data);
         } catch (err) {
-            setResult({ ok: false, dry_run: dryRun, error: String(err) });
+            setResult({ ok: false, error: String(err) });
         } finally {
             setLoading(false);
         }
@@ -525,8 +531,8 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
                                 <input
                                     type="radio"
                                     name="runMode"
-                                    checked={dryRun}
-                                    onChange={() => setDryRun(true)}
+                                    checked={mode === 'dry_run'}
+                                    onChange={() => setMode('dry_run')}
                                 />
                                 <span>Dry run <span className="text-xs text-gray-400">(solo validar, sin enviar)</span></span>
                             </label>
@@ -534,8 +540,17 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
                                 <input
                                     type="radio"
                                     name="runMode"
-                                    checked={!dryRun}
-                                    onChange={() => setDryRun(false)}
+                                    checked={mode === 'send_template'}
+                                    onChange={() => setMode('send_template')}
+                                />
+                                <span>Enviar planilla <span className="text-xs text-amber-600">(solo template de bienvenida)</span></span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="runMode"
+                                    checked={mode === 'live'}
+                                    onChange={() => setMode('live')}
                                 />
                                 <span>Live <span className="text-xs text-red-400">(ejecuta completo)</span></span>
                             </label>
@@ -552,7 +567,20 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
                     {result && (
                         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
                             {result.error && (
-                                <p className="text-red-700">❌ Error: {result.error}</p>
+                                <p className="text-red-700">Error: {result.error}</p>
+                            )}
+                            {result.ok && result.send_template && (
+                                <div className="space-y-1.5">
+                                    <p className="font-medium text-green-700">Planilla enviada correctamente.</p>
+                                    {result.template_name && (
+                                        <p className="text-gray-700">
+                                            Template: <code className="rounded bg-white border border-gray-200 px-1">{result.template_name}</code>
+                                        </p>
+                                    )}
+                                    {result.message_id && (
+                                        <p className="text-xs text-gray-500">message_id: {result.message_id}</p>
+                                    )}
+                                </div>
                             )}
                             {result.ok && result.dry_run && result.steps && (
                                 <div className="space-y-1.5">
@@ -601,8 +629,8 @@ function ZohoActivationDebugPanel({ userRole }: { userRole: string | null }) {
                                     )}
                                 </div>
                             )}
-                            {!result.ok && !result.error && (
-                                <p className="text-red-700">❌ Error desconocido</p>
+                            {!result.ok && !result.error && !result.send_template && (
+                                <p className="text-red-700">Error desconocido</p>
                             )}
                         </div>
                     )}

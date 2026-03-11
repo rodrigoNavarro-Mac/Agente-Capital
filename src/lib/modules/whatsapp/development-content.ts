@@ -287,6 +287,29 @@ const CONTENT_BY_DEVELOPMENT: Record<string, DevelopmentMessages> = {
 };
 
 /**
+ * Configuración de la planilla/template de bienvenida por desarrollo (Zoho/WhatsApp).
+ * Centralizado aquí para un solo lugar de verdad; lo consumen webhook Zoho y envío de template.
+ */
+export interface BienvenidaTemplateConfig {
+    name: string;
+    language: string;
+}
+
+const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, BienvenidaTemplateConfig> = {
+    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX' },
+    AMURA: { name: 'bienvenida_amura', language: 'es_MX' },
+    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX' },
+};
+
+/**
+ * Devuelve la config de la planilla de bienvenida para el desarrollo. Si no existe, usa FUEGO como fallback.
+ */
+export function getBienvenidaTemplateForDevelopment(development: string): BienvenidaTemplateConfig {
+    const key = (development || 'FUEGO').toUpperCase().replace(/\s+/g, '_');
+    return BIENVENIDA_TEMPLATE_BY_DEVELOPMENT[key] ?? BIENVENIDA_TEMPLATE_BY_DEVELOPMENT['FUEGO'];
+}
+
+/**
  * Devuelve los mensajes del desarrollo. Si el desarrollo no existe, usa FUEGO como fallback.
  */
 export function getMessagesForDevelopment(development: string): DevelopmentMessages {

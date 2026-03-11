@@ -12,6 +12,7 @@
 import { isBusinessHours } from '@/lib/business-hours';
 import { getConversation, upsertConversation } from '@/lib/modules/whatsapp/conversation-state';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
+import { getBienvenidaTemplateForDevelopment } from '@/lib/modules/whatsapp/development-content';
 import { sendTemplateMessage, validateMexicanPhone } from '@/lib/modules/whatsapp/whatsapp-client';
 import { getCliqThreadByZohoLeadId } from '@/lib/db/whatsapp-cliq';
 import {
@@ -46,17 +47,6 @@ export type LeadWebhookResult =
 // =====================================================
 // CONFIG
 // =====================================================
-
-const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, { name: string; language: string }> = {
-  FUEGO: { name: 'bienvenida_fuego', language: 'es_MX' },
-  AMURA: { name: 'bienvenida_amura', language: 'es_MX' },
-  PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX' },
-};
-
-function getTemplateConfig(development: string): { name: string; language: string } {
-  const key = (development || 'FUEGO').toUpperCase().replace(/\s+/g, '_');
-  return BIENVENIDA_TEMPLATE_BY_DEVELOPMENT[key] ?? BIENVENIDA_TEMPLATE_BY_DEVELOPMENT['FUEGO'];
-}
 
 function getAssignedAgentEmail(development: string): string | null {
   try {
@@ -243,7 +233,7 @@ export async function handleZohoLeadCreatedWebhook(
       zoho_lead_id: lead_id || null,
     });
 
-    const template = getTemplateConfig(dev);
+    const template = getBienvenidaTemplateForDevelopment(dev);
     const sent = await sendTemplateMessage(phoneNumberId, userPhone.replace(/^\+/, ''), template.name, template.language);
     if (!sent) {
       logger.warn('Zoho lead webhook: welcome template send failed', { development: dev }, 'zoho-lead-webhook');

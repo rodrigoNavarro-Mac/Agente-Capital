@@ -6,7 +6,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { handleZohoLeadCreated } from '@/lib/modules/whatsapp/zoho-lead-activation';
-import { validateMexicanPhone, validateWhatsAppPhone } from '@/lib/modules/whatsapp/whatsapp-client';
+import { getBienvenidaTemplateForDevelopment } from '@/lib/modules/whatsapp/development-content';
+import { validateMexicanPhone, validateWhatsAppPhone, sendTemplateMessage } from '@/lib/modules/whatsapp/whatsapp-client';
 import { isBusinessHours } from '@/lib/modules/whatsapp/conversation-flows';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
@@ -14,12 +15,6 @@ import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 export const dynamic = 'force-dynamic';
 
 const ALLOWED_ROLES = ['admin', 'ceo'];
-
-const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, { name: string; language: string }> = {
-    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX' },
-    AMURA: { name: 'bienvenida_amura', language: 'es_MX' },
-    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX' },
-};
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
     // Auth
@@ -38,6 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         lead_id?: string;
         full_name?: string;
         dry_run?: boolean;
+        send_template_only?: boolean;
     };
 
     try {
@@ -46,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: 'Body JSON inválido' }, { status: 400 });
     }
 
-    const { user_phone, development, lead_id, full_name, dry_run = true } = body;
+    const { user_phone, development, lead_id, full_name, dry_run = true, send_template_only = false } = body;
 
     if (!user_phone || !development) {
         return NextResponse.json(
@@ -64,10 +60,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     try {
+        if (send_template_only) {
+            // Solo enviar planilla de bienvenida al número indicado (sin flujo Zoho/Cliq)
+            const formatCheck = validateMexicanPhone(user_phone);
+            if (formatCheck.result !== 'VALIDO') {
+                return NextResponse.json({
+                    ok: false,
+                    error: formatCheck.reason ?? 'Teléfono inválido',
+                    send_template: false,
+                }, { status: 400 });
+            }
+            const template = getBienvenidaTemplateForDevelopment(development);
+            // API WhatsApp espera número sin "+"
+            const toPhone = formatCheck.normalizedNumber.replace(/^\+/, '');
+            const sendResult = await sendTemplateMessage(
+                phoneNumberId,
+                toPhone,
+                template.name,
+                template.language
+            );
+            if (!sendResult) {
+                return NextResponse.json({
+                    ok: false,
+                    error: 'Envío de planilla falló (WhatsApp API)',
+                    send_template: false,
+                }, { status: 500 });
+            }
+            return NextResponse.json({
+                ok: true,
+                send_template: true,
+                template_name: template.name,
+                message_id: sendResult.messages?.[0]?.id ?? null,
+            });
+        }
         if (dry_run) {
             // Solo validar sin efectos secundarios
             const businessHours = isBusinessHours();
-            const template = BIENVENIDA_TEMPLATE_BY_DEVELOPMENT[development.toUpperCase()] ?? null;
+            const template = getBienvenidaTemplateForDevelopment(development);
 
             // Paso 1: validación local de formato
             const formatCheck = validateMexicanPhone(user_phone);

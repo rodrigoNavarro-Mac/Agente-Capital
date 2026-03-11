@@ -1,4 +1,5 @@
 import { validateMexicanPhone, validateWhatsAppPhone, sendTemplateMessage } from './whatsapp-client';
+import { getBienvenidaTemplateForDevelopment } from './development-content';
 import { getConversation, upsertConversation, updateState, mergeUserData } from './conversation-state';
 import { isBusinessHours } from './conversation-flows';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
@@ -28,17 +29,6 @@ export interface ZohoLeadActivationResult {
 }
 
 const MAX_TEMPLATE_RETRIES = 3;
-
-const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, { name: string; language: string }> = {
-    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX' },
-    AMURA: { name: 'bienvenida_amura', language: 'es_MX' },
-    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX' },
-};
-
-function getTemplateConfig(development: string): { name: string; language: string } {
-    const key = (development || 'FUEGO').toUpperCase().replace(/\s+/g, '_');
-    return BIENVENIDA_TEMPLATE_BY_DEVELOPMENT[key] ?? BIENVENIDA_TEMPLATE_BY_DEVELOPMENT['FUEGO'];
-}
 
 function getAssignedAgentEmailForDev(development?: string): string | null {
     try {
@@ -121,7 +111,7 @@ export async function handleZohoLeadCreated(params: ZohoLeadActivationParams): P
     }
 
     // 2. Send BIENVENIDA template with retry
-    const template = getTemplateConfig(development);
+    const template = getBienvenidaTemplateForDevelopment(development);
     let templateResult = null;
     let attempts = 0;
     while (attempts < MAX_TEMPLATE_RETRIES && !templateResult) {
