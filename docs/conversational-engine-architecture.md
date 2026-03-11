@@ -226,6 +226,8 @@ flowchart TB
 | **Allowlist** | `conversation-flows.ts` (const ALLOWED_NEXT_STATES_BY_STATE) | Validar que el nextState devuelto por el LLM esté permitido desde el estado actual. |
 | **Intent classifier** | `src/lib/modules/whatsapp/intent-classifier.ts` | classifyIntent, classifyCtaPrimario, classifyCtaCanal (LLM) para el fallback FSM. |
 | **Keywords** | `src/lib/modules/whatsapp/conversation-keywords.ts` | matchIntentByKeywords, matchNegativeByKeywords, matchCtaPrimarioByKeywords, isOnlyGreeting, etc. |
+| **FAQ Router** | `src/lib/modules/whatsapp/faq/` (faq-router.ts, faq-bank.ts, detect-faq-topic.ts, faq-types.ts) | Detección de temas FAQ por keywords, banco de respuestas por desarrollo, routing a respuestas predefinidas. |
+| **Response personalizer** | `src/lib/modules/whatsapp/response-personalizer.ts` | Personalización de respuestas según contexto del usuario (nombre, intención, etc.). |
 | **Contenido** | `development-content.ts`, `media-handler.ts` | Textos por desarrollo (BIENVENIDA, CTA_AYUDA, …), hero image y brochure. |
 | **Handover** | `conversation-flows.ts` (handleClientAccepta) + `zoho-crm`, `zoho-cliq`, `whatsapp-cliq` | createZohoLeadRecord, createCliqChannel, postMessageToCliqViaWebhook, upsertWhatsAppCliqThread, markQualified. |
 

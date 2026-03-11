@@ -134,12 +134,11 @@ Un asesor continuará contigo a primera hora.`
  */
 const AMURA_MESSAGES: DevelopmentMessages = {
 
-    BIENVENIDA: `Hola 👋 Soy el asistente de AMURA.
+    BIENVENIDA: `Hola 👋 Bienvenido(a) a AMURA.\nUn desarrollo residencial premium pensado
+para construir patrimonio con visión y tranquilidad 🏡✨`,
 
-¿Te interesa invertir o construir?`,
-
-    FILTRO_PREGUNTA: `Para orientarte mejor:
-¿Buscas invertir o construir tu casa?`,
+    FILTRO_PREGUNTA: `Para ayudarte mejor, platícame: 
+    ¿estás buscando invertir o construir? 👇`,
 
     CONFIRMACION_COMPRA: `Excelente 🏡
 
@@ -160,15 +159,11 @@ const AMURA_MESSAGES: DevelopmentMessages = {
 ✔ Zona en crecimiento acelerado
 ✔ Amenidades 100% operativas que sostienen el valor`,
 
-    CTA_AYUDA: `Para orientarte mejor:
+    CTA_AYUDA: `¿Qué te parece si tenemos una llamada con un asesor 📞 o agendamos un
+recorrido por el desarrollo 🏡?`,
 
-¿Prefieres conocer el desarrollo en una visita
-o que un asesor te explique los detalles en una llamada breve?`,
-
-    CTA_VISITA_O_CONTACTO: `Perfecto.
-
-¿Te gustaría visitar el desarrollo
-o prefieres que un asesor te contacte por llamada?`,
+    CTA_VISITA_O_CONTACTO: `Qué te parece si tenemos una llamada con un asesor 📞 o agendamos un
+recorrido por el desarrollo 🏡?`,
 
     CTA_CANAL: `¿Prefieres que te contactemos por llamada telefónica
 o por videollamada?`,

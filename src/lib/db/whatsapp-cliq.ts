@@ -91,6 +91,18 @@ export async function getCliqThreadByUserAndDev(
 const THREAD_SELECT = `id, user_phone, development, phone_number_id, zoho_lead_id, assigned_agent_email,
             cliq_channel_id, cliq_channel_unique_name, cliq_chat_id, status, context_sent_at, last_cliq_wa_sent_at, last_cliq_wa_error, last_cliq_raw_payload, created_at, updated_at`;
 
+/** Find a Cliq thread by Zoho lead id + development (idempotency helper). */
+export async function getCliqThreadByZohoLeadId(
+  zoho_lead_id: string,
+  development: string
+): Promise<WhatsAppCliqThread | null> {
+  const result = await query<WhatsAppCliqThread>(
+    `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads WHERE zoho_lead_id = $1 AND development = $2 LIMIT 1`,
+    [zoho_lead_id, development]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function getCliqThreadByChannelId(cliq_channel_id: string): Promise<WhatsAppCliqThread | null> {
   const result = await query<WhatsAppCliqThread>(
     `SELECT ${THREAD_SELECT} FROM whatsapp_cliq_threads WHERE cliq_channel_id = $1`,

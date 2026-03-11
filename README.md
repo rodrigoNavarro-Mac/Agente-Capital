@@ -14,6 +14,7 @@ Plataforma interna para Capital+ que combina un **bot de WhatsApp para calificac
 | Integraciones | Zoho CRM, Zoho Cliq, OpenAI, Anthropic | [docs/integrations.md](docs/integrations.md) |
 | Configuración | Setup local y Vercel (variables de entorno, DB, migraciones) | [docs/setup.md](docs/setup.md) |
 | Reset de conversación | Comando `/reset` y comportamiento de reinicio | [docs/whatsapp-reset-conversation.md](docs/whatsapp-reset-conversation.md) |
+| Meta Ads | Motor de recomendaciones para gestión de anuncios (Zoho CRM + Meta Ads) | [docs/meta-ads.md](docs/meta-ads.md) |
 
 ## Stack tecnológico
 
@@ -34,13 +35,27 @@ src/
       webhooks/whatsapp/     # POST — recibe eventos de WhatsApp Cloud API
       webhooks/cliq/         # POST — recibe mensajes de asesores desde Cliq
       whatsapp/
-        conversations/       # CRUD + state-history + retry endpoints
+        conversations/       # CRUD, state-history, retry-handover, retry-cliq, resend-cliq-context, delete, kpis
         logs/                # Historial de mensajes por conversación
         metrics/stats/       # KPIs del bot
-      auth/                  # login, logout, refresh, reset-password
-      zoho/                  # leads, deals, notes, sync
-      commissions/           # módulo de comisiones
+      auth/                  # login, logout, refresh, reset-password, forgot-password, change-password
+      zoho/                  # leads, deals, notes, sync, fields, stats
+      commissions/          # módulo de comisiones (rules, sales, distributions, invoices, etc.)
       cron/                  # sync-zoho, process-feedback-learning
+      agent-config/          # Configuración del agente
+      documents/             # RAG: documentos y chunks
+      upload/                # Subida de archivos
+      rag-query/             # Consultas RAG
+      rag-feedback/          # Feedback de respuestas RAG
+      chat-history/          # Historial de chat
+      developments/          # CRUD de desarrollos
+      page-visits/           # Tracking de visitas
+      permissions/           # Verificación de permisos
+      admin/sessions/       # Gestión de sesiones (admin)
+      debug/                 # Endpoints de depuración (cliq, zoho)
+      health/                # Health check
+      logs/                  # Logs del sistema
+      stats/                 # Estadísticas generales
     dashboard/
       conversaciones/        # Vista de conversaciones de WhatsApp
       comisiones/            # Módulo de comisiones
@@ -50,16 +65,23 @@ src/
       whatsapp/              # Toda la lógica del bot
         conversation-flows.ts    # Orquestador principal (FSM handlers)
         response-selector.ts     # LLM elige respuesta y siguiente estado
+        response-personalizer.ts # Personalización de respuestas por contexto
         intent-classifier.ts     # Clasifica intención del usuario
         context-extractor.ts     # Extrae datos del usuario (Anthropic)
         development-content.ts   # Banco de mensajes por desarrollo
         whatsapp-client.ts       # HTTP client para WhatsApp Cloud API
         channel-router.ts        # phone_number_id -> desarrollo + zona
-        conversation-state.ts    # Definición de estados FSM
+        conversation-state.ts   # Persistencia: getConversation, updateState, mergeUserData, markQualified, resetConversation
         webhook-handler.ts       # Parse y validación del payload Meta
         conversation-keywords.ts # Detección de keywords (FAQ, canal, etc.)
         zoho-lead-activation.ts  # Crea lead en Zoho + canal en Cliq
         conversation-access.ts   # RBAC para endpoints del dashboard
+        media-handler.ts         # Hero image y brochure PDF
+        faq/                    # FAQ Router: faq-router, faq-bank, detect-faq-topic, faq-types
+      meta-ads/              # Motor de recomendaciones para Meta Ads
+        domain/                 # Reglas, perfiles, templates (lógica pura)
+        infrastructure/         # Adapters Zoho CRM y Meta Ads (solo lectura)
+        application/            # Orquestación, recommendation-service, facade
     db/
       postgres.ts            # Todas las funciones de acceso a BD
     auth/                    # JWT, cookies, sesiones
