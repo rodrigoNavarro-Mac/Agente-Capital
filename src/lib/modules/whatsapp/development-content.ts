@@ -134,8 +134,8 @@ Un asesor continuará contigo a primera hora.`
  */
 const AMURA_MESSAGES: DevelopmentMessages = {
 
-    BIENVENIDA: `Hola 👋 Bienvenido(a) a AMURA.\nUn desarrollo residencial premium pensado
-para construir patrimonio con visión y tranquilidad 🏡✨`,
+    BIENVENIDA: `Hola 👋 Bienvenido(a) a AMURA.
+    Un desarrollo residencial premium pensado para construir patrimonio con visión y tranquilidad 🏡✨`,
 
     FILTRO_PREGUNTA: `Para ayudarte mejor, platícame: 
     ¿estás buscando invertir o construir? 👇`,
