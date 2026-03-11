@@ -424,24 +424,40 @@ export async function validateWhatsAppPhone(
  * @param to - Número de teléfono del destinatario (formato internacional sin +)
  * @param templateName - Nombre de la plantilla registrada en WhatsApp Business Manager
  * @param languageCode - Código de idioma BCP 47 (ej. 'es_MX', 'es')
+ * @param bodyParameters - Parámetros del body del template (ej. [nombre] para "Hola {{1}}"). Si la plantilla exige params y no se envían, la API devuelve 132000.
  */
 export async function sendTemplateMessage(
     phoneNumberId: string,
     to: string,
     templateName: string,
-    languageCode: string
+    languageCode: string,
+    bodyParameters?: string[]
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
+
+        const template: {
+            name: string;
+            language: { code: string };
+            components?: Array<{ type: string; parameters: Array<{ type: string; text: string }> }>;
+        } = {
+            name: templateName,
+            language: { code: languageCode },
+        };
+        if (bodyParameters && bodyParameters.length > 0) {
+            template.components = [
+                {
+                    type: 'body',
+                    parameters: bodyParameters.map((text) => ({ type: 'text' as const, text })),
+                },
+            ];
+        }
 
         const body = {
             messaging_product: 'whatsapp',
             to,
             type: 'template',
-            template: {
-                name: templateName,
-                language: { code: languageCode },
-            },
+            template,
         };
 
         logger.debug('Sending WhatsApp template message', {

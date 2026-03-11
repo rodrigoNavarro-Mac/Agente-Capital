@@ -110,13 +110,15 @@ export async function handleZohoLeadCreated(params: ZohoLeadActivationParams): P
         return { success: false, status: 'invalid_phone', reason: 'Phone not registered on WhatsApp' };
     }
 
-    // 2. Send BIENVENIDA template with retry
+    // 2. Send BIENVENIDA template with retry (planilla espera 1 param: nombre)
     const template = getBienvenidaTemplateForDevelopment(development);
+    const firstName = fullName?.trim().split(/\s+/)[0] || 'Cliente';
+    const bodyParams = [firstName];
     let templateResult = null;
     let attempts = 0;
     while (attempts < MAX_TEMPLATE_RETRIES && !templateResult) {
         attempts++;
-        templateResult = await sendTemplateMessage(phoneNumberId, userPhone, template.name, template.language);
+        templateResult = await sendTemplateMessage(phoneNumberId, userPhone, template.name, template.language, bodyParams);
         if (!templateResult && attempts < MAX_TEMPLATE_RETRIES) {
             logger.warn('Template send failed, retrying', { development, attempt: attempts }, 'zoho-lead-activation');
         }

@@ -71,13 +71,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 }, { status: 400 });
             }
             const template = getBienvenidaTemplateForDevelopment(development);
-            // API WhatsApp espera número sin "+"
+            // API WhatsApp espera número sin "+"; planilla bienvenida espera 1 param (nombre)
             const toPhone = formatCheck.normalizedNumber.replace(/^\+/, '');
+            const firstName = full_name?.trim().split(/\s+/)[0] || 'Cliente';
             const sendResult = await sendTemplateMessage(
                 phoneNumberId,
                 toPhone,
                 template.name,
-                template.language
+                template.language,
+                [firstName]
             );
             if (!sendResult) {
                 return NextResponse.json({
