@@ -431,7 +431,8 @@ export async function sendTemplateMessage(
     to: string,
     templateName: string,
     languageCode: string,
-    bodyParameters?: string[]
+    bodyParameters?: string[],
+    bodyParameterNames?: string[]
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
@@ -439,7 +440,7 @@ export async function sendTemplateMessage(
         const template: {
             name: string;
             language: { code: string };
-            components?: Array<{ type: string; parameters: Array<{ type: string; text: string }> }>;
+            components?: Array<{ type: string; parameters: Array<Record<string, string>> }>;
         } = {
             name: templateName,
             language: { code: languageCode },
@@ -452,7 +453,15 @@ export async function sendTemplateMessage(
             template.components = [
                 {
                     type: 'body',
-                    parameters: sanitized.map((text) => ({ type: 'text' as const, text })),
+                    parameters: sanitized.map((text, i) => {
+                        const param: Record<string, string> = { type: 'text', text };
+                        // Cuando el template usa variables nombradas (e.g. {{lead_name}}), la API
+                        // exige el campo parameter_name. Sin él devuelve error 100.
+                        if (bodyParameterNames && bodyParameterNames[i]) {
+                            param.parameter_name = bodyParameterNames[i];
+                        }
+                        return param;
+                    }),
                 },
             ];
         }

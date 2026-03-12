@@ -235,7 +235,7 @@ export async function handleZohoLeadCreatedWebhook(
 
     const template = getBienvenidaTemplateForDevelopment(dev);
     const firstName = full_name?.trim().split(/\s+/)[0] || 'Cliente';
-    const sent = await sendTemplateMessage(phoneNumberId, userPhone.replace(/^\+/, ''), template.name, template.language, [firstName]);
+    const sent = await sendTemplateMessage(phoneNumberId, userPhone.replace(/^\+/, ''), template.name, template.language, [firstName], template.bodyParameterNames);
     if (!sent) {
       logger.warn('Zoho lead webhook: welcome template send failed', { development: dev }, 'zoho-lead-webhook');
     }

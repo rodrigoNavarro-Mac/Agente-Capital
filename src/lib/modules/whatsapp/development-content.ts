@@ -293,12 +293,15 @@ const CONTENT_BY_DEVELOPMENT: Record<string, DevelopmentMessages> = {
 export interface BienvenidaTemplateConfig {
     name: string;
     language: string;
+    /** Nombres de las variables del body del template (e.g. ['lead_name'] para "Hola {{lead_name}}").
+     *  Requerido cuando el template usa variables nombradas en Meta; omitir para variables posicionales ({{1}}). */
+    bodyParameterNames?: string[];
 }
 
 const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, BienvenidaTemplateConfig> = {
-    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX' },
-    AMURA: { name: 'bienvenida_amura', language: 'es_MX' },
-    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX' },
+    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX', bodyParameterNames: ['lead_name'] },
+    AMURA: { name: 'bienvenida_amura', language: 'es_MX', bodyParameterNames: ['lead_name'] },
+    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX', bodyParameterNames: ['lead_name'] },
 };
 
 /**

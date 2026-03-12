@@ -79,7 +79,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 toPhone,
                 template.name,
                 template.language,
-                [firstName]
+                [firstName],
+                template.bodyParameterNames
             );
             if (!sendResult) {
                 return NextResponse.json({
