@@ -432,39 +432,50 @@ export async function sendTemplateMessage(
     templateName: string,
     languageCode: string,
     bodyParameters?: string[],
-    bodyParameterNames?: string[]
+    bodyParameterNames?: string[],
+    headerImageUrl?: string
 ): Promise<WhatsAppSendMessageResponse | null> {
     try {
         const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`;
 
-        const template: {
-            name: string;
-            language: { code: string };
-            components?: Array<{ type: string; parameters: Array<Record<string, string>> }>;
-        } = {
-            name: templateName,
-            language: { code: languageCode },
-        };
+        const components: Array<{ type: string; parameters: Array<Record<string, unknown>> }> = [];
+
+        // Header de imagen variable (error 132012 si el template lo requiere y no se envía)
+        if (headerImageUrl) {
+            components.push({
+                type: 'header',
+                parameters: [{ type: 'image', image: { link: headerImageUrl } }],
+            });
+        }
+
         if (bodyParameters && bodyParameters.length > 0) {
             // La API rechaza parámetros vacíos (code 100: "Parameter name is missing or empty")
             const sanitized = bodyParameters.map((p) =>
                 (typeof p === 'string' && p.trim().length > 0) ? p.trim() : 'Cliente'
             );
-            template.components = [
-                {
-                    type: 'body',
-                    parameters: sanitized.map((text, i) => {
-                        const param: Record<string, string> = { type: 'text', text };
-                        // Cuando el template usa variables nombradas (e.g. {{lead_name}}), la API
-                        // exige el campo parameter_name. Sin él devuelve error 100.
-                        if (bodyParameterNames && bodyParameterNames[i]) {
-                            param.parameter_name = bodyParameterNames[i];
-                        }
-                        return param;
-                    }),
-                },
-            ];
+            components.push({
+                type: 'body',
+                parameters: sanitized.map((text, i) => {
+                    const param: Record<string, unknown> = { type: 'text', text };
+                    // Cuando el template usa variables nombradas (e.g. {{lead_name}}), la API
+                    // exige el campo parameter_name. Sin él devuelve error 100.
+                    if (bodyParameterNames && bodyParameterNames[i]) {
+                        param.parameter_name = bodyParameterNames[i];
+                    }
+                    return param;
+                }),
+            });
         }
+
+        const template: {
+            name: string;
+            language: { code: string };
+            components?: Array<{ type: string; parameters: Array<Record<string, unknown>> }>;
+        } = {
+            name: templateName,
+            language: { code: languageCode },
+            ...(components.length > 0 && { components }),
+        };
 
         const body = {
             messaging_product: 'whatsapp',

@@ -296,12 +296,28 @@ export interface BienvenidaTemplateConfig {
     /** Nombres de las variables del body del template (e.g. ['lead_name'] para "Hola {{lead_name}}").
      *  Requerido cuando el template usa variables nombradas en Meta; omitir para variables posicionales ({{1}}). */
     bodyParameterNames?: string[];
+    /** URL pública de la imagen del header del template. Requerida cuando el template tiene header de imagen variable. */
+    headerImageUrl?: string;
 }
 
 const BIENVENIDA_TEMPLATE_BY_DEVELOPMENT: Record<string, BienvenidaTemplateConfig> = {
-    FUEGO: { name: 'bienvenida_fuego', language: 'es_MX', bodyParameterNames: ['lead_name'] },
-    AMURA: { name: 'bienvenida_amura', language: 'es_MX', bodyParameterNames: ['lead_name'] },
-    PUNTO_TIERRA: { name: 'bienvenida_punto_tierra', language: 'es_MX', bodyParameterNames: ['lead_name'] },
+    FUEGO: {
+        name: 'bienvenida_fuego',
+        language: 'es_MX',
+        bodyParameterNames: ['lead_name'],
+        headerImageUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/AmenidadesFUEGO1.jpeg',
+    },
+    AMURA: {
+        name: 'bienvenida_amura',
+        language: 'es_MX',
+        bodyParameterNames: ['lead_name'],
+        headerImageUrl: 'https://mdb3blnhtc41axtd.public.blob.vercel-storage.com/Amura_9.jpg',
+    },
+    PUNTO_TIERRA: {
+        name: 'bienvenida_punto_tierra',
+        language: 'es_MX',
+        bodyParameterNames: ['lead_name'],
+    },
 };
 
 /**

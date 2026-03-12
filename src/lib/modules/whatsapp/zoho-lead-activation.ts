@@ -118,7 +118,7 @@ export async function handleZohoLeadCreated(params: ZohoLeadActivationParams): P
     let attempts = 0;
     while (attempts < MAX_TEMPLATE_RETRIES && !templateResult) {
         attempts++;
-        templateResult = await sendTemplateMessage(phoneNumberId, userPhone, template.name, template.language, bodyParams, template.bodyParameterNames);
+        templateResult = await sendTemplateMessage(phoneNumberId, userPhone, template.name, template.language, bodyParams, template.bodyParameterNames, template.headerImageUrl);
         if (!templateResult && attempts < MAX_TEMPLATE_RETRIES) {
             logger.warn('Template send failed, retrying', { development, attempt: attempts }, 'zoho-lead-activation');
         }

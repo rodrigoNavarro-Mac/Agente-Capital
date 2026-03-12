@@ -80,7 +80,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 template.name,
                 template.language,
                 [firstName],
-                template.bodyParameterNames
+                template.bodyParameterNames,
+                template.headerImageUrl
             );
             if (!sendResult) {
                 return NextResponse.json({
