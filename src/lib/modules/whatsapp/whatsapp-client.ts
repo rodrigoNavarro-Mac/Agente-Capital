@@ -445,10 +445,14 @@ export async function sendTemplateMessage(
             language: { code: languageCode },
         };
         if (bodyParameters && bodyParameters.length > 0) {
+            // La API rechaza parámetros vacíos (code 100: "Parameter name is missing or empty")
+            const sanitized = bodyParameters.map((p) =>
+                (typeof p === 'string' && p.trim().length > 0) ? p.trim() : 'Cliente'
+            );
             template.components = [
                 {
                     type: 'body',
-                    parameters: bodyParameters.map((text) => ({ type: 'text' as const, text })),
+                    parameters: sanitized.map((text) => ({ type: 'text' as const, text })),
                 },
             ];
         }
