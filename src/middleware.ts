@@ -58,6 +58,7 @@ export async function middleware(request: NextRequest) {
   const publicRoutes = [
     '/api/auth/login',
     '/api/auth/refresh',
+    '/api/auth/canva/callback', // Redirect URI registrada en app Canva (no recibe token de usuario)
     '/api/webhooks/whatsapp',  // Webhook de WhatsApp (verifica con hub.verify_token)
     '/api/webhooks/cliq',      // Webhook Cliq -> WA (verifica con CLIQ_BRIDGE_SECRET)
     '/api/debug/cliq-token-check',  // Diagnóstico de token Cliq (solo devuelve estado, sin datos sensibles)
