@@ -8,8 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
-import { getAllZohoLeads, getAllZohoDeals, getZohoNotesForRecords } from '@/lib/services/zoho-crm';
-import { syncZohoLead, syncZohoDeal, syncZohoNote, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/db/postgres';
+import { getAllZohoLeads, getAllZohoDeals, getAllZohoActivities, getZohoNotesForRecords, getZohoRecordTimeline, parseStageTransitionsFromTimeline } from '@/lib/services/zoho-crm';
+import { syncZohoLead, syncZohoDeal, syncZohoNote, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
@@ -280,6 +280,151 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
           : `Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`;
         logger.error('Deals sync failed', error, { errorMessage }, logScope);
+      }
+    }
+
+    // Backfill incremental de historial de etapas (75 registros por sync)
+    // Solo para registros que nunca han tenido entrada en zoho_stage_history
+    if (syncType === 'full') {
+      try {
+        logger.info('Starting stage history backfill', {}, logScope);
+
+        const [leadIds, dealIds] = await Promise.all([
+          getRecordsWithoutStageHistory('lead', 40),
+          getRecordsWithoutStageHistory('deal', 35),
+        ]);
+
+        logger.debug('Records pending stage history backfill', {
+          leads: leadIds.length, deals: dealIds.length,
+        }, logScope);
+
+        let backfillInserted = 0;
+        const DELAY_MS = 450; // ~130 req/min — dentro del límite Zoho
+
+        // Backfill leads
+        for (const leadId of leadIds) {
+          try {
+            const timeline = await getZohoRecordTimeline('Leads', leadId);
+            const transitions = parseStageTransitionsFromTimeline(timeline, 'Lead_Status');
+            // Enriquecer con desarrollo/owner desde BD
+            const meta = await query<{ desarrollo: string | null; owner_name: string | null }>(
+              'SELECT desarrollo, owner_name FROM zoho_leads WHERE zoho_id = $1', [leadId]
+            );
+            const { desarrollo, owner_name } = meta.rows[0] ?? {};
+            const entries = transitions.map(t => ({
+              record_type: 'lead' as const,
+              record_id: leadId,
+              desarrollo: desarrollo ?? undefined,
+              owner_name: owner_name ?? undefined,
+              from_stage: t.from_stage,
+              to_stage: t.to_stage,
+              changed_at: t.changed_at,
+            }));
+            // Si el timeline no devolvió transiciones, insertar al menos el estado actual
+            if (entries.length === 0) {
+              const cur = await query<{ lead_status: string | null; created_time: Date | null }>(
+                'SELECT lead_status, created_time FROM zoho_leads WHERE zoho_id = $1', [leadId]
+              );
+              if (cur.rows[0]?.lead_status) {
+                entries.push({
+                  record_type: 'lead',
+                  record_id: leadId,
+                  desarrollo: desarrollo ?? undefined,
+                  owner_name: owner_name ?? undefined,
+                  from_stage: null,
+                  to_stage: cur.rows[0].lead_status,
+                  changed_at: cur.rows[0].created_time ?? new Date(),
+                });
+              }
+            }
+            backfillInserted += await bulkInsertStageHistory(entries);
+          } catch {
+            logger.warn('Backfill failed for lead', { leadId }, logScope);
+          }
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
+
+        // Backfill deals
+        for (const dealId of dealIds) {
+          try {
+            const timeline = await getZohoRecordTimeline('Deals', dealId);
+            const transitions = parseStageTransitionsFromTimeline(timeline, 'Stage');
+            const meta = await query<{ desarrollo: string | null; owner_name: string | null }>(
+              'SELECT desarrollo, owner_name FROM zoho_deals WHERE zoho_id = $1', [dealId]
+            );
+            const { desarrollo, owner_name } = meta.rows[0] ?? {};
+            const entries = transitions.map(t => ({
+              record_type: 'deal' as const,
+              record_id: dealId,
+              desarrollo: desarrollo ?? undefined,
+              owner_name: owner_name ?? undefined,
+              from_stage: t.from_stage,
+              to_stage: t.to_stage,
+              changed_at: t.changed_at,
+            }));
+            if (entries.length === 0) {
+              const cur = await query<{ stage: string | null; created_time: Date | null }>(
+                'SELECT stage, created_time FROM zoho_deals WHERE zoho_id = $1', [dealId]
+              );
+              if (cur.rows[0]?.stage) {
+                entries.push({
+                  record_type: 'deal',
+                  record_id: dealId,
+                  desarrollo: desarrollo ?? undefined,
+                  owner_name: owner_name ?? undefined,
+                  from_stage: null,
+                  to_stage: cur.rows[0].stage,
+                  changed_at: cur.rows[0].created_time ?? new Date(),
+                });
+              }
+            }
+            backfillInserted += await bulkInsertStageHistory(entries);
+          } catch {
+            logger.warn('Backfill failed for deal', { dealId }, logScope);
+          }
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
+
+        logger.info('Stage history backfill completed', {
+          leadsProcessed: leadIds.length,
+          dealsProcessed: dealIds.length,
+          rowsInserted: backfillInserted,
+        }, logScope);
+      } catch (backfillError) {
+        logger.warn('Stage history backfill failed (non-critical)', undefined, logScope);
+        logger.error('Backfill error', backfillError, {}, logScope);
+      }
+    }
+
+    // Sincronizar actividades (solo en sync full)
+    if (syncType === 'full') {
+      try {
+        logger.info('Starting Zoho activities sync', {}, logScope);
+        const activities = await getAllZohoActivities('all');
+        let activitiesSynced = 0;
+        for (const activity of activities) {
+          try {
+            const leadId = activity.Who_Id?.id;
+            const dealId = activity.What_Id?.id;
+            let actDesarrollo: string | undefined;
+            if (leadId) {
+              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_leads WHERE zoho_id=$1', [leadId]);
+              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
+            } else if (dealId) {
+              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_deals WHERE zoho_id=$1', [dealId]);
+              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
+            }
+            await syncZohoActivity(activity, leadId, dealId, actDesarrollo);
+            activitiesSynced++;
+          } catch {
+            logger.warn('Could not sync activity', { activityId: activity.id }, logScope);
+          }
+        }
+        logger.info('Activities sync completed', { activitiesSynced }, logScope);
+      } catch (actSyncError) {
+        // No-crítico: no fallar el sync general por actividades
+        logger.warn('Activities sync failed (non-critical)', undefined, logScope);
+        logger.error('Activities sync error', actSyncError, {}, logScope);
       }
     }
 

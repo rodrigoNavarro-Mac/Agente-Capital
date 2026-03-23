@@ -4,7 +4,13 @@
       "Bash(npm run:*)",
       "Bash(python:*)",
       "Bash(npx jest:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(find /c/Users/rnava/Documents/Capital/Agente/src -name *zoho* -type f ! -path */node_modules/*)",
+      "Bash(grep -r \"zoho.*webhook\\\\|webhook.*zoho\" /c/Users/rnava/Documents/Capital/Agente/src --include=*.ts --include=*.tsx)",
+      "Bash(xargs grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -v \"^\\\\s*//\")",
+      "Bash(ls /c/Users/rnava/Documents/Capital/Agente/.env*)"
     ]
   }
 }

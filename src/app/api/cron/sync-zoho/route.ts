@@ -9,8 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllZohoLeads, getAllZohoDeals } from '@/lib/services/zoho-crm';
-import { syncZohoLead, syncZohoDeal, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho } from '@/lib/db/postgres';
+import { getAllZohoLeads, getAllZohoDeals, getAllZohoActivities, getZohoRecordTimeline, parseStageTransitionsFromTimeline } from '@/lib/services/zoho-crm';
+import { syncZohoLead, syncZohoDeal, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 
 // =====================================================
@@ -180,6 +180,112 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? `${errorMessage}; Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`
           : `Error sincronizando deals: ${error instanceof Error ? error.message : String(error)}`;
         logger.error('[ZohoSyncCron] Error sincronizando deals', error, {}, 'cron-sync-zoho');
+      }
+    }
+
+    // Backfill incremental de historial de etapas
+    if (syncType === 'full') {
+      try {
+        const [leadIds, dealIds] = await Promise.all([
+          getRecordsWithoutStageHistory('lead', 40),
+          getRecordsWithoutStageHistory('deal', 35),
+        ]);
+        logger.info('[ZohoSyncCron] Stage history backfill', { leads: leadIds.length, deals: dealIds.length }, 'cron-sync-zoho');
+
+        let backfillInserted = 0;
+        const DELAY_MS = 450;
+
+        for (const leadId of leadIds) {
+          try {
+            const timeline = await getZohoRecordTimeline('Leads', leadId);
+            const transitions = parseStageTransitionsFromTimeline(timeline, 'Lead_Status');
+            const meta = await query<{ desarrollo: string | null; owner_name: string | null }>(
+              'SELECT desarrollo, owner_name FROM zoho_leads WHERE zoho_id = $1', [leadId]
+            );
+            const { desarrollo, owner_name } = meta.rows[0] ?? {};
+            const entries = transitions.map(t => ({
+              record_type: 'lead' as const, record_id: leadId,
+              desarrollo: desarrollo ?? undefined, owner_name: owner_name ?? undefined,
+              from_stage: t.from_stage, to_stage: t.to_stage, changed_at: t.changed_at,
+            }));
+            if (entries.length === 0) {
+              const cur = await query<{ lead_status: string | null; created_time: Date | null }>(
+                'SELECT lead_status, created_time FROM zoho_leads WHERE zoho_id = $1', [leadId]
+              );
+              if (cur.rows[0]?.lead_status) {
+                entries.push({ record_type: 'lead', record_id: leadId,
+                  desarrollo: desarrollo ?? undefined, owner_name: owner_name ?? undefined,
+                  from_stage: null, to_stage: cur.rows[0].lead_status,
+                  changed_at: cur.rows[0].created_time ?? new Date() });
+              }
+            }
+            backfillInserted += await bulkInsertStageHistory(entries);
+          } catch { /* no crítico */ }
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
+
+        for (const dealId of dealIds) {
+          try {
+            const timeline = await getZohoRecordTimeline('Deals', dealId);
+            const transitions = parseStageTransitionsFromTimeline(timeline, 'Stage');
+            const meta = await query<{ desarrollo: string | null; owner_name: string | null }>(
+              'SELECT desarrollo, owner_name FROM zoho_deals WHERE zoho_id = $1', [dealId]
+            );
+            const { desarrollo, owner_name } = meta.rows[0] ?? {};
+            const entries = transitions.map(t => ({
+              record_type: 'deal' as const, record_id: dealId,
+              desarrollo: desarrollo ?? undefined, owner_name: owner_name ?? undefined,
+              from_stage: t.from_stage, to_stage: t.to_stage, changed_at: t.changed_at,
+            }));
+            if (entries.length === 0) {
+              const cur = await query<{ stage: string | null; created_time: Date | null }>(
+                'SELECT stage, created_time FROM zoho_deals WHERE zoho_id = $1', [dealId]
+              );
+              if (cur.rows[0]?.stage) {
+                entries.push({ record_type: 'deal', record_id: dealId,
+                  desarrollo: desarrollo ?? undefined, owner_name: owner_name ?? undefined,
+                  from_stage: null, to_stage: cur.rows[0].stage,
+                  changed_at: cur.rows[0].created_time ?? new Date() });
+              }
+            }
+            backfillInserted += await bulkInsertStageHistory(entries);
+          } catch { /* no crítico */ }
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
+
+        logger.info('[ZohoSyncCron] Backfill completado', { backfillInserted }, 'cron-sync-zoho');
+      } catch {
+        logger.warn('[ZohoSyncCron] Backfill failed (non-critical)', undefined, 'cron-sync-zoho');
+      }
+    }
+
+    // Sincronizar actividades (solo en sync full)
+    if (syncType === 'full') {
+      try {
+        logger.info('[ZohoSyncCron] Sincronizando actividades', {}, 'cron-sync-zoho');
+        const activities = await getAllZohoActivities('all');
+        let activitiesSynced = 0;
+        for (const activity of activities) {
+          try {
+            const leadId = activity.Who_Id?.id;
+            const dealId = activity.What_Id?.id;
+            let actDesarrollo: string | undefined;
+            if (leadId) {
+              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_leads WHERE zoho_id=$1', [leadId]);
+              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
+            } else if (dealId) {
+              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_deals WHERE zoho_id=$1', [dealId]);
+              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
+            }
+            await syncZohoActivity(activity, leadId, dealId, actDesarrollo);
+            activitiesSynced++;
+          } catch {
+            logger.warn('[ZohoSyncCron] Error sincronizando actividad', { activityId: activity.id }, 'cron-sync-zoho');
+          }
+        }
+        logger.info('[ZohoSyncCron] Actividades sincronizadas', { activitiesSynced }, 'cron-sync-zoho');
+      } catch {
+        logger.warn('[ZohoSyncCron] Activities sync failed (non-critical)', undefined, 'cron-sync-zoho');
       }
     }
 

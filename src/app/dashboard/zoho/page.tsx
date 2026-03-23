@@ -25,7 +25,7 @@ import {
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie, ReferenceLine } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie, ReferenceLine, ComposedChart } from 'recharts';
 import { getDevelopmentColors, getChartColor } from '@/lib/utils/development-colors';
 import { buildBucketKeys, formatBucketLabel, getBucketKeyForDate, getRollingPeriodDates, toISODateLocal, getPreviousPeriodForCustomRange, type TimePeriod } from '@/lib/utils/time-buckets';
 import { logger } from '@/lib/utils/logger';
@@ -70,7 +70,13 @@ export default function ZohoCRMPage() {
   });
   const [showLastMonth, setShowLastMonth] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Analytics tab
+  const [analyticsData, setAnalyticsData] = useState<any | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsSortKey, setAnalyticsSortKey] = useState<string>('total_leads');
+  const [analyticsSortAsc, setAnalyticsSortAsc] = useState(false);
 
   const { toast } = useToast();
 
@@ -599,6 +605,40 @@ export default function ZohoCRMPage() {
     selectedStatus,
     showLastMonth,
   ]);
+
+  // Cargar analytics solo cuando el tab esté activo
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAnalytics = async () => {
+      if (activeTab !== 'analytics') return;
+      setAnalyticsLoading(true);
+      try {
+        const token = localStorage.getItem('accessToken');
+        const { startDate, endDate } = getPeriodDates(selectedPeriod, false);
+        const params = new URLSearchParams({ type: 'all' });
+        if (selectedDesarrollo && selectedDesarrollo !== 'all') params.set('desarrollo', selectedDesarrollo);
+        if (selectedOwner.length > 0) params.set('owner', selectedOwner[0]);
+        if (startDate) params.set('startDate', startDate.toISOString());
+        if (endDate) params.set('endDate', endDate.toISOString());
+
+        const res = await fetch(`/api/zoho/analytics?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (!cancelled && json.success) {
+          setAnalyticsData(json.data);
+        }
+      } catch (e) {
+        logger.error('Error loading analytics:', e);
+      } finally {
+        if (!cancelled) setAnalyticsLoading(false);
+      }
+    };
+
+    loadAnalytics();
+    return () => { cancelled = true; };
+  }, [activeTab, getPeriodDates, selectedDesarrollo, selectedOwner, selectedPeriod]);
 
   const handleGenerateAINotesInsights = async () => {
     try {
@@ -1706,127 +1746,146 @@ export default function ZohoCRMPage() {
         </Card>
       )}
 
-      {/* Global Filters */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Filtros Globales
-              </CardTitle>
-              <CardDescription>Filtra las estadísticas por diferentes criterios</CardDescription>
+      {/* Global Filters — barra compacta */}
+      <div className="rounded-lg border bg-card shadow-sm">
+        {/* Cabecera siempre visible */}
+        <div className="flex items-center gap-2 px-3 py-2">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filtros</span>
+          {/* Chips de filtros activos */}
+          <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+            {selectedDesarrollo !== 'all' && (
+              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">
+                {selectedDesarrollo}
+                <button onClick={() => setSelectedDesarrollo('all')} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+            {selectedPeriod !== 'month' && (
+              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">
+                {selectedPeriod === 'week' ? 'Semanal' : selectedPeriod === 'quarter' ? 'Trimestral' : selectedPeriod === 'year' ? 'Anual' : selectedPeriod === 'custom' ? 'Personalizado' : selectedPeriod}
+                <button onClick={() => setSelectedPeriod('month')} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+            {selectedSource.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">
+                {selectedSource.length} fuente{selectedSource.length > 1 ? 's' : ''}
+                <button onClick={() => setSelectedSource([])} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+            {selectedOwner.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">
+                {selectedOwner.length} asesor{selectedOwner.length > 1 ? 'es' : ''}
+                <button onClick={() => setSelectedOwner([])} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+            {selectedStatus.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">
+                {selectedStatus.length} estado{selectedStatus.length > 1 ? 's' : ''}
+                <button onClick={() => setSelectedStatus([])} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+            {showLastMonth && (
+              <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-medium">
+                Período anterior
+                <button onClick={() => setShowLastMonth(false)} className="hover:text-destructive leading-none">×</button>
+              </span>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFiltersOpen(o => !o)}
+            className="h-7 px-2 text-xs text-muted-foreground shrink-0"
+          >
+            {filtersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            <span className="ml-1">{filtersOpen ? 'Cerrar' : 'Editar'}</span>
+          </Button>
+        </div>
+
+        {/* Panel expandible */}
+        {filtersOpen && (
+          <div className="border-t px-3 py-3 flex flex-wrap gap-2 items-end">
+            <div className="flex flex-col gap-1 min-w-[130px]">
+              <label className="text-[11px] font-medium text-muted-foreground">Periodo</label>
+              <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Periodo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="week">Semanal</SelectItem>
+                  <SelectItem value="month">Mensual</SelectItem>
+                  <SelectItem value="quarter">Trimestral</SelectItem>
+                  <SelectItem value="year">Anual</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedPeriod === 'custom' && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Rango</label>
+                <DatePickerWithRange date={customDateRange} onDateChange={setCustomDateRange} />
+              </div>
+            )}
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <label className="text-[11px] font-medium text-muted-foreground">Desarrollo</label>
+              <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {availableDevelopments.map(dev => (
+                    <SelectItem key={dev} value={dev}>{dev}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <label className="text-[11px] font-medium text-muted-foreground">Fuente</label>
+              <MultiSelect
+                options={availableSources.map(s => ({ label: s, value: s }))}
+                selected={selectedSource}
+                onChange={setSelectedSource}
+                placeholder="Todas"
+              />
+            </div>
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <label className="text-[11px] font-medium text-muted-foreground">Asesor</label>
+              <MultiSelect
+                options={availableOwners.map(o => ({ label: o, value: o }))}
+                selected={selectedOwner}
+                onChange={setSelectedOwner}
+                placeholder="Todos"
+              />
+            </div>
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <label className="text-[11px] font-medium text-muted-foreground">Estado</label>
+              <MultiSelect
+                options={availableStatuses.map(s => ({ label: s, value: s }))}
+                selected={selectedStatus}
+                onChange={setSelectedStatus}
+                placeholder="Todos"
+              />
             </div>
             <Button
-              variant="ghost"
+              variant={showLastMonth ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setFiltersOpen((open) => !open)}
-              className="flex items-center gap-2"
+              onClick={() => setShowLastMonth(!showLastMonth)}
+              className="h-8 text-xs self-end"
             >
-              {filtersOpen ? (
-                <>
-                  <ChevronUp className="h-4 w-4" />
-                  Ocultar
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-4 w-4" />
-                  Mostrar
-                </>
-              )}
+              <Calendar className="h-3.5 w-3.5 mr-1.5" />
+              {showLastMonth ? 'Período actual' : 'Período anterior'}
             </Button>
           </div>
-        </CardHeader>
-        {filtersOpen && (
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Periodo</label>
-                <div className="flex flex-col gap-2">
-                  <Select value={selectedPeriod} onValueChange={(value: TimePeriod) => setSelectedPeriod(value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar periodo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="week">Semanal</SelectItem>
-                      <SelectItem value="month">Mensual</SelectItem>
-                      <SelectItem value="quarter">Trimestral</SelectItem>
-                      <SelectItem value="year">Anual</SelectItem>
-                      <SelectItem value="custom">Personalizado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {selectedPeriod === 'custom' && (
-                    <DatePickerWithRange
-                      className="w-full"
-                      date={customDateRange}
-                      onDateChange={setCustomDateRange}
-                    />
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Desarrollo</label>
-                <Select value={selectedDesarrollo} onValueChange={setSelectedDesarrollo}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar desarrollo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los desarrollos</SelectItem>
-                    {availableDevelopments.map((dev) => (
-                      <SelectItem key={dev} value={dev}>
-                        {dev}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Fuente de Lead</label>
-                <MultiSelect
-                  options={availableSources.map((source) => ({ label: source, value: source }))}
-                  selected={selectedSource}
-                  onChange={setSelectedSource}
-                  placeholder="Seleccionar fuentes"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Asesor</label>
-                <MultiSelect
-                  options={availableOwners.map((owner) => ({ label: owner, value: owner }))}
-                  selected={selectedOwner}
-                  onChange={setSelectedOwner}
-                  placeholder="Seleccionar asesores"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Estado del Pipeline</label>
-                <MultiSelect
-                  options={availableStatuses.map((status) => ({ label: status, value: status }))}
-                  selected={selectedStatus}
-                  onChange={setSelectedStatus}
-                  placeholder="Seleccionar estados"
-                />
-              </div>
-              <div className="flex items-end">
-                <Button
-                  variant={showLastMonth ? "default" : "outline"}
-                  onClick={() => setShowLastMonth(!showLastMonth)}
-                  className="w-full"
-                >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  {showLastMonth ? 'Ver periodo actual' : 'Ver periodo anterior'}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
         )}
-      </Card>
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <TabsList>
           <TabsTrigger value="executive">Vista Ejecutiva</TabsTrigger>
           <TabsTrigger value="stats">Estadísticas</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
         {/* Vista Ejecutiva */}
@@ -3373,6 +3432,494 @@ export default function ZohoCRMPage() {
                 </p>
               </CardContent>
             </Card>
+          )}
+        </TabsContent>
+
+        {/* Analytics */}
+        <TabsContent value="analytics" className="flex-1 overflow-auto">
+          {analyticsLoading ? (
+            <div className="mt-6 flex flex-col items-center justify-center py-20 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Cargando analíticas avanzadas...</p>
+            </div>
+          ) : analyticsData ? (() => {
+            // KPIs derivados del scorecard
+            const sc = analyticsData.scorecard ?? [];
+            const kpiLeads = sc.reduce((s: number, r: any) => s + (r.total_leads ?? 0), 0);
+            const kpiDeals = sc.reduce((s: number, r: any) => s + (r.total_deals ?? 0), 0);
+            const kpiCalls = sc.reduce((s: number, r: any) => s + (r.total_calls ?? 0), 0);
+            const kpiConv = sc.length > 0 ? (sc.reduce((s: number, r: any) => s + (r.conversion_rate ?? 0), 0) / sc.length).toFixed(1) : '—';
+            // Forecast total esperado
+            const fc = analyticsData.forecast ?? [];
+            const kpiForecast = fc.reduce((s: number, r: any) => s + (Number(r.expected_value) || 0), 0);
+            // stageTime separado por tipo
+            const st: any[] = analyticsData.stageTime ?? [];
+            const stLeads = st.filter((r: any) => r.record_type === 'lead');
+            const stDeals = st.filter((r: any) => r.record_type === 'deal');
+
+            // Helper: funnel visual (CSS, no recharts)
+            const FunnelViz = ({ items, colorFn }: { items: { stage: string; count: number; pct: number }[], colorFn: (i: number) => string }) => {
+              if (items.length === 0) return <p className="text-sm text-muted-foreground text-center py-6">Sin datos.</p>;
+              const maxCount = Math.max(...items.map(r => r.count), 1);
+              return (
+                <div className="space-y-1.5">
+                  {items.map((r, i) => {
+                    const barW = Math.max(15, Math.round((r.count / maxCount) * 100));
+                    return (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="w-32 text-right text-xs text-muted-foreground truncate shrink-0" title={r.stage}>{r.stage}</div>
+                        <div className="flex-1 h-8 flex items-center">
+                          <div
+                            className="h-full rounded-md flex items-center justify-center text-xs font-bold text-white shadow-sm transition-all duration-300"
+                            style={{ width: `${barW}%`, background: colorFn(i) }}
+                          >
+                            {r.count > 0 ? r.count : ''}
+                          </div>
+                        </div>
+                        <div className="w-9 text-xs text-muted-foreground text-right shrink-0">{r.pct}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            };
+
+            // Helper: stage velocity cards
+            const StageTimeCards = ({ stages, stuckThreshold }: { stages: any[], stuckThreshold: number }) => {
+              if (stages.length === 0) return (
+                <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                  <Clock className="h-7 w-7 opacity-30" />
+                  <p className="text-xs">Sin datos de tiempo en etapa.</p>
+                </div>
+              );
+              return (
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {stages.map((s: any, i: number) => {
+                    const isRed = s.avg_days > stuckThreshold * 2;
+                    const isYellow = s.avg_days > stuckThreshold;
+                    const borderColor = isRed ? '#ef4444' : isYellow ? '#f59e0b' : '#22c55e';
+                    const bgGrad = isRed
+                      ? 'linear-gradient(135deg,#fef2f2,#fff)'
+                      : isYellow
+                        ? 'linear-gradient(135deg,#fffbeb,#fff)'
+                        : 'linear-gradient(135deg,#f0fdf4,#fff)';
+                    const dayColor = isRed ? '#dc2626' : isYellow ? '#d97706' : '#16a34a';
+                    return (
+                      <div
+                        key={i}
+                        className="flex-shrink-0 w-40 rounded-xl p-3 border-l-4"
+                        style={{ borderLeftColor: borderColor, background: bgGrad, borderTop: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
+                      >
+                        <p className="text-xs text-muted-foreground truncate font-medium" title={s.stage}>{s.stage}</p>
+                        <p className="text-2xl font-black mt-0.5" style={{ color: dayColor }}>
+                          {s.avg_days > 0 ? `${s.avg_days}d` : '—'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{s.count} registros</p>
+                        {s.stuck_count > 0 && (
+                          <span className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+                            ⚠ {s.stuck_count} estancados
+                          </span>
+                        )}
+                        <div className="mt-2 h-1 rounded-full bg-gray-200 overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (s.avg_days / (stuckThreshold * 3)) * 100)}%`, backgroundColor: dayColor }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            };
+
+            return (
+              <div className="mt-4 space-y-5">
+
+                {/* ── KPI row ────────────────────────────────── */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {[
+                    {
+                      label: 'Total Leads', value: kpiLeads, sub: 'en el período',
+                      grad: 'linear-gradient(135deg,#1e3a8a 0%,#3b82f6 100%)',
+                    },
+                    {
+                      label: 'Total Deals', value: kpiDeals, sub: 'oportunidades',
+                      grad: 'linear-gradient(135deg,#5b21b6 0%,#8b5cf6 100%)',
+                    },
+                    {
+                      label: 'Conv. Prom.', value: `${kpiConv}%`, sub: 'leads → deals',
+                      grad: 'linear-gradient(135deg,#065f46 0%,#10b981 100%)',
+                    },
+                    {
+                      label: 'Llamadas', value: kpiCalls, sub: 'registradas',
+                      grad: 'linear-gradient(135deg,#78350f 0%,#f59e0b 100%)',
+                    },
+                    {
+                      label: 'Pronóstico', value: kpiForecast > 0 ? `$${(kpiForecast / 1_000_000).toFixed(1)}M` : '—', sub: 'ingreso esperado',
+                      grad: 'linear-gradient(135deg,#881337 0%,#f43f5e 100%)',
+                    },
+                  ].map(k => (
+                    <div
+                      key={k.label}
+                      className="rounded-xl p-4 text-white shadow-sm"
+                      style={{ background: k.grad }}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-widest text-white/80">{k.label}</p>
+                      <p className="text-3xl font-black mt-1 leading-none text-white">{k.value}</p>
+                      <p className="text-xs text-white/70 mt-1">{k.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Funnel ─────────────────────────────────── */}
+                {analyticsData.funnel && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base">Funnel de Leads</CardTitle>
+                          <Badge variant="outline" className="text-xs font-semibold">
+                            {(analyticsData.funnel.leads ?? []).reduce((s: number, r: any) => s + r.count, 0)} leads
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <FunnelViz
+                          items={analyticsData.funnel.leads ?? []}
+                          colorFn={i => {
+                            const blues = ['#1d4ed8','#2563eb','#3b82f6','#60a5fa','#93c5fd','#bfdbfe'];
+                            return blues[i] || '#dbeafe';
+                          }}
+                        />
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base">Funnel de Deals</CardTitle>
+                          <Badge variant="outline" className="text-xs font-semibold">
+                            {(analyticsData.funnel.deals ?? []).reduce((s: number, r: any) => s + r.count, 0)} deals
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <FunnelViz
+                          items={analyticsData.funnel.deals ?? []}
+                          colorFn={i => {
+                            const purples = ['#5b21b6','#6d28d9','#7c3aed','#8b5cf6','#a78bfa','#c4b5fd'];
+                            return purples[i] || '#ddd6fe';
+                          }}
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* ── Pipeline Actual ─────────────────────────── */}
+                {analyticsData.stageTime && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <CardTitle className="text-base">Tiempo Actual en Etapa</CardTitle>
+                          <CardDescription className="text-xs">
+                            Días promedio que los registros activos llevan en cada etapa — color: <span className="text-emerald-600 font-medium">rápido</span> / <span className="text-amber-600 font-medium">medio</span> / <span className="text-red-600 font-medium">estancado</span>
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {stLeads.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Leads</p>
+                          <StageTimeCards stages={stLeads} stuckThreshold={7} />
+                        </div>
+                      )}
+                      {stDeals.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Deals</p>
+                          <StageTimeCards stages={stDeals} stuckThreshold={14} />
+                        </div>
+                      )}
+                      {stLeads.length === 0 && stDeals.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                          <Clock className="h-7 w-7 opacity-30" />
+                          <p className="text-sm">Sin datos de tiempo en etapa. Verifica que el campo <code className="text-xs bg-muted px-1 rounded">Tiempo_En_Fase</code> se esté sincronizando desde Zoho.</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ── Aging + Heatmap ─────────────────────────── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {analyticsData.aging && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Antigüedad de Leads Activos</CardTitle>
+                        <CardDescription className="text-xs">Tiempo desde creación — excluye descartados y convertidos</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {analyticsData.aging.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                            <Users className="h-7 w-7 opacity-30" />
+                            <p className="text-sm">Sin leads activos.</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-5 gap-2 mb-4">
+                              {analyticsData.aging.map((r: any, i: number) => {
+                                const colors = ['#16a34a','#84cc16','#d97706','#ea580c','#dc2626'];
+                                const bgs = ['#f0fdf4','#f7fee7','#fffbeb','#fff7ed','#fef2f2'];
+                                return (
+                                  <div key={i} className="rounded-lg p-2 text-center" style={{ background: bgs[i] || '#f9fafb' }}>
+                                    <div className="text-xl font-black" style={{ color: colors[i] || '#6b7280' }}>{r.count}</div>
+                                    <div className="text-xs text-muted-foreground font-medium">{r.bucket}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <BarChart data={analyticsData.aging} margin={{ right: 5, left: -15 }}>
+                                <XAxis dataKey="bucket" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} formatter={(v: any) => [`${v}`, 'Leads']} />
+                                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                                  {analyticsData.aging.map((_: any, i: number) => (
+                                    <Cell key={i} fill={['#22c55e', '#84cc16', '#f59e0b', '#f97316', '#ef4444'][i] || '#6b7280'} />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {analyticsData.heatmap && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div>
+                            <CardTitle className="text-base">Heatmap de Llamadas</CardTitle>
+                            <CardDescription className="text-xs">Intensidad por día y hora — zona Mérida</CardDescription>
+                          </div>
+                          {analyticsData.heatmap.length > 0 && (
+                            <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
+                              <span className="mr-1">Bajo</span>
+                              {['#f1f5f9','#bfdbfe','#93c5fd','#3b82f6','#1d4ed8','#1e3a8a'].map((c, i) => (
+                                <span key={i} className="inline-block w-4 h-4 rounded-sm" style={{ backgroundColor: c }} />
+                              ))}
+                              <span className="ml-1">Alto</span>
+                            </div>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {analyticsData.heatmap.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                            <Calendar className="h-7 w-7 opacity-30" />
+                            <p className="text-sm text-center">Sin llamadas. Ejecuta un sync completo.</p>
+                          </div>
+                        ) : (() => {
+                          const DAYS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+                          const HOURS = Array.from({ length: 24 }, (_, i) => i);
+                          const heatmapMap = new Map<string, number>();
+                          let maxVal = 1;
+                          analyticsData.heatmap.forEach((r: any) => {
+                            heatmapMap.set(`${r.day_of_week}-${r.hour_of_day}`, r.count);
+                            if (r.count > maxVal) maxVal = r.count;
+                          });
+                          const cellColor = (v: number): string => {
+                            const pct = v / maxVal;
+                            if (pct === 0) return '#f1f5f9';
+                            if (pct < 0.2) return '#bfdbfe';
+                            if (pct < 0.4) return '#93c5fd';
+                            if (pct < 0.65) return '#3b82f6';
+                            if (pct < 0.85) return '#1d4ed8';
+                            return '#1e3a8a';
+                          };
+                          return (
+                            <div className="overflow-x-auto">
+                              <div className="inline-grid gap-0.5" style={{ gridTemplateColumns: `44px repeat(24, 22px)` }}>
+                                <div />
+                                {HOURS.map(h => <div key={h} className="text-center text-[10px] text-muted-foreground">{h}</div>)}
+                                {DAYS.map((day, d) => (
+                                  <>
+                                    <div key={`l-${d}`} className="text-[11px] font-medium text-muted-foreground flex items-center">{day}</div>
+                                    {HOURS.map(h => {
+                                      const val = heatmapMap.get(`${d}-${h}`) || 0;
+                                      return (
+                                        <div
+                                          key={`${d}-${h}`}
+                                          title={`${day} ${h}:00 — ${val} llamadas`}
+                                          className="h-6 rounded-sm cursor-default hover:opacity-75 transition-opacity"
+                                          style={{ backgroundColor: cellColor(val) }}
+                                        />
+                                      );
+                                    })}
+                                  </>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* ── Forecast ────────────────────────────────── */}
+                {analyticsData.forecast && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <CardTitle className="text-base">Pronóstico de Ingresos</CardTitle>
+                          <CardDescription className="text-xs">Escenarios por mes de cierre — pesimista / esperado / optimista</CardDescription>
+                        </div>
+                        {analyticsData.forecast.length > 0 && (
+                          <div className="flex gap-3 text-xs">
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#fca5a5' }} />Pesimista</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block bg-blue-500" />Esperado</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#86efac' }} />Optimista</span>
+                          </div>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {analyticsData.forecast.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                          <TrendingUp className="h-8 w-8 opacity-30" />
+                          <p className="text-sm">Sin deals con fecha de cierre en el período.</p>
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={280}>
+                          <ComposedChart data={analyticsData.forecast} margin={{ right: 20, left: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                            <XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis tickFormatter={(v: number) => `$${(v / 1_000).toFixed(0)}k`} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                              contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                              formatter={(v: any, name: string) => [`$${Number(v).toLocaleString('es-MX')}`, name]}
+                            />
+                            <Bar dataKey="worst_case" name="Pesimista" fill="#fca5a5" radius={[3, 3, 0, 0]} />
+                            <Bar dataKey="expected_value" name="Esperado" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                            <Bar dataKey="best_case" name="Optimista" fill="#86efac" radius={[3, 3, 0, 0]} />
+                            <Line type="monotone" dataKey="expected_value" name="Tendencia" stroke="#1e40af" dot={{ r: 3, fill: '#1e40af' }} strokeWidth={2} legendType="none" />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ── Scorecard ────────────────────────────────── */}
+                {analyticsData.scorecard && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <CardTitle className="text-base">Scorecard de Asesores</CardTitle>
+                          <CardDescription className="text-xs">Métricas consolidadas — clic en encabezado para ordenar</CardDescription>
+                        </div>
+                        {analyticsData.scorecard.length > 0 && (
+                          <Badge variant="outline" className="text-xs">{analyticsData.scorecard.length} asesores</Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {analyticsData.scorecard.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                          <Users className="h-8 w-8 opacity-30" />
+                          <p className="text-sm">Sin datos de asesores.</p>
+                        </div>
+                      ) : (() => {
+                        const cols: { key: string; label: string; align?: string }[] = [
+                          { key: 'owner_name', label: 'Asesor' },
+                          { key: 'total_leads', label: 'Leads', align: 'right' },
+                          { key: 'total_deals', label: 'Deals', align: 'right' },
+                          { key: 'closed_won', label: 'Cerrados', align: 'right' },
+                          { key: 'conversion_rate', label: 'Conv.', align: 'center' },
+                          { key: 'total_calls', label: 'Llamadas', align: 'right' },
+                          { key: 'avg_deal_value', label: 'Val. Prom.', align: 'right' },
+                        ];
+                        const maxLeads = Math.max(...analyticsData.scorecard.map((r: any) => r.total_leads ?? 0), 1);
+                        const sorted = [...analyticsData.scorecard].sort((a: any, b: any) => {
+                          const av = a[analyticsSortKey] ?? 0;
+                          const bv = b[analyticsSortKey] ?? 0;
+                          if (typeof av === 'string') return analyticsSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+                          return analyticsSortAsc ? av - bv : bv - av;
+                        });
+                        const toggleSort = (key: string) => {
+                          if (analyticsSortKey === key) setAnalyticsSortAsc(prev => !prev);
+                          else { setAnalyticsSortKey(key); setAnalyticsSortAsc(false); }
+                        };
+                        return (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b bg-muted/30">
+                                  {cols.map(col => (
+                                    <th
+                                      key={col.key}
+                                      className={`py-2 px-3 cursor-pointer select-none hover:bg-muted/60 font-semibold text-xs text-muted-foreground uppercase tracking-wide transition-colors text-${col.align ?? 'left'}`}
+                                      onClick={() => toggleSort(col.key)}
+                                    >
+                                      {col.label}{analyticsSortKey === col.key ? (analyticsSortAsc ? ' ↑' : ' ↓') : ''}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sorted.map((row: any, i: number) => {
+                                  const convRate = row.conversion_rate ?? 0;
+                                  const convColor = convRate >= 30 ? 'text-emerald-700 bg-emerald-100' : convRate >= 15 ? 'text-amber-700 bg-amber-100' : 'text-red-700 bg-red-100';
+                                  const leadsWidth = Math.round(((row.total_leads ?? 0) / maxLeads) * 100);
+                                  return (
+                                    <tr key={i} className={`border-b transition-colors hover:bg-muted/20 ${i === 0 && !analyticsSortAsc ? 'bg-primary/5' : ''}`}>
+                                      <td className="py-2.5 px-3">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm w-5 text-center">{['🥇','🥈','🥉'][i] ?? ''}</span>
+                                          <div>
+                                            <div className="font-semibold text-sm">{row.owner_name || '—'}</div>
+                                            <div className="h-1.5 mt-1 rounded-full bg-muted overflow-hidden w-24">
+                                              <div className="h-full rounded-full bg-primary/70" style={{ width: `${leadsWidth}%` }} />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-semibold">{row.total_leads ?? 0}</td>
+                                      <td className="py-2.5 px-3 text-right">{row.total_deals ?? 0}</td>
+                                      <td className="py-2.5 px-3 text-right font-semibold text-emerald-700">{row.closed_won ?? 0}</td>
+                                      <td className="py-2.5 px-3 text-center">
+                                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${convColor}`}>
+                                          {convRate}%
+                                        </span>
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right">{row.total_calls ?? 0}</td>
+                                      <td className="py-2.5 px-3 text-right text-muted-foreground">
+                                        {row.avg_deal_value > 0 ? `$${Number(row.avg_deal_value).toLocaleString('es-MX', { maximumFractionDigits: 0 })}` : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+                )}
+
+              </div>
+            );
+          })() : (
+            <div className="mt-6 flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+              <TrendingUp className="h-10 w-10 opacity-20" />
+              <p className="text-sm">Selecciona el tab Analytics para cargar las métricas avanzadas.</p>
+            </div>
           )}
         </TabsContent>
 

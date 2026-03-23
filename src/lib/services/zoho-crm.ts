@@ -813,6 +813,108 @@ export async function getAllZohoActivities(activityType: 'Calls' | 'Tasks' | 'al
   return allActivities;
 }
 
+// =====================================================
+// TIMELINE DE CAMBIOS DE ETAPA (HISTORIAL)
+// =====================================================
+
+export interface ZohoTimelineEntry {
+  id: string;
+  action?: string;
+  audited_time?: string;      // ISO timestamp del cambio
+  done_by?: { id?: string; name?: string };
+  field_history?: Array<{
+    api_name: string;
+    value: any;               // valor ANTERIOR al cambio
+  }>;
+  data?: Record<string, any>; // estructura alternativa que Zoho puede devolver
+  [key: string]: any;
+}
+
+/**
+ * Obtiene el historial de cambios de un registro (timeline) desde Zoho.
+ * Endpoint: GET /crm/v8/{Module}/{record_id}/__timeline
+ * @param module  'Leads' | 'Deals'
+ * @param recordId ID del registro en Zoho
+ * @returns Array de entradas de timeline (puede estar vacío si no hay historial)
+ */
+export async function getZohoRecordTimeline(
+  module: 'Leads' | 'Deals',
+  recordId: string
+): Promise<ZohoTimelineEntry[]> {
+  try {
+    const response = await zohoRequest<{ timeline?: ZohoTimelineEntry[]; __timeline?: ZohoTimelineEntry[] }>(
+      `/${module}/${recordId}/__timeline?include_inner_details=true&per_page=200`,
+      {},
+      true // silent — no loguear 404s de registros sin historial
+    );
+    return response.timeline ?? response.__timeline ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Extrae transiciones de etapa (Lead_Status / Stage) de las entradas del timeline.
+ * Devuelve un array ordenado cronológicamente con from→to y timestamp.
+ */
+export function parseStageTransitionsFromTimeline(
+  entries: ZohoTimelineEntry[],
+  stageField: 'Lead_Status' | 'Stage'
+): Array<{
+  from_stage: string | null;
+  to_stage: string;
+  changed_at: Date;
+  done_by_name?: string;
+}> {
+  const transitions: Array<{ from_stage: string | null; to_stage: string; changed_at: Date; done_by_name?: string }> = [];
+
+  // Ordenar por audited_time ascendente para reconstruir la secuencia
+  const sorted = [...entries]
+    .filter(e => e.audited_time)
+    .sort((a, b) => new Date(a.audited_time!).getTime() - new Date(b.audited_time!).getTime());
+
+  let prevStage: string | null = null;
+
+  for (const entry of sorted) {
+    // Buscar el campo de etapa en field_history
+    const fieldHistoryArr = entry.field_history ?? entry.data?.field_history ?? [];
+    const stageField_ = Array.isArray(fieldHistoryArr)
+      ? fieldHistoryArr.find((f: any) => f.api_name === stageField)
+      : null;
+
+    if (!stageField_) continue;
+
+    // `value` en el timeline de Zoho es el valor ANTERIOR al cambio
+    // El valor NUEVO lo tenemos en la siguiente entrada o en el registro actual
+    const oldValue = stageField_.value ?? null;
+    const newValue = stageField_.current_value ?? stageField_.new_value ?? null;
+
+    // Si Zoho devuelve el valor nuevo explícitamente
+    if (newValue) {
+      transitions.push({
+        from_stage: oldValue ? String(oldValue) : prevStage,
+        to_stage: String(newValue),
+        changed_at: new Date(entry.audited_time!),
+        done_by_name: entry.done_by?.name,
+      });
+      prevStage = String(newValue);
+    } else if (oldValue) {
+      // Solo tenemos el valor anterior: lo tratamos como "salió de esta etapa"
+      // El to_stage lo inferimos del siguiente entry o no lo registramos aún
+      // Guardamos provisionalmente como from→(desconocido) — se completa en la siguiente iteración
+      transitions.push({
+        from_stage: prevStage,
+        to_stage: String(oldValue), // En Zoho, value puede ser el nuevo valor según versión API
+        changed_at: new Date(entry.audited_time!),
+        done_by_name: entry.done_by?.name,
+      });
+      prevStage = String(oldValue);
+    }
+  }
+
+  return transitions;
+}
+
 /**
  * Obtiene todos los leads de ZOHO CRM (sin paginación, todos los registros)
  * Útil para sincronización completa

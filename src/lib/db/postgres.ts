@@ -2985,11 +2985,13 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
     const modifiedTime = lead.Modified_Time ? new Date(lead.Modified_Time) : null;
 
     // Verificar si existe y si necesita actualización
-    // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
+    // Recuperar también lead_status y tiempo_en_fase para detectar cambios de etapa
     const existingResult = await query<{
       modified_time: Date | null;
+      lead_status: string | null;
+      tiempo_en_fase: number | null;
     }>(
-      `SELECT modified_time 
+      `SELECT modified_time, lead_status, tiempo_en_fase
        FROM zoho_leads WHERE zoho_id = $1`,
       [lead.id]
     );
@@ -2997,6 +2999,8 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
     const existingModifiedTime = existingResult.rows[0]?.modified_time
       ? new Date(existingResult.rows[0].modified_time)
       : null;
+    const oldLeadStatus = existingResult.rows[0]?.lead_status ?? null;
+    const oldTiempoEnFase = existingResult.rows[0]?.tiempo_en_fase ?? null;
 
     // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
     if (exists && existingModifiedTime && modifiedTime) {
@@ -3051,6 +3055,33 @@ export async function syncZohoLead(lead: ZohoLead): Promise<boolean | null> {
       ]
     );
 
+    // Registrar historial de etapa
+    if (!exists) {
+      // Primera inserción: registrar estado inicial
+      await insertZohoStageHistory({
+        record_type: 'lead',
+        record_id: lead.id,
+        desarrollo: desarrollo ?? undefined,
+        owner_name: ownerName ?? undefined,
+        from_stage: undefined,
+        to_stage: leadStatus ?? 'Unknown',
+        changed_at: createdTime ?? new Date(),
+        tiempo_en_fase_previo: undefined,
+      });
+    } else if (leadStatus && leadStatus !== oldLeadStatus) {
+      // Cambio de etapa detectado
+      await insertZohoStageHistory({
+        record_type: 'lead',
+        record_id: lead.id,
+        desarrollo: desarrollo ?? undefined,
+        owner_name: ownerName ?? undefined,
+        from_stage: oldLeadStatus ?? undefined,
+        to_stage: leadStatus,
+        changed_at: modifiedTime ?? new Date(),
+        tiempo_en_fase_previo: oldTiempoEnFase ?? undefined,
+      });
+    }
+
     return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
     if (error instanceof Error && (error.message.includes('no existe la relación') ||
@@ -3089,11 +3120,13 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
     const modifiedTime = deal.Modified_Time ? new Date(deal.Modified_Time) : null;
 
     // Verificar si existe y si necesita actualización
-    // Como zoho_id es UNIQUE, solo puede haber un registro, así que obtenemos directamente modified_time
+    // Recuperar también stage y tiempo_en_fase para detectar cambios de etapa
     const existingResult = await query<{
       modified_time: Date | null;
+      stage: string | null;
+      tiempo_en_fase: number | null;
     }>(
-      `SELECT modified_time 
+      `SELECT modified_time, stage, tiempo_en_fase
        FROM zoho_deals WHERE zoho_id = $1`,
       [deal.id]
     );
@@ -3101,6 +3134,8 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
     const existingModifiedTime = existingResult.rows[0]?.modified_time
       ? new Date(existingResult.rows[0].modified_time)
       : null;
+    const oldStage = existingResult.rows[0]?.stage ?? null;
+    const oldTiempoEnFase = existingResult.rows[0]?.tiempo_en_fase ?? null;
 
     // Si existe y no ha cambiado, no actualizar (retornar null para indicar "sin cambios")
     if (exists && existingModifiedTime && modifiedTime) {
@@ -3158,6 +3193,33 @@ export async function syncZohoDeal(deal: ZohoDeal): Promise<boolean | null> {
         modifiedTime,
       ]
     );
+
+    // Registrar historial de etapa
+    if (!exists) {
+      // Primera inserción: registrar estado inicial
+      await insertZohoStageHistory({
+        record_type: 'deal',
+        record_id: deal.id,
+        desarrollo: desarrollo ?? undefined,
+        owner_name: ownerName ?? undefined,
+        from_stage: undefined,
+        to_stage: stage ?? 'Unknown',
+        changed_at: createdTime ?? new Date(),
+        tiempo_en_fase_previo: undefined,
+      });
+    } else if (stage && stage !== oldStage) {
+      // Cambio de etapa detectado
+      await insertZohoStageHistory({
+        record_type: 'deal',
+        record_id: deal.id,
+        desarrollo: desarrollo ?? undefined,
+        owner_name: ownerName ?? undefined,
+        from_stage: oldStage ?? undefined,
+        to_stage: stage,
+        changed_at: modifiedTime ?? new Date(),
+        tiempo_en_fase_previo: oldTiempoEnFase ?? undefined,
+      });
+    }
 
     return !exists; // true si fue creado, false si fue actualizado
   } catch (error) {
@@ -3839,33 +3901,7 @@ export async function getZohoDealsFromDB(
         OR LOWER(COALESCE(stage, data->>'Stage', '')) LIKE '%won%'
       )`;
 
-      const conditions: string[] = [];
-
-      // Condición de fecha de inicio
-      if (startDate) {
-        conditions.push(`(
-          (${createdDateExpr} >= $${paramIndex})
-          OR
-          (${isWonExpr} AND ${closingDateExpr} >= $${paramIndex})
-        )`);
-        params.push(startDate);
-        paramIndex++;
-      }
-
-      // Condición de fecha de fin
-      if (endDate) {
-        // Nota: Si hay start y end, deben cumplirse AMBOS para el mismo criterio (creado o ganado)
-        // Pero aquí simplificamos un poco: 
-        // Si Created >= Start AND Created <= End
-        // OR Won >= Start AND Won <= End
-        // Como postgres evalúa por separado, necesitamos estructurarlo bien.
-      }
-
-      // REESTRUCTURACIÓN PARA MANEJAR START Y END JUNTOS CORRECTAMENTE
-
-      // Lógica combinada
-      // (CreatedInRange) OR (IsWon AND ClosedInRange)
-
+      // Lógica combinada: (CreatedInRange) OR (IsWon AND ClosedInRange)
       let createdFilter = 'TRUE';
       let closedFilter = 'TRUE';
 
@@ -4755,6 +4791,749 @@ export async function claimWhatsAppMessage(messageId: string): Promise<boolean> 
         logger.warn('claimWhatsAppMessage failed, allowing processing', { error: msg, messageId: messageId.substring(0, 20) }, 'postgres');
         return true;
     }
+}
+
+// =====================================================
+// ZOHO ANALYTICS — STAGE HISTORY + ACTIVITIES
+// =====================================================
+
+/**
+ * Devuelve IDs de leads o deals que NO tienen ninguna entrada en zoho_stage_history.
+ * Usado para el backfill incremental del historial durante el sync.
+ * @param recordType 'lead' | 'deal'
+ * @param limit Máximo de IDs a devolver por sync (default 75)
+ */
+export async function getRecordsWithoutStageHistory(
+  recordType: 'lead' | 'deal',
+  limit: number = 75
+): Promise<string[]> {
+  try {
+    const table = recordType === 'lead' ? 'zoho_leads' : 'zoho_deals';
+    const result = await query<{ zoho_id: string }>(
+      `SELECT t.zoho_id
+       FROM ${table} t
+       WHERE NOT EXISTS (
+         SELECT 1 FROM zoho_stage_history h
+         WHERE h.record_id = t.zoho_id AND h.record_type = $1
+       )
+       ORDER BY t.modified_time DESC
+       LIMIT $2`,
+      [recordType, limit]
+    );
+    return result.rows.map(r => r.zoho_id);
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Inserta transiciones de etapa históricas (backfill desde timeline de Zoho).
+ * Usa ON CONFLICT DO NOTHING para ser idempotente.
+ */
+export async function bulkInsertStageHistory(
+  entries: Array<{
+    record_type: 'lead' | 'deal';
+    record_id: string;
+    desarrollo?: string;
+    owner_name?: string;
+    from_stage: string | null;
+    to_stage: string;
+    changed_at: Date;
+  }>
+): Promise<number> {
+  if (entries.length === 0) return 0;
+  let inserted = 0;
+  for (const e of entries) {
+    try {
+      const result = await query(
+        `INSERT INTO zoho_stage_history
+           (record_type, record_id, desarrollo, owner_name, from_stage, to_stage, changed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT DO NOTHING`,
+        [e.record_type, e.record_id, e.desarrollo ?? null, e.owner_name ?? null,
+         e.from_stage ?? null, e.to_stage, e.changed_at]
+      );
+      inserted += result.rowCount ?? 0;
+    } catch {
+      // No crítico: continuar con el siguiente
+    }
+  }
+  return inserted;
+}
+
+/**
+ * Inserta un registro en el historial de transiciones de etapa.
+ * Graceful: si la tabla no existe (migración 047 pendiente), solo hace warn.
+ */
+export async function insertZohoStageHistory(params: {
+  record_type: 'lead' | 'deal';
+  record_id: string;
+  desarrollo?: string;
+  owner_name?: string;
+  from_stage?: string;
+  to_stage: string;
+  changed_at: Date;
+  tiempo_en_fase_previo?: number;
+}): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO zoho_stage_history
+        (record_type, record_id, desarrollo, owner_name, from_stage, to_stage, changed_at, tiempo_en_fase_previo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        params.record_type,
+        params.record_id,
+        params.desarrollo ?? null,
+        params.owner_name ?? null,
+        params.from_stage ?? null,
+        params.to_stage,
+        params.changed_at,
+        params.tiempo_en_fase_previo ?? null,
+      ]
+    );
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      logger.warn('Tabla zoho_stage_history no existe. Ejecuta la migración 047_zoho_stage_history.sql', undefined, 'postgres');
+      return;
+    }
+    // No relanzar: el historial es no-crítico para el sync principal
+    logger.error('Error insertando zoho_stage_history', error, { record_id: params.record_id }, 'postgres');
+  }
+}
+
+/**
+ * Convierte duración en formato "HH:MM" o "H:MM" a segundos.
+ */
+function callDurationToSeconds(duration?: string): number | null {
+  if (!duration) return null;
+  const parts = duration.split(':');
+  if (parts.length !== 2) return null;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  if (isNaN(hours) || isNaN(minutes)) return null;
+  return hours * 3600 + minutes * 60;
+}
+
+/**
+ * Sincroniza una actividad (Call/Task) de Zoho a la base de datos local.
+ * @returns true si fue creada, false si fue actualizada, null si no necesita actualización
+ */
+export async function syncZohoActivity(
+  activity: any,
+  leadId?: string,
+  dealId?: string,
+  desarrollo?: string
+): Promise<boolean | null> {
+  try {
+    const activityType = activity.Activity_Type || (activity.$se_module === 'Calls' ? 'Call' : 'Task');
+    const subject = activity.Subject || null;
+    const callType = activity.Call_Type || null;
+    const callDuration = activity.Call_Duration || null;
+    const callDurationSeconds = callDurationToSeconds(callDuration);
+    const callStartTime = activity.Call_Start_Time ? new Date(activity.Call_Start_Time) : null;
+    const taskStatus = activity.Status || null;
+    const dueDate = activity.Due_Date ? new Date(activity.Due_Date) : null;
+    const ownerId = activity.Owner?.id || null;
+    const ownerName = activity.Owner?.name || null;
+    const createdTime = activity.Created_Time ? new Date(activity.Created_Time) : null;
+    const modifiedTime = activity.Modified_Time ? new Date(activity.Modified_Time) : null;
+
+    // Verificar si ya existe y si cambió
+    const existingResult = await query<{ modified_time: Date | null }>(
+      `SELECT modified_time FROM zoho_activities WHERE zoho_id = $1`,
+      [activity.id]
+    );
+    const exists = existingResult.rows.length > 0;
+    const existingModifiedTime = existingResult.rows[0]?.modified_time
+      ? new Date(existingResult.rows[0].modified_time)
+      : null;
+
+    if (exists && existingModifiedTime && modifiedTime) {
+      if (modifiedTime <= existingModifiedTime) {
+        return null;
+      }
+    }
+
+    await query(
+      `INSERT INTO zoho_activities (
+        id, zoho_id, activity_type, subject, call_type, call_duration,
+        call_duration_seconds, call_start_time, task_status, due_date,
+        owner_id, owner_name, lead_id, deal_id, desarrollo,
+        created_time, modified_time, data, synced_at, last_sync_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
+      ON CONFLICT (zoho_id) DO UPDATE SET
+        activity_type = EXCLUDED.activity_type,
+        subject = EXCLUDED.subject,
+        call_type = EXCLUDED.call_type,
+        call_duration = EXCLUDED.call_duration,
+        call_duration_seconds = EXCLUDED.call_duration_seconds,
+        call_start_time = EXCLUDED.call_start_time,
+        task_status = EXCLUDED.task_status,
+        due_date = EXCLUDED.due_date,
+        owner_id = EXCLUDED.owner_id,
+        owner_name = EXCLUDED.owner_name,
+        lead_id = EXCLUDED.lead_id,
+        deal_id = EXCLUDED.deal_id,
+        desarrollo = EXCLUDED.desarrollo,
+        created_time = EXCLUDED.created_time,
+        modified_time = EXCLUDED.modified_time,
+        data = EXCLUDED.data,
+        last_sync_at = NOW()`,
+      [
+        activity.id,
+        activity.id,
+        activityType,
+        subject,
+        callType,
+        callDuration,
+        callDurationSeconds,
+        callStartTime,
+        taskStatus,
+        dueDate,
+        ownerId,
+        ownerName,
+        leadId ?? null,
+        dealId ?? null,
+        desarrollo ?? null,
+        createdTime,
+        modifiedTime,
+        JSON.stringify(activity),
+      ]
+    );
+
+    return !exists;
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      logger.warn('Tabla zoho_activities no existe. Ejecuta la migración 048_zoho_activities.sql', undefined, 'postgres');
+      return null;
+    }
+    throw error;
+  }
+}
+
+// =====================================================
+// ZOHO ANALYTICS — FUNCIONES DE CONSULTA
+// =====================================================
+
+type AnalyticsFilters = {
+  desarrollo?: string;
+  desarrollos?: string[];
+  startDate?: Date;
+  endDate?: Date;
+  owner?: string;
+};
+
+/**
+ * Velocidad del pipeline: tiempo promedio (días) por etapa para leads o deals.
+ */
+export async function getZohoStageVelocity(
+  filters: AnalyticsFilters & { record_type?: 'lead' | 'deal' }
+): Promise<Array<{ stage: string; avg_days: number; count: number }>> {
+  try {
+    const conditions: string[] = ['from_stage IS NOT NULL'];
+    const params: any[] = [];
+    let p = 1;
+
+    if (filters.record_type) {
+      conditions.push(`record_type = $${p++}`);
+      params.push(filters.record_type);
+    }
+    if (filters.desarrollo) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p++}))`);
+      params.push(filters.desarrollo);
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = ANY($${p++}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+    }
+    if (filters.owner) {
+      conditions.push(`owner_name ILIKE $${p++}`);
+      params.push(`%${filters.owner}%`);
+    }
+    if (filters.startDate) {
+      conditions.push(`changed_at >= $${p++}`);
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(`changed_at <= $${p++}`);
+      params.push(filters.endDate);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Calcula días en etapa desde timestamps consecutivos (LAG) porque
+    // tiempo_en_fase_previo de Zoho suele llegar null.
+    // Prioridad: tiempo_en_fase_previo si existe, si no → diferencia entre changed_at
+    const result = await query<{ stage: string; avg_days: string; count: string }>(
+      `WITH transitions AS (
+         SELECT
+           from_stage,
+           COALESCE(
+             tiempo_en_fase_previo::numeric,
+             ROUND(
+               EXTRACT(EPOCH FROM (
+                 changed_at - LAG(changed_at) OVER (
+                   PARTITION BY record_id, record_type ORDER BY changed_at
+                 )
+               )) / 86400.0,
+               1
+             )
+           ) AS days_in_stage
+         FROM zoho_stage_history
+         ${where}
+       )
+       SELECT
+         from_stage AS stage,
+         COALESCE(ROUND(AVG(days_in_stage)::numeric, 1), 0) AS avg_days,
+         COUNT(*)::text AS count
+       FROM transitions
+       WHERE from_stage IS NOT NULL
+       GROUP BY from_stage
+       ORDER BY avg_days DESC`,
+      params
+    );
+
+    return result.rows.map(r => ({
+      stage: r.stage,
+      avg_days: parseFloat(r.avg_days),
+      count: parseInt(r.count, 10),
+    }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Tiempo actual en etapa: usa tiempo_en_fase de zoho_leads/deals para mostrar
+ * cuántos días llevan en promedio los registros activos en cada etapa.
+ * Más útil que stage_history en etapas tempranas de acumulación de datos.
+ */
+export async function getZohoCurrentStageTime(
+  filters: AnalyticsFilters & { record_type?: 'lead' | 'deal' }
+): Promise<Array<{ stage: string; record_type: string; avg_days: number; count: number; max_days: number; stuck_count: number }>> {
+  try {
+    const terminalExclusions = [
+      `'%descart%'`, `'%convert%'`, `'%ganado%'`, `'%won%'`, `'%lost%'`, `'%perdido%'`,
+    ];
+
+    const buildConditions = (stageCol: string) => {
+      const conds: string[] = [
+        `${stageCol} IS NOT NULL`,
+        `tiempo_en_fase IS NOT NULL`,
+        ...terminalExclusions.map(p => `LOWER(COALESCE(${stageCol}, '')) NOT ILIKE ${p}`),
+      ];
+      return conds;
+    };
+
+    const params: any[] = [];
+    let p = 1;
+    const extraLeadConds: string[] = [];
+    const extraDealConds: string[] = [];
+
+    if (filters.desarrollo) {
+      extraLeadConds.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p}))`);
+      extraDealConds.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p}))`);
+      params.push(filters.desarrollo);
+      p++;
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      extraLeadConds.push(`LOWER(TRIM(desarrollo)) = ANY($${p}::text[])`);
+      extraDealConds.push(`LOWER(TRIM(desarrollo)) = ANY($${p}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+      p++;
+    }
+    if (filters.owner) {
+      extraLeadConds.push(`owner_name ILIKE $${p}`);
+      extraDealConds.push(`owner_name ILIKE $${p}`);
+      params.push(`%${filters.owner}%`);
+      p++;
+    }
+
+    const leadWhere = `WHERE ${[...buildConditions('lead_status'), ...extraLeadConds].join(' AND ')}`;
+    const dealWhere = `WHERE ${[...buildConditions('stage'), ...extraDealConds].join(' AND ')}`;
+
+    const includeLeads = !filters.record_type || filters.record_type === 'lead';
+    const includeDeals = !filters.record_type || filters.record_type === 'deal';
+
+    const parts: string[] = [];
+    if (includeLeads) {
+      parts.push(`
+        SELECT
+          'lead' AS record_type,
+          lead_status AS stage,
+          COUNT(*)::int AS count,
+          ROUND(AVG(tiempo_en_fase)::numeric, 1) AS avg_days,
+          MAX(tiempo_en_fase)::int AS max_days,
+          SUM(CASE WHEN tiempo_en_fase > 7 THEN 1 ELSE 0 END)::int AS stuck_count
+        FROM zoho_leads
+        ${leadWhere}
+        GROUP BY lead_status
+      `);
+    }
+    if (includeDeals) {
+      parts.push(`
+        SELECT
+          'deal' AS record_type,
+          stage,
+          COUNT(*)::int AS count,
+          ROUND(AVG(tiempo_en_fase)::numeric, 1) AS avg_days,
+          MAX(tiempo_en_fase)::int AS max_days,
+          SUM(CASE WHEN tiempo_en_fase > 14 THEN 1 ELSE 0 END)::int AS stuck_count
+        FROM zoho_deals
+        ${dealWhere}
+        GROUP BY stage
+      `);
+    }
+
+    if (parts.length === 0) return [];
+
+    const sql = parts.join(' UNION ALL ') + ' ORDER BY record_type, count DESC';
+    const result = await query<{
+      record_type: string; stage: string; count: number;
+      avg_days: string; max_days: number; stuck_count: number;
+    }>(sql, params);
+
+    return result.rows.map(r => ({
+      record_type: r.record_type,
+      stage: r.stage,
+      count: r.count,
+      avg_days: parseFloat(r.avg_days ?? '0'),
+      max_days: r.max_days ?? 0,
+      stuck_count: r.stuck_count ?? 0,
+    }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Heatmap de llamadas: distribución por día de semana y hora del día (zona America/Merida).
+ */
+export async function getZohoActivityHeatmap(
+  filters: AnalyticsFilters
+): Promise<Array<{ day_of_week: number; hour_of_day: number; count: number }>> {
+  try {
+    const conditions: string[] = [`activity_type = 'Call'`, 'call_start_time IS NOT NULL'];
+    const params: any[] = [];
+    let p = 1;
+
+    if (filters.desarrollo) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p++}))`);
+      params.push(filters.desarrollo);
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = ANY($${p++}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+    }
+    if (filters.owner) {
+      conditions.push(`owner_name ILIKE $${p++}`);
+      params.push(`%${filters.owner}%`);
+    }
+    if (filters.startDate) {
+      conditions.push(`call_start_time >= $${p++}`);
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(`call_start_time <= $${p++}`);
+      params.push(filters.endDate);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await query<{ day_of_week: string; hour_of_day: string; count: string }>(
+      `SELECT
+         EXTRACT(DOW FROM call_start_time AT TIME ZONE 'America/Merida')::int AS day_of_week,
+         EXTRACT(HOUR FROM call_start_time AT TIME ZONE 'America/Merida')::int AS hour_of_day,
+         COUNT(*)::text AS count
+       FROM zoho_activities
+       ${where}
+       GROUP BY 1, 2
+       ORDER BY 1, 2`,
+      params
+    );
+
+    return result.rows.map(r => ({
+      day_of_week: parseInt(r.day_of_week, 10),
+      hour_of_day: parseInt(r.hour_of_day, 10),
+      count: parseInt(r.count, 10),
+    }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Pronóstico de ingresos: valor esperado, optimista y pesimista por mes de cierre.
+ */
+export async function getZohoPipelineForecast(
+  filters: AnalyticsFilters
+): Promise<Array<{ month: string; expected_value: number; best_case: number; worst_case: number; deal_count: number }>> {
+  try {
+    const conditions: string[] = [
+      `COALESCE(closing_date, (data->>'Closing_Date')::date) IS NOT NULL`,
+      `COALESCE(amount, (data->>'Amount')::numeric, 0) > 0`,
+    ];
+    const params: any[] = [];
+    let p = 1;
+
+    if (filters.desarrollo) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p++}))`);
+      params.push(filters.desarrollo);
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = ANY($${p++}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+    }
+    if (filters.owner) {
+      conditions.push(`owner_name ILIKE $${p++}`);
+      params.push(`%${filters.owner}%`);
+    }
+    if (filters.startDate) {
+      conditions.push(`closing_date >= $${p++}`);
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(`closing_date <= $${p++}`);
+      params.push(filters.endDate);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await query<{
+      month: string;
+      expected_value: string;
+      best_case: string;
+      worst_case: string;
+      deal_count: string;
+    }>(
+      `SELECT
+         TO_CHAR(COALESCE(closing_date, (data->>'Closing_Date')::date), 'YYYY-MM') AS month,
+         ROUND(SUM(COALESCE(amount, (data->>'Amount')::numeric, 0) * COALESCE(probability, (data->>'Probability')::numeric, 50) / 100.0)::numeric, 2) AS expected_value,
+         ROUND(SUM(COALESCE(amount, (data->>'Amount')::numeric, 0))::numeric, 2) AS best_case,
+         ROUND(SUM(COALESCE(amount, (data->>'Amount')::numeric, 0) * LEAST(COALESCE(probability, (data->>'Probability')::numeric, 50), 30) / 100.0)::numeric, 2) AS worst_case,
+         COUNT(*)::text AS deal_count
+       FROM zoho_deals
+       ${where}
+       GROUP BY TO_CHAR(COALESCE(closing_date, (data->>'Closing_Date')::date), 'YYYY-MM')
+       ORDER BY 1`,
+      params
+    );
+
+    return result.rows.map(r => ({
+      month: r.month,
+      expected_value: parseFloat(r.expected_value),
+      best_case: parseFloat(r.best_case),
+      worst_case: parseFloat(r.worst_case),
+      deal_count: parseInt(r.deal_count, 10),
+    }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Aging de leads activos: distribución por antigüedad en buckets.
+ */
+export async function getZohoLeadAging(
+  filters: AnalyticsFilters
+): Promise<Array<{ bucket: string; count: number }>> {
+  try {
+    // Excluir estados terminales (descartado, ganado, convertido) en español e inglés
+    // Usar COALESCE con fallback a data->>'Lead_Status' para leads donde la columna directa sea null
+    const terminalExclusions = [
+      `'%descart%'`,
+      `'%convert%'`,
+      `'%ganado%'`,
+      `'%won%'`,
+      `'%lost%'`,
+      `'%perdido%'`,
+    ].map(p => `LOWER(COALESCE(lead_status, data->>'Lead_Status', '')) NOT ILIKE ${p}`);
+
+    const conditions: string[] = [
+      `created_time IS NOT NULL`,
+      ...terminalExclusions,
+    ];
+    const params: any[] = [];
+    let p = 1;
+
+    if (filters.desarrollo) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p++}))`);
+      params.push(filters.desarrollo);
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      conditions.push(`LOWER(TRIM(desarrollo)) = ANY($${p++}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+    }
+    if (filters.owner) {
+      conditions.push(`owner_name ILIKE $${p++}`);
+      params.push(`%${filters.owner}%`);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await query<{ bucket: string; count: string }>(
+      `SELECT
+         CASE
+           WHEN NOW() - created_time <= INTERVAL '3 days'  THEN '0-3d'
+           WHEN NOW() - created_time <= INTERVAL '7 days'  THEN '4-7d'
+           WHEN NOW() - created_time <= INTERVAL '15 days' THEN '8-15d'
+           WHEN NOW() - created_time <= INTERVAL '30 days' THEN '16-30d'
+           ELSE '+30d'
+         END AS bucket,
+         COUNT(*)::text AS count
+       FROM zoho_leads
+       ${where}
+       GROUP BY 1
+       ORDER BY ARRAY_POSITION(ARRAY['0-3d','4-7d','8-15d','16-30d','+30d'],
+         CASE
+           WHEN NOW() - created_time <= INTERVAL '3 days'  THEN '0-3d'
+           WHEN NOW() - created_time <= INTERVAL '7 days'  THEN '4-7d'
+           WHEN NOW() - created_time <= INTERVAL '15 days' THEN '8-15d'
+           WHEN NOW() - created_time <= INTERVAL '30 days' THEN '16-30d'
+           ELSE '+30d'
+         END
+       )`,
+      params
+    );
+
+    return result.rows.map(r => ({ bucket: r.bucket, count: parseInt(r.count, 10) }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Scorecard de asesores: métricas consolidadas por owner.
+ */
+export async function getZohoOwnerScorecard(
+  filters: AnalyticsFilters
+): Promise<Array<{
+  owner_name: string;
+  total_leads: number;
+  total_deals: number;
+  closed_won: number;
+  conversion_rate: number;
+  avg_time_to_contact: number | null;
+  total_calls: number;
+  avg_deal_value: number | null;
+}>> {
+  try {
+    const leadConditions: string[] = [];
+    const dealConditions: string[] = [];
+    const actConditions: string[] = [`a.activity_type = 'Call'`];
+    const params: any[] = [];
+    let p = 1;
+
+    if (filters.desarrollo) {
+      const devClause = `LOWER(TRIM(desarrollo)) = LOWER(TRIM($${p}))`;
+      leadConditions.push(devClause);
+      dealConditions.push(devClause);
+      actConditions.push(`LOWER(TRIM(a.desarrollo)) = LOWER(TRIM($${p}))`);
+      params.push(filters.desarrollo);
+      p++;
+    } else if (filters.desarrollos && filters.desarrollos.length > 0) {
+      const devClause = `LOWER(TRIM(desarrollo)) = ANY($${p}::text[])`;
+      leadConditions.push(devClause);
+      dealConditions.push(devClause);
+      actConditions.push(`LOWER(TRIM(a.desarrollo)) = ANY($${p}::text[])`);
+      params.push(filters.desarrollos.map(d => d.trim().toLowerCase()));
+      p++;
+    }
+    if (filters.startDate) {
+      leadConditions.push(`created_time >= $${p}`);
+      dealConditions.push(`created_time >= $${p}`);
+      actConditions.push(`a.call_start_time >= $${p}`);
+      params.push(filters.startDate);
+      p++;
+    }
+    if (filters.endDate) {
+      leadConditions.push(`created_time <= $${p}`);
+      dealConditions.push(`created_time <= $${p}`);
+      actConditions.push(`a.call_start_time <= $${p}`);
+      params.push(filters.endDate);
+      p++;
+    }
+
+    const lWhere = leadConditions.length > 0 ? `WHERE ${leadConditions.join(' AND ')}` : '';
+    const dWhere = dealConditions.length > 0 ? `WHERE ${dealConditions.join(' AND ')}` : '';
+    const aWhere = `WHERE ${actConditions.join(' AND ')}`;
+
+    const result = await query<{
+      owner_name: string;
+      total_leads: string;
+      total_deals: string;
+      closed_won: string;
+      conversion_rate: string;
+      avg_deal_value: string | null;
+      total_calls: string;
+    }>(
+      `WITH leads_agg AS (
+         SELECT owner_name,
+                COUNT(*) AS total_leads
+         FROM zoho_leads ${lWhere}
+         GROUP BY owner_name
+       ),
+       deals_agg AS (
+         SELECT owner_name,
+                COUNT(*) AS total_deals,
+                SUM(CASE WHEN stage ILIKE '%won%' OR stage ILIKE '%ganado%' THEN 1 ELSE 0 END) AS closed_won,
+                ROUND(AVG(CASE WHEN amount > 0 THEN amount END)::numeric, 2) AS avg_deal_value
+         FROM zoho_deals ${dWhere}
+         GROUP BY owner_name
+       ),
+       calls_agg AS (
+         SELECT a.owner_name,
+                COUNT(*) AS total_calls
+         FROM zoho_activities a ${aWhere}
+         GROUP BY a.owner_name
+       )
+       SELECT
+         COALESCE(l.owner_name, d.owner_name, c.owner_name) AS owner_name,
+         COALESCE(l.total_leads, 0)::text AS total_leads,
+         COALESCE(d.total_deals, 0)::text AS total_deals,
+         COALESCE(d.closed_won, 0)::text AS closed_won,
+         CASE WHEN COALESCE(l.total_leads, 0) > 0
+              THEN ROUND((COALESCE(d.total_deals, 0)::numeric / l.total_leads * 100), 1)
+              ELSE 0
+         END::text AS conversion_rate,
+         d.avg_deal_value::text AS avg_deal_value,
+         COALESCE(c.total_calls, 0)::text AS total_calls
+       FROM leads_agg l
+       FULL OUTER JOIN deals_agg d ON LOWER(TRIM(l.owner_name)) = LOWER(TRIM(d.owner_name))
+       FULL OUTER JOIN calls_agg c ON LOWER(TRIM(COALESCE(l.owner_name, d.owner_name))) = LOWER(TRIM(c.owner_name))
+       ORDER BY total_leads DESC`,
+      params
+    );
+
+    return result.rows.map(r => ({
+      owner_name: r.owner_name,
+      total_leads: parseInt(r.total_leads, 10),
+      total_deals: parseInt(r.total_deals, 10),
+      closed_won: parseInt(r.closed_won, 10),
+      conversion_rate: parseFloat(r.conversion_rate),
+      avg_time_to_contact: null, // Requiere datos de actividades vinculadas a leads — placeholder
+      total_calls: parseInt(r.total_calls, 10),
+      avg_deal_value: r.avg_deal_value ? parseFloat(r.avg_deal_value) : null,
+    }));
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('no existe la relación') || error.message.includes('does not exist'))) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 
