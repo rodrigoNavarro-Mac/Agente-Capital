@@ -33,8 +33,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'CANVA_CLIENT_ID no configurado' }, { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-  const redirectUri = `${appUrl}/api/auth/canva/callback`;
+  // CANVA_REDIRECT_URI debe coincidir exactamente con el URI registrado en el portal de Canva
+  const redirectUri = process.env.CANVA_REDIRECT_URI;
+  if (!redirectUri) {
+    return NextResponse.json({ success: false, error: 'CANVA_REDIRECT_URI no configurado en variables de entorno' }, { status: 500 });
+  }
 
   // Generar PKCE según spec de Canva
   const codeVerifier = crypto.randomBytes(96).toString('base64url');
@@ -48,11 +51,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ['canva_code_verifier_temp', codeVerifier, 'PKCE code_verifier temporal para OAuth Canva', payload.userId]
   );
 
-  // No incluir redirect_uri en la URL de auth — Canva usa el registrado por defecto.
-  // Si se envía y no coincide exactamente, Canva devuelve invalid_request.
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
+    redirect_uri: redirectUri,
     scope: SCOPE_CANVA,
     code_challenge: codeChallenge,
     code_challenge_method: 's256',
