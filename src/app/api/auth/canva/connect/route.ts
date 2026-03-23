@@ -58,14 +58,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const state = crypto.randomUUID();
 
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
     redirect_uri: redirectUri,
     scope: SCOPE,
-    state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
   });
@@ -75,13 +73,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Guardar verifier + state en cookies (HttpOnly, válidas 10 min)
   const response = NextResponse.json({ success: true, data: { url: authUrl } });
   response.cookies.set('canva_code_verifier', codeVerifier, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 600,
-    path: '/',
-    sameSite: 'lax',
-  });
-  response.cookies.set('canva_state', state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     maxAge: 600,

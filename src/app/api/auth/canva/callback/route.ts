@@ -15,7 +15,6 @@ const SCOPE = 'canva-callback';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const state = searchParams.get('state');
   const error = searchParams.get('error');
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
@@ -30,13 +29,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_code`);
   }
 
-  // Validar state (CSRF)
-  const storedState = request.cookies.get('canva_state')?.value;
-  if (!storedState || storedState !== state) {
-    logger.warn('Canva OAuth state mismatch', { state, storedState }, SCOPE);
-    return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=state_mismatch`);
-  }
-
+  // PKCE: el code_verifier en cookie HttpOnly es la protección CSRF suficiente
+  // Canva no siempre devuelve el parámetro state
   const codeVerifier = request.cookies.get('canva_code_verifier')?.value;
   if (!codeVerifier) {
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_verifier`);
