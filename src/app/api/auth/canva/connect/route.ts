@@ -48,17 +48,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ['canva_code_verifier_temp', codeVerifier, 'PKCE code_verifier temporal para OAuth Canva', payload.userId]
   );
 
+  // No incluir redirect_uri en la URL de auth — Canva usa el registrado por defecto.
+  // Si se envía y no coincide exactamente, Canva devuelve invalid_request.
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
-    redirect_uri: redirectUri,
     scope: SCOPE_CANVA,
     code_challenge: codeChallenge,
-    code_challenge_method: 's256', // minúsculas según docs de Canva
+    code_challenge_method: 's256',
   });
 
   const authUrl = `${CANVA_AUTH_URL}?${params.toString()}`;
-  logger.info('Canva connect iniciado', { redirectUri, clientId }, SCOPE_LOG);
+  logger.info('Canva connect iniciado', { clientId, codeChallenge: codeChallenge.substring(0, 10) + '…' }, SCOPE_LOG);
 
   return NextResponse.json({ success: true, data: { url: authUrl } });
 }

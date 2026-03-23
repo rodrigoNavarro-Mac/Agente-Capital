@@ -49,21 +49,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_credentials`);
   }
 
-  const redirectUri = `${appUrl}/api/auth/canva/callback`;
-  logger.info('Canva token exchange iniciado', { redirectUri }, SCOPE);
+  logger.info('Canva token exchange iniciado', {}, SCOPE);
 
   try {
+    // No enviamos redirect_uri — si no se incluyó en el auth URL, no debe ir aquí tampoco
     const res = await fetch(CANVA_TOKEN_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        // Basic Auth recomendado por Canva docs
         Authorization: basicAuth(clientId, clientSecret),
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: redirectUri,
         code_verifier: codeVerifier,
       }),
     });
