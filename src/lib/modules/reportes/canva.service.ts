@@ -32,14 +32,18 @@ async function refreshAccessToken(): Promise<string> {
 
   const refreshToken = await getRefreshToken();
 
+  // Basic Auth según docs Canva: base64(client_id:client_secret)
+  const basicAuth = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`;
+
   const res = await fetch(CANVA_TOKEN_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: basicAuth,
+    },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
     }),
   });
 

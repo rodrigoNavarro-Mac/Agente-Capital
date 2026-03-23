@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import { query } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,29 +10,14 @@ const CANVA_AUTH_URL = 'https://www.canva.com/api/oauth/authorize';
 const SCOPE_CANVA = 'design:content:write asset:read export:write';
 const SCOPE_LOG = 'canva-connect';
 
-function generateCodeVerifier(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Buffer.from(array)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-}
-
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Buffer.from(digest)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-}
-
 /**
  * GET /api/auth/canva/connect
- * Genera URL de autorización Canva y guarda code_verifier en BD.
+ * Genera URL de autorización Canva con PKCE y guarda code_verifier en BD.
+ *
+ * Docs: https://www.canva.dev/docs/connect/authentication/
+ * - code_verifier: randomBytes(96).toString('base64url')
+ * - code_challenge: SHA-256 del verifier, base64url
+ * - code_challenge_method: 's256' (minúsculas, según docs Canva)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
@@ -50,8 +36,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
   const redirectUri = `${appUrl}/api/auth/canva/callback`;
 
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
+  // Generar PKCE según spec de Canva
+  const codeVerifier = crypto.randomBytes(96).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
 
   // Guardar verifier en BD (más confiable que cookies en serverless)
   await query(
@@ -67,11 +54,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     redirect_uri: redirectUri,
     scope: SCOPE_CANVA,
     code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
+    code_challenge_method: 's256', // minúsculas según docs de Canva
   });
 
   const authUrl = `${CANVA_AUTH_URL}?${params.toString()}`;
-  logger.info('Canva connect iniciado', { redirectUri }, SCOPE_LOG);
+  logger.info('Canva connect iniciado', { redirectUri, clientId }, SCOPE_LOG);
 
   return NextResponse.json({ success: true, data: { url: authUrl } });
 }

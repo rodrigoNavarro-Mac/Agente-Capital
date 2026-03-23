@@ -7,9 +7,16 @@ export const dynamic = 'force-dynamic';
 const CANVA_TOKEN_URL = 'https://api.canva.com/rest/v1/oauth/token';
 const SCOPE = 'canva-callback';
 
+function basicAuth(clientId: string, clientSecret: string): string {
+  return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`;
+}
+
 /**
  * GET /api/auth/canva/callback
  * Canva redirige aquí con ?code=... o ?error=...
+ *
+ * Token exchange usa Basic Auth según docs:
+ * Authorization: Basic base64(client_id:client_secret)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
@@ -20,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
 
   if (error) {
-    logger.warn('Canva OAuth rechazado por el usuario', { error, errorDescription }, SCOPE);
+    logger.warn('Canva OAuth rechazado', { error, errorDescription }, SCOPE);
     return NextResponse.redirect(
       `${appUrl}/dashboard/reportes?canva=error&reason=${encodeURIComponent(error)}&detail=${encodeURIComponent(errorDescription)}`
     );
@@ -30,7 +37,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_code`);
   }
 
-  // Leer code_verifier desde BD (más confiable que cookies en serverless)
   const codeVerifier = await getConfig('canva_code_verifier_temp');
   if (!codeVerifier) {
     logger.warn('Canva: no se encontró code_verifier en BD', {}, SCOPE);
@@ -44,19 +50,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const redirectUri = `${appUrl}/api/auth/canva/callback`;
-
   logger.info('Canva token exchange iniciado', { redirectUri }, SCOPE);
 
   try {
     const res = await fetch(CANVA_TOKEN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // Basic Auth recomendado por Canva docs
+        Authorization: basicAuth(clientId, clientSecret),
+      },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri,
-        client_id: clientId,
-        client_secret: clientSecret,
         code_verifier: codeVerifier,
       }),
     });
@@ -66,7 +73,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!res.ok) {
       logger.error('Canva token exchange falló', null, { status: res.status, body: responseBody }, SCOPE);
       return NextResponse.redirect(
-        `${appUrl}/dashboard/reportes?canva=error&reason=token_exchange&detail=${encodeURIComponent(responseBody.substring(0, 200))}`
+        `${appUrl}/dashboard/reportes?canva=error&reason=token_exchange&detail=${encodeURIComponent(responseBody.substring(0, 300))}`
       );
     }
 
@@ -81,7 +88,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_refresh_token`);
     }
 
-    // Guardar refresh_token y limpiar verifier temporal
     await query(
       `INSERT INTO agent_config (key, value, description, updated_by)
        VALUES ($1, $2, $3, 1)
