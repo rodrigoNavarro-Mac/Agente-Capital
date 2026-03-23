@@ -1336,6 +1336,7 @@ export interface ReporteItem {
   canva_export_url: string | null;
   status: 'pending' | 'processing' | 'ready' | 'error';
   error_message: string | null;
+  metadata: Record<string, unknown> | null;
   generated_at: string | null;
   created_at: string;
   updated_at: string;

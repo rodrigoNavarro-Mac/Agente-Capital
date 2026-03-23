@@ -8,16 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import {
-  Loader2,
-  FileText,
-  Download,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Zap,
-  Link2,
-  Link2Off,
+  Loader2, FileText, Download, RefreshCw, AlertCircle,
+  CheckCircle2, Clock, Zap, Link2, Link2Off, Bug, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { getReportes, generarReporte, getReporte, type ReporteItem } from '@/lib/api';
 
@@ -78,7 +70,7 @@ async function fetchCanvaStatus(): Promise<boolean> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return false;
-  const json = await res.json() as { success: boolean; data: { connected: boolean } };
+  const json = await res.json() as { data: { connected: boolean } };
   return json.data?.connected ?? false;
 }
 
@@ -87,9 +79,141 @@ async function fetchCanvaConnectUrl(): Promise<string> {
   const res = await fetch('/api/auth/canva/connect', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error('No se pudo obtener la URL de autorización de Canva');
-  const json = await res.json() as { success: boolean; data: { url: string } };
-  return json.data.url;
+  const json = await res.json() as { success: boolean; error?: string; data?: { url: string } };
+  if (!res.ok || !json.success) throw new Error(json.error ?? 'No se pudo obtener URL de Canva');
+  return json.data!.url;
+}
+
+// =====================================================
+// DEBUG CARD
+// =====================================================
+
+interface DebugStep {
+  step: string;
+  ts: string;
+  ok: boolean;
+  detail?: string;
+}
+
+function DebugCard({ reporte }: { reporte: ReporteItem | null }) {
+  const [open, setOpen] = useState(true);
+
+  if (!reporte) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bug className="h-4 w-4" />
+            Debug
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Selecciona un reporte de la lista para ver el detalle.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const metadata = reporte.metadata as Record<string, unknown> | null;
+  const steps: DebugStep[] = (metadata?.debug_steps as DebugStep[] | undefined) ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3 cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bug className="h-4 w-4" />
+            Debug — Reporte #{reporte.id}
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={reporte.status} />
+            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </div>
+        <CardDescription className="mt-1">
+          {reporte.desarrollo} · {formatPeriodo(reporte.periodo)}
+        </CardDescription>
+      </CardHeader>
+
+      {open && (
+        <CardContent className="space-y-3">
+          {/* Info básica */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-muted-foreground">ID: </span>
+              <span className="font-mono">{reporte.id}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Status: </span>
+              <span className="font-mono">{reporte.status}</span>
+            </div>
+            {reporte.canva_design_id && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Design ID: </span>
+                <span className="font-mono break-all">{reporte.canva_design_id}</span>
+              </div>
+            )}
+            {reporte.canva_export_url && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Export URL: </span>
+                <a
+                  href={reporte.canva_export_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-blue-500 underline break-all"
+                >
+                  {reporte.canva_export_url.substring(0, 80)}…
+                </a>
+              </div>
+            )}
+            {reporte.error_message && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Error: </span>
+                <span className="font-mono text-destructive break-all">{reporte.error_message}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Pasos de debug */}
+          {steps.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pasos</p>
+              <div className="rounded-lg border divide-y text-xs font-mono">
+                {steps.map((s, i) => (
+                  <div key={i} className={`px-3 py-2 flex gap-3 ${s.ok ? '' : 'bg-destructive/5'}`}>
+                    <span className={s.ok ? 'text-green-500' : 'text-destructive'}>
+                      {s.ok ? '✓' : '✗'}
+                    </span>
+                    <span className="font-semibold min-w-[120px]">{s.step}</span>
+                    <span className="text-muted-foreground text-[10px] mt-0.5">
+                      {new Date(s.ts).toLocaleTimeString('es-MX')}
+                    </span>
+                    {s.detail && (
+                      <span className={`break-all ${s.ok ? 'text-muted-foreground' : 'text-destructive'}`}>
+                        {s.detail}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sin pasos de debug registrados.</p>
+          )}
+
+          {/* Raw metadata */}
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Ver metadata completa
+            </summary>
+            <pre className="mt-2 p-3 bg-muted rounded-lg overflow-auto max-h-48 text-[10px]">
+              {JSON.stringify(metadata, null, 2)}
+            </pre>
+          </details>
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 // =====================================================
@@ -110,24 +234,26 @@ export default function ReportesPage() {
   const [pollingId, setPollingId] = useState<number | null>(null);
   const [canvaConnected, setCanvaConnected] = useState<boolean | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [selectedReporte, setSelectedReporte] = useState<ReporteItem | null>(null);
 
-  // Verificar resultado del callback OAuth
+  // Resultado del callback OAuth
   useEffect(() => {
     const result = searchParams.get('canva');
+    if (!result) return;
     if (result === 'success') {
-      toast({ title: 'Canva conectado', description: 'La integración con Canva está activa.' });
+      toast({ title: 'Canva conectado', description: 'La integración está activa.' });
       setCanvaConnected(true);
     } else if (result === 'error') {
       const reason = searchParams.get('reason') ?? 'desconocido';
+      const detail = searchParams.get('detail') ?? '';
       toast({
-        title: 'Error conectando Canva',
-        description: `Razón: ${reason}`,
+        title: `Error Canva: ${reason}`,
+        description: detail || 'Revisa los logs del servidor para más detalle.',
         variant: 'destructive',
       });
     }
   }, [searchParams, toast]);
 
-  // Verificar estado de conexión al montar
   useEffect(() => {
     fetchCanvaStatus().then(setCanvaConnected).catch(() => setCanvaConnected(false));
   }, []);
@@ -138,6 +264,11 @@ export default function ReportesPage() {
     try {
       const data = await getReportes(desarrollo);
       setReportes(data);
+      // Actualizar reporte seleccionado si está en la lista
+      if (selectedReporte) {
+        const updated = data.find(r => r.id === selectedReporte.id);
+        if (updated) setSelectedReporte(updated);
+      }
     } catch (err) {
       toast({
         title: 'Error cargando reportes',
@@ -147,7 +278,7 @@ export default function ReportesPage() {
     } finally {
       setLoading(false);
     }
-  }, [desarrollo, toast]);
+  }, [desarrollo, selectedReporte, toast]);
 
   useEffect(() => {
     cargarReportes();
@@ -159,12 +290,13 @@ export default function ReportesPage() {
     const interval = setInterval(async () => {
       try {
         const reporte = await getReporte(pollingId);
+        setSelectedReporte(reporte);
         if (reporte.status === 'ready' || reporte.status === 'error') {
           setPollingId(null);
           setGenerating(false);
           cargarReportes();
           if (reporte.status === 'ready') {
-            toast({ title: 'Reporte listo', description: `Reporte ${reporte.periodo} generado.` });
+            toast({ title: 'Reporte listo', description: `ID #${reporte.id} generado.` });
           } else {
             toast({
               title: 'Error generando reporte',
@@ -174,7 +306,7 @@ export default function ReportesPage() {
           }
         }
       } catch {
-        // No interrumpir polling por error de red
+        // No interrumpir polling
       }
     }, 4000);
     return () => clearInterval(interval);
@@ -200,7 +332,7 @@ export default function ReportesPage() {
     setGenerating(true);
     try {
       const result = await generarReporte(desarrollo, periodo);
-      toast({ title: 'Generando reporte…', description: `ID: ${result.reporte_id}` });
+      toast({ title: 'Generando reporte…', description: `ID: #${result.reporte_id}` });
       setPollingId(result.reporte_id);
       cargarReportes();
     } catch (err) {
@@ -212,8 +344,6 @@ export default function ReportesPage() {
       });
     }
   };
-
-  const reporteExistente = reportes.find(r => r.periodo === periodo);
 
   return (
     <div className="space-y-6">
@@ -231,17 +361,13 @@ export default function ReportesPage() {
         </Button>
       </div>
 
-      {/* Estado de conexión Canva */}
+      {/* Conexión Canva */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            {canvaConnected === null ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : canvaConnected ? (
-              <Link2 className="h-4 w-4 text-green-500" />
-            ) : (
-              <Link2Off className="h-4 w-4 text-muted-foreground" />
-            )}
+            {canvaConnected === null ? <Loader2 className="h-4 w-4 animate-spin" />
+              : canvaConnected ? <Link2 className="h-4 w-4 text-green-500" />
+              : <Link2Off className="h-4 w-4 text-muted-foreground" />}
             Conexión con Canva
           </CardTitle>
         </CardHeader>
@@ -255,22 +381,18 @@ export default function ReportesPage() {
                 Conectado
               </Badge>
               <span className="text-sm text-muted-foreground">
-                La cuenta de Canva está autorizada y lista para generar reportes.
+                La cuenta de Canva está autorizada.
               </span>
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex-1">
-                <p className="text-sm text-muted-foreground">
-                  Canva no está conectado. Autoriza la app para poder generar presentaciones.
-                </p>
-              </div>
+              <p className="text-sm text-muted-foreground flex-1">
+                Canva no está conectado. Autoriza la app para generar presentaciones.
+              </p>
               <Button onClick={handleConectarCanva} disabled={connecting} size="sm">
-                {connecting ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Redirigiendo…</>
-                ) : (
-                  <><Link2 className="h-4 w-4 mr-2" />Conectar Canva</>
-                )}
+                {connecting
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Redirigiendo…</>
+                  : <><Link2 className="h-4 w-4 mr-2" />Conectar Canva</>}
               </Button>
             </div>
           )}
@@ -282,10 +404,10 @@ export default function ReportesPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Zap className="h-4 w-4" />
-            Generar nuevo reporte
+            Generar reporte
           </CardTitle>
           <CardDescription>
-            Selecciona el desarrollo y período para crear la presentación en Canva
+            Crea una nueva presentación — sin límite de intentos por período
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -315,108 +437,70 @@ export default function ReportesPage() {
             <Button
               onClick={handleGenerar}
               disabled={generating || !desarrollo || !periodo || !canvaConnected}
-              className="sm:w-auto"
               title={!canvaConnected ? 'Conecta Canva primero' : undefined}
             >
-              {generating ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generando…</>
-              ) : (
-                <><FileText className="h-4 w-4 mr-2" />Generar</>
-              )}
+              {generating
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generando…</>
+                : <><FileText className="h-4 w-4 mr-2" />Generar</>}
             </Button>
           </div>
+        </CardContent>
+      </Card>
 
-          {reporteExistente && (
-            <div className="mt-4 p-3 rounded-lg bg-muted flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <StatusBadge status={reporteExistente.status} />
-                <span className="text-sm text-muted-foreground">
-                  Ya existe un reporte para {formatPeriodo(periodo)}
-                </span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Historial */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Historial — {desarrollo}</CardTitle>
+            <CardDescription>{reportes.length} intento{reportes.length !== 1 ? 's' : ''}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-              {reporteExistente.canva_export_url && (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={reporteExistente.canva_export_url} target="_blank" rel="noopener noreferrer">
-                    <Download className="h-4 w-4 mr-1" />
-                    Descargar
-                  </a>
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Historial */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Historial — {desarrollo}</CardTitle>
-          <CardDescription>
-            {reportes.length} reporte{reportes.length !== 1 ? 's' : ''} generado{reportes.length !== 1 ? 's' : ''}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : reportes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
-              <FileText className="h-10 w-10 opacity-30" />
-              <p className="text-sm">Aún no hay reportes para {desarrollo}</p>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {reportes.map(r => (
-                <div key={r.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium text-sm">{formatPeriodo(r.periodo)}</span>
-                      <StatusBadge status={r.status} />
-                    </div>
-                    {r.error_message && (
-                      <p className="text-xs text-destructive flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        {r.error_message}
+            ) : reportes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+                <FileText className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Sin reportes aún</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {reportes.map(r => (
+                  <div
+                    key={r.id}
+                    className={`py-3 flex items-center justify-between gap-2 cursor-pointer rounded px-2 -mx-2 transition-colors ${selectedReporte?.id === r.id ? 'bg-muted' : 'hover:bg-muted/50'}`}
+                    onClick={() => setSelectedReporte(r)}
+                  >
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">#{r.id}</span>
+                        <span className="text-xs text-muted-foreground">{formatPeriodo(r.periodo)}</span>
+                        <StatusBadge status={r.status} />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(r.created_at).toLocaleString('es-MX')}
                       </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {r.generated_at
-                        ? `Generado el ${new Date(r.generated_at).toLocaleString('es-MX')}`
-                        : `Creado el ${new Date(r.created_at).toLocaleString('es-MX')}`}
-                    </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {r.canva_export_url && (
+                        <Button variant="outline" size="sm" asChild onClick={e => e.stopPropagation()}>
+                          <a href={r.canva_export_url} target="_blank" rel="noopener noreferrer">
+                            <Download className="h-3 w-3" />
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-                  <div className="flex items-center gap-2">
-                    {r.status === 'processing' && (
-                      <span className="text-xs text-muted-foreground animate-pulse">En proceso…</span>
-                    )}
-                    {r.canva_export_url && (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={r.canva_export_url} target="_blank" rel="noopener noreferrer">
-                          <Download className="h-4 w-4 mr-1" />
-                          PDF
-                        </a>
-                      </Button>
-                    )}
-                    {r.canva_design_id && (
-                      <Button variant="ghost" size="sm" asChild>
-                        <a
-                          href={`https://www.canva.com/design/${r.canva_design_id}/edit`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Abrir en Canva
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {/* Debug */}
+        <DebugCard reporte={selectedReporte} />
+      </div>
     </div>
   );
 }

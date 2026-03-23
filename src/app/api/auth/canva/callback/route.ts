@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db/postgres';
+import { query, getConfig } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 
 export const dynamic = 'force-dynamic';
@@ -9,30 +9,31 @@ const SCOPE = 'canva-callback';
 
 /**
  * GET /api/auth/canva/callback
- * Canva redirige aquí con ?code=...&state=...
- * Intercambia el código por tokens y guarda el refresh_token en BD.
+ * Canva redirige aquí con ?code=... o ?error=...
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const error = searchParams.get('error');
+  const errorDescription = searchParams.get('error_description') ?? '';
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
 
-  // Error devuelto por Canva
   if (error) {
-    logger.warn('Canva OAuth rechazado por el usuario', { error }, SCOPE);
-    return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=${encodeURIComponent(error)}`);
+    logger.warn('Canva OAuth rechazado por el usuario', { error, errorDescription }, SCOPE);
+    return NextResponse.redirect(
+      `${appUrl}/dashboard/reportes?canva=error&reason=${encodeURIComponent(error)}&detail=${encodeURIComponent(errorDescription)}`
+    );
   }
 
   if (!code) {
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_code`);
   }
 
-  // PKCE: el code_verifier en cookie HttpOnly es la protección CSRF suficiente
-  // Canva no siempre devuelve el parámetro state
-  const codeVerifier = request.cookies.get('canva_code_verifier')?.value;
+  // Leer code_verifier desde BD (más confiable que cookies en serverless)
+  const codeVerifier = await getConfig('canva_code_verifier_temp');
   if (!codeVerifier) {
+    logger.warn('Canva: no se encontró code_verifier en BD', {}, SCOPE);
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_verifier`);
   }
 
@@ -43,6 +44,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const redirectUri = `${appUrl}/api/auth/canva/callback`;
+
+  logger.info('Canva token exchange iniciado', { redirectUri }, SCOPE);
 
   try {
     const res = await fetch(CANVA_TOKEN_URL, {
@@ -58,41 +61,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
     });
 
+    const responseBody = await res.text();
+
     if (!res.ok) {
-      const body = await res.text();
-      logger.error('Canva token exchange falló', null, { status: res.status, body }, SCOPE);
-      return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=token_exchange`);
+      logger.error('Canva token exchange falló', null, { status: res.status, body: responseBody }, SCOPE);
+      return NextResponse.redirect(
+        `${appUrl}/dashboard/reportes?canva=error&reason=token_exchange&detail=${encodeURIComponent(responseBody.substring(0, 200))}`
+      );
     }
 
-    const json = await res.json() as {
+    const json = JSON.parse(responseBody) as {
       access_token: string;
       refresh_token: string;
       expires_in: number;
     };
 
     if (!json.refresh_token) {
-      logger.error('Canva no devolvió refresh_token', null, {}, SCOPE);
+      logger.error('Canva no devolvió refresh_token', null, { body: responseBody }, SCOPE);
       return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=no_refresh_token`);
     }
 
-    // Guardar refresh_token en agent_config
+    // Guardar refresh_token y limpiar verifier temporal
     await query(
       `INSERT INTO agent_config (key, value, description, updated_by)
        VALUES ($1, $2, $3, 1)
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
-      ['canva_refresh_token', json.refresh_token, 'Canva OAuth refresh token (autorizado via dashboard)']
+      ['canva_refresh_token', json.refresh_token, 'Canva OAuth refresh token']
     );
+    await query(`DELETE FROM agent_config WHERE key = 'canva_code_verifier_temp'`);
 
     logger.info('Canva conectado exitosamente', {}, SCOPE);
-
-    // Limpiar cookies y redirigir con éxito
-    const response = NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=success`);
-    response.cookies.delete('canva_code_verifier');
-    response.cookies.delete('canva_state');
-    return response;
+    return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=success`);
 
   } catch (err) {
-    logger.error('Error en Canva callback', err, {}, SCOPE);
+    logger.error('Error inesperado en Canva callback', err, {}, SCOPE);
     return NextResponse.redirect(`${appUrl}/dashboard/reportes?canva=error&reason=unexpected`);
   }
 }

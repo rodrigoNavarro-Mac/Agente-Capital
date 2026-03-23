@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
+import { query } from '@/lib/db/postgres';
+import { logger } from '@/lib/utils/logger';
 
 export const dynamic = 'force-dynamic';
 
 const CANVA_AUTH_URL = 'https://www.canva.com/api/oauth/authorize';
-const SCOPE = 'design:content:write asset:read export:write';
+const SCOPE_CANVA = 'design:content:write asset:read export:write';
+const SCOPE_LOG = 'canva-connect';
 
-/**
- * Genera un code_verifier aleatorio (PKCE)
- */
 function generateCodeVerifier(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
@@ -19,12 +19,8 @@ function generateCodeVerifier(): string {
     .replace(/=/g, '');
 }
 
-/**
- * Calcula code_challenge a partir del verifier (SHA-256, base64url)
- */
 async function generateCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
+  const data = new TextEncoder().encode(verifier);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return Buffer.from(digest)
     .toString('base64')
@@ -35,15 +31,12 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 
 /**
  * GET /api/auth/canva/connect
- * Inicia el flujo OAuth de Canva.
- * Solo accesible para admin.
+ * Genera URL de autorización Canva y guarda code_verifier en BD.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
   const token = extractTokenFromHeader(authHeader);
-  if (!token) {
-    return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
-  }
+  if (!token) return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
   const payload = verifyAccessToken(token);
   if (!payload || payload.role !== 'admin') {
     return NextResponse.json({ success: false, error: 'Solo admins pueden conectar Canva' }, { status: 403 });
@@ -54,31 +47,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'CANVA_CLIENT_ID no configurado' }, { status: 500 });
   }
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/canva/callback`;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const redirectUri = `${appUrl}/api/auth/canva/callback`;
 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+  // Guardar verifier en BD (más confiable que cookies en serverless)
+  await query(
+    `INSERT INTO agent_config (key, value, description, updated_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+    ['canva_code_verifier_temp', codeVerifier, 'PKCE code_verifier temporal para OAuth Canva', payload.userId]
+  );
 
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: SCOPE,
+    scope: SCOPE_CANVA,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
   });
 
   const authUrl = `${CANVA_AUTH_URL}?${params.toString()}`;
+  logger.info('Canva connect iniciado', { redirectUri }, SCOPE_LOG);
 
-  // Guardar verifier + state en cookies (HttpOnly, válidas 10 min)
-  const response = NextResponse.json({ success: true, data: { url: authUrl } });
-  response.cookies.set('canva_code_verifier', codeVerifier, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 600,
-    path: '/',
-    sameSite: 'lax',
-  });
-
-  return response;
+  return NextResponse.json({ success: true, data: { url: authUrl } });
 }

@@ -25,74 +25,71 @@ function getTemplateId(desarrollo: string): string | undefined {
   return process.env[key];
 }
 
-async function upsertReporte(
+// Siempre INSERT nuevo — sin restricción única (ver migration 050)
+async function insertReporte(
   desarrollo: string,
   periodo: string,
-  fields: Partial<{
-    status: string;
-    canva_design_id: string | null;
-    canva_export_url: string | null;
-    error_message: string | null;
-    metadata: Record<string, unknown>;
-    generated_at: Date | null;
-  }>
+  status: string,
+  metadata: Record<string, unknown>
 ): Promise<number> {
-  const fieldKeys = Object.keys(fields).filter(k => fields[k as keyof typeof fields] !== undefined);
-  const fieldValues = fieldKeys.map(k => {
-    const v = fields[k as keyof typeof fields];
-    return v instanceof Date ? v.toISOString() : v;
-  });
-
-  if (fieldKeys.length === 0) {
-    const res = await query<{ id: number }>(
-      `INSERT INTO reportes (desarrollo, periodo) VALUES ($1, $2)
-       ON CONFLICT (desarrollo, periodo) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-       RETURNING id`,
-      [desarrollo, periodo]
-    );
-    return res.rows[0].id;
-  }
-
-  const insertCols = ['desarrollo', 'periodo', ...fieldKeys].join(', ');
-  const insertPlaceholders = ['$1', '$2', ...fieldKeys.map((_, i) => `$${i + 3}`)].join(', ');
-  const updateSet = fieldKeys.map((k, i) => `${k} = $${i + 3}`).join(', ');
-
   const res = await query<{ id: number }>(
-    `INSERT INTO reportes (${insertCols}) VALUES (${insertPlaceholders})
-     ON CONFLICT (desarrollo, periodo) DO UPDATE SET
-       updated_at = CURRENT_TIMESTAMP,
-       ${updateSet}
+    `INSERT INTO reportes (desarrollo, periodo, status, metadata)
+     VALUES ($1, $2, $3, $4)
      RETURNING id`,
-    [desarrollo, periodo, ...fieldValues]
+    [desarrollo, periodo, status, JSON.stringify(metadata)]
   );
   return res.rows[0].id;
 }
 
+async function updateReporte(
+  id: number,
+  fields: Partial<{
+    status: string;
+    canva_design_id: string;
+    canva_export_url: string;
+    error_message: string | null;
+    generated_at: string;
+    metadata: Record<string, unknown>;
+  }>
+): Promise<void> {
+  const keys = Object.keys(fields) as (keyof typeof fields)[];
+  if (keys.length === 0) return;
+  const setClauses = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+  const values = keys.map(k => {
+    const v = fields[k];
+    return k === 'metadata' ? JSON.stringify(v) : v;
+  });
+  await query(
+    `UPDATE reportes SET ${setClauses}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    [id, ...values]
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function POST(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
+  const debugSteps: { step: string; ts: string; ok: boolean; detail?: string }[] = [];
+
+  function addStep(step: string, ok: boolean, detail?: string) {
+    debugSteps.push({ step, ts: new Date().toISOString(), ok, detail });
+  }
+
+  let reporteId: number | null = null;
+
   try {
     // 1. Autenticación
     const authHeader = request.headers.get('authorization');
     const token = extractTokenFromHeader(authHeader);
-    if (!token) {
-      return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
     const payload = verifyAccessToken(token);
-    if (!payload) {
-      return NextResponse.json({ success: false, error: 'Token inválido o expirado' }, { status: 401 });
-    }
+    if (!payload) return NextResponse.json({ success: false, error: 'Token inválido o expirado' }, { status: 401 });
 
     // 2. Validar body
     const body = await request.json() as { desarrollo?: string; periodo?: string };
     const { desarrollo, periodo } = body;
 
     if (!desarrollo || !periodo) {
-      return NextResponse.json(
-        { success: false, error: 'Se requieren los campos desarrollo y periodo' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'Se requieren desarrollo y periodo' }, { status: 400 });
     }
-
     if (!PERIODO_REGEX.test(periodo)) {
       return NextResponse.json(
         { success: false, error: 'El periodo debe tener formato YYYY-MM (ej: 2026-03)' },
@@ -111,26 +108,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     const templateId = getTemplateId(desarrollo);
     if (!templateId) {
       return NextResponse.json(
-        { success: false, error: `No hay template Canva configurado para el desarrollo: ${desarrollo}` },
+        { success: false, error: `No hay template Canva configurado para: ${desarrollo}` },
         { status: 400 }
       );
     }
 
+    addStep('validacion', true, `desarrollo=${desarrollo} periodo=${periodo} templateId=${templateId}`);
     logger.info('Iniciando generación de reporte', { desarrollo, periodo }, SCOPE);
 
-    // 3. Crear/actualizar reporte en BD con status processing
-    const reporteId = await upsertReporte(desarrollo, periodo, { status: 'processing' });
+    // 3. Crear reporte en BD
+    reporteId = await insertReporte(desarrollo, periodo, 'processing', { debug_steps: debugSteps });
+    addStep('bd_insert', true, `reporteId=${reporteId}`);
     logger.info('Reporte creado en BD', { reporteId }, SCOPE);
 
     // 4. Obtener datos de Zoho
     let reporteData;
     try {
       reporteData = await getReporteData(desarrollo, periodo);
+      addStep('zoho_data', true, `leads=${reporteData.totalLeads} visitas=${reporteData.totalVisitas} cierres=${reporteData.totalCierres}`);
     } catch (err) {
-      await upsertReporte(desarrollo, periodo, {
-        status: 'error',
-        error_message: err instanceof Error ? err.message : 'Error obteniendo datos de Zoho',
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      addStep('zoho_data', false, msg);
+      await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
 
@@ -138,73 +137,60 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     let slides;
     try {
       slides = await analizarReporte(reporteData, desarrollo, periodo);
+      addStep('llm_analisis', true);
     } catch (err) {
-      await upsertReporte(desarrollo, periodo, {
-        status: 'error',
-        error_message: err instanceof Error ? err.message : 'Error en análisis LLM',
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      addStep('llm_analisis', false, msg);
+      await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
 
-    // 6. Autofill en Canva
+    // 6. Autofill Canva
     let designId: string;
     try {
-      designId = await autofillTemplate(
-        templateId,
-        slides,
-        `Reporte ${desarrollo} ${periodo}`
-      );
-      await upsertReporte(desarrollo, periodo, { canva_design_id: designId });
+      designId = await autofillTemplate(templateId, slides, `Reporte ${desarrollo} ${periodo}`);
+      addStep('canva_autofill', true, `designId=${designId}`);
+      await updateReporte(reporteId, { canva_design_id: designId, metadata: { debug_steps: debugSteps } });
     } catch (err) {
-      await upsertReporte(desarrollo, periodo, {
-        status: 'error',
-        error_message: err instanceof Error ? err.message : 'Error en Canva autofill',
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      addStep('canva_autofill', false, msg);
+      await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
 
-    // 7. Exportar diseño
+    // 7. Export Canva
     let exportUrl: string;
     try {
       exportUrl = await exportDesign(designId);
+      addStep('canva_export', true, exportUrl);
     } catch (err) {
-      await upsertReporte(desarrollo, periodo, {
-        status: 'error',
-        error_message: err instanceof Error ? err.message : 'Error en Canva export',
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      addStep('canva_export', false, msg);
+      await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
 
-    // 8. Marcar como listo
-    await upsertReporte(desarrollo, periodo, {
+    // 8. Marcar listo
+    await updateReporte(reporteId, {
       status: 'ready',
       canva_export_url: exportUrl,
-      generated_at: new Date(),
+      generated_at: new Date().toISOString(),
       error_message: null,
+      metadata: { debug_steps: debugSteps },
     });
 
-    logger.info('Reporte generado exitosamente', { reporteId, desarrollo, periodo, exportUrl }, SCOPE);
+    logger.info('Reporte generado exitosamente', { reporteId, exportUrl }, SCOPE);
 
     return NextResponse.json({
       success: true,
-      data: {
-        reporte_id: reporteId,
-        status: 'ready',
-        url: exportUrl,
-      },
+      data: { reporte_id: reporteId, status: 'ready', url: exportUrl },
     });
 
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Error generando reporte';
     logger.error('Error generando reporte', error, {}, SCOPE);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Error generando reporte',
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }
 
-// Exportar tipo para uso en tests
 export type { ReporteRow };
