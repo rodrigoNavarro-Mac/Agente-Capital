@@ -4,7 +4,7 @@ import { query } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 import { getReporteData } from '@/lib/modules/reportes/zoho-data.service';
 import { analizarReporte } from '@/lib/modules/reportes/llm-analyzer.service';
-import { autofillTemplate, exportDesign } from '@/lib/modules/reportes/canva.service';
+import { generateReportPPT } from '@/lib/modules/reportes/ppt.service';
 import type { APIResponse } from '@/types/documents';
 import type { ReporteRow } from '@/lib/modules/reportes/types';
 
@@ -18,11 +18,6 @@ function getValidDesarrollos(): string[] {
   const env = process.env.VALID_DESARROLLOS;
   if (!env) return [];
   return env.split(',').map(d => d.trim()).filter(Boolean);
-}
-
-function getTemplateId(desarrollo: string): string | undefined {
-  const key = `CANVA_TEMPLATE_ID_${desarrollo.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
-  return process.env[key];
 }
 
 // Siempre INSERT nuevo — sin restricción única (ver migration 050)
@@ -105,15 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       );
     }
 
-    const templateId = getTemplateId(desarrollo);
-    if (!templateId) {
-      return NextResponse.json(
-        { success: false, error: `No hay template Canva configurado para: ${desarrollo}` },
-        { status: 400 }
-      );
-    }
-
-    addStep('validacion', true, `desarrollo=${desarrollo} periodo=${periodo} templateId=${templateId}`);
+    addStep('validacion', true, `desarrollo=${desarrollo} periodo=${periodo}`);
     logger.info('Iniciando generación de reporte', { desarrollo, periodo }, SCOPE);
 
     // 3. Crear reporte en BD
@@ -145,27 +132,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       throw err;
     }
 
-    // 6. Autofill Canva
-    let designId: string;
+    // 6. Generar PPTX
+    let pptBuffer: Buffer;
     try {
-      designId = await autofillTemplate(templateId, slides, `Reporte ${desarrollo} ${periodo}`);
-      addStep('canva_autofill', true, `designId=${designId}`);
-      await updateReporte(reporteId, { canva_design_id: designId, metadata: { debug_steps: debugSteps } });
+      pptBuffer = await generateReportPPT(slides, desarrollo, periodo);
+      addStep('ppt_generar', true, `size=${pptBuffer.length} bytes`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      addStep('canva_autofill', false, msg);
+      addStep('ppt_generar', false, msg);
       await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
 
-    // 7. Export Canva
-    let exportUrl: string;
+    // 7. Guardar PPTX en BD
+    const pptFilename = `reporte-${desarrollo}-${periodo}-${reporteId}.pptx`;
+    const pptDownloadUrl = `/api/reportes/${reporteId}/download`;
     try {
-      exportUrl = await exportDesign(designId);
-      addStep('canva_export', true, exportUrl);
+      await query(
+        'UPDATE reportes SET ppt_data = $1, ppt_filename = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+        [pptBuffer, pptFilename, reporteId]
+      );
+      addStep('ppt_guardar', true, `filename=${pptFilename}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      addStep('canva_export', false, msg);
+      addStep('ppt_guardar', false, msg);
       await updateReporte(reporteId, { status: 'error', error_message: msg, metadata: { debug_steps: debugSteps } });
       throw err;
     }
@@ -173,17 +163,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // 8. Marcar listo
     await updateReporte(reporteId, {
       status: 'ready',
-      canva_export_url: exportUrl,
+      canva_export_url: pptDownloadUrl, // reutilizar campo para la URL de descarga
       generated_at: new Date().toISOString(),
       error_message: null,
       metadata: { debug_steps: debugSteps },
     });
 
-    logger.info('Reporte generado exitosamente', { reporteId, exportUrl }, SCOPE);
+    logger.info('Reporte generado exitosamente', { reporteId, pptDownloadUrl }, SCOPE);
 
     return NextResponse.json({
       success: true,
-      data: { reporte_id: reporteId, status: 'ready', url: exportUrl },
+      data: { reporte_id: reporteId, status: 'ready', url: pptDownloadUrl },
     });
 
   } catch (error) {

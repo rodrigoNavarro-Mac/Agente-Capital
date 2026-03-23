@@ -64,6 +64,21 @@ function formatPeriodo(periodo: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+async function downloadPPT(id: number, filename: string) {
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch(`/api/reportes/${id}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Error descargando el archivo');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `reporte-${id}.pptx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function fetchCanvaStatus(): Promise<boolean> {
   const token = localStorage.getItem('accessToken');
   const res = await fetch('/api/auth/canva/status', {
@@ -351,7 +366,7 @@ export default function ReportesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Reportes Canva</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Reportes PPTX</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Genera presentaciones automáticas de ventas desde Zoho CRM
           </p>
@@ -437,8 +452,7 @@ export default function ReportesPage() {
 
             <Button
               onClick={handleGenerar}
-              disabled={generating || !desarrollo || !periodo || !canvaConnected}
-              title={!canvaConnected ? 'Conecta Canva primero' : undefined}
+              disabled={generating || !desarrollo || !periodo}
             >
               {generating
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generando…</>
@@ -484,11 +498,17 @@ export default function ReportesPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {r.canva_export_url && (
-                        <Button variant="outline" size="sm" asChild onClick={e => e.stopPropagation()}>
-                          <a href={r.canva_export_url} target="_blank" rel="noopener noreferrer">
-                            <Download className="h-3 w-3" />
-                          </a>
+                      {r.canva_export_url && r.status === 'ready' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={e => {
+                            e.stopPropagation();
+                            downloadPPT(r.id, `reporte-${r.desarrollo}-${r.periodo}.pptx`).catch(console.error);
+                          }}
+                        >
+                          <Download className="h-3 w-3 mr-1" />
+                          PPTX
                         </Button>
                       )}
                     </div>
