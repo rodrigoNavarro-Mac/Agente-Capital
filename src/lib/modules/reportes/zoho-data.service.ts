@@ -32,12 +32,14 @@ function getLast6Months(periodo: string): string[] {
 
 // Condición de desarrollo robusta: columna directa (case-insensitive) o fallback JSONB
 // Zoho tiene typo "Desarollo" en deals — se verifica ambas claves
-function desarrolloCond(param: number): string {
+// alias: prefijo de tabla opcional (ej: 'zd' → zd.desarrollo, zd.data->>'...')
+function desarrolloCond(param: number, alias = ''): string {
+  const p = alias ? `${alias}.` : '';
   return `(
     LOWER(TRIM(COALESCE(
-      desarrollo,
-      data->>'Desarrollo',
-      data->>'Desarollo'
+      ${p}desarrollo,
+      ${p}data->>'Desarrollo',
+      ${p}data->>'Desarollo'
     ))) = LOWER(TRIM($${param}))
   )`;
 }
@@ -97,20 +99,20 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   );
   const totalVisitas = parseInt(visitasResult.rows[0]?.count ?? '0', 10);
 
-  // Deals cerrados en el período (por closing_date, que es la fecha real de cierre)
+  // Deals cerrados: usa fecha_firma de commission_sales (fecha real de firma)
+  // Fallback a closing_date del deal si no tiene registro en commission_sales
   const cierresResult = await query<{ count: string; monto_total: string }>(
-    `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as monto_total
-     FROM zoho_deals
-     WHERE ${desarrolloCond(1)}
+    `SELECT COUNT(*) as count, COALESCE(SUM(zd.amount), 0) as monto_total
+     FROM zoho_deals zd
+     LEFT JOIN commission_sales cs ON cs.zoho_deal_id = zd.id
+     WHERE ${desarrolloCond(1, 'zd')}
+       AND COALESCE(cs.fecha_firma, zd.closing_date) >= $2::date
+       AND COALESCE(cs.fecha_firma, zd.closing_date) <= $3::date
        AND (
-         (closing_date >= $2::date AND closing_date <= $3::date)
-         OR (closing_date IS NULL AND modified_time >= $2 AND modified_time <= $3)
-       )
-       AND (
-         stage ILIKE '%cerrad%'
-         OR stage ILIKE '%won%'
-         OR stage ILIKE '%ganad%'
-         OR stage ILIKE '%vendid%'
+         zd.stage ILIKE '%cerrad%'
+         OR zd.stage ILIKE '%won%'
+         OR zd.stage ILIKE '%ganad%'
+         OR zd.stage ILIKE '%vendid%'
        )`,
     [desarrollo, desde, hasta]
   );
@@ -141,12 +143,13 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
           [desarrollo, d, h]
         ),
         query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM zoho_deals WHERE ${desarrolloCond(1)}
-           AND (
-             (closing_date >= $2::date AND closing_date <= $3::date)
-             OR (closing_date IS NULL AND modified_time >= $2 AND modified_time <= $3)
-           )
-           AND (stage ILIKE '%cerrad%' OR stage ILIKE '%won%' OR stage ILIKE '%ganad%' OR stage ILIKE '%vendid%')`,
+          `SELECT COUNT(*) as count
+           FROM zoho_deals zd
+           LEFT JOIN commission_sales cs ON cs.zoho_deal_id = zd.id
+           WHERE ${desarrolloCond(1, 'zd')}
+             AND COALESCE(cs.fecha_firma, zd.closing_date) >= $2::date
+             AND COALESCE(cs.fecha_firma, zd.closing_date) <= $3::date
+             AND (zd.stage ILIKE '%cerrad%' OR zd.stage ILIKE '%won%' OR zd.stage ILIKE '%ganad%' OR zd.stage ILIKE '%vendid%')`,
           [desarrollo, d, h]
         ),
       ]);
