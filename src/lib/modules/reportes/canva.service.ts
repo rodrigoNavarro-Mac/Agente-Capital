@@ -1,50 +1,95 @@
 import { logger } from '@/lib/utils/logger';
+import { getConfig, query } from '@/lib/db/postgres';
 import type { CanvaAutofillPayload, SlideContent } from './types';
 
 const SCOPE = 'reportes:canva';
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1';
+const CANVA_TOKEN_URL = 'https://api.canva.com/rest/v1/oauth/token';
 
-// Cache del access token en memoria
+// Cache del access token en memoria (se invalida al reiniciar el proceso)
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-async function getAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt > now + 60_000) {
-    return cachedToken.token;
-  }
+// =====================================================
+// TOKEN MANAGEMENT (authorization_code + refresh_token)
+// =====================================================
 
+async function getRefreshToken(): Promise<string> {
+  const token = await getConfig('canva_refresh_token');
+  if (!token) {
+    throw new Error(
+      'Canva no está conectado. Ve a /dashboard/reportes y haz clic en "Conectar Canva".'
+    );
+  }
+  return token;
+}
+
+async function refreshAccessToken(): Promise<string> {
   const clientId = process.env.CANVA_CLIENT_ID;
   const clientSecret = process.env.CANVA_CLIENT_SECRET;
-
   if (!clientId || !clientSecret) {
     throw new Error('CANVA_CLIENT_ID o CANVA_CLIENT_SECRET no configurados');
   }
 
-  const res = await fetch(`${CANVA_API_BASE}/oauth/token`, {
+  const refreshToken = await getRefreshToken();
+
+  const res = await fetch(CANVA_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'client_credentials',
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
       client_id: clientId,
       client_secret: clientSecret,
-      scope: 'design:content:write asset:read export:write',
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Canva OAuth falló (${res.status}): ${body}`);
+    // Si el refresh_token expiró, marcar como desconectado
+    if (res.status === 400 || res.status === 401) {
+      await query('DELETE FROM agent_config WHERE key = $1', ['canva_refresh_token']);
+      cachedToken = null;
+    }
+    throw new Error(`Canva refresh_token falló (${res.status}): ${body}`);
   }
 
-  const json = await res.json() as { access_token: string; expires_in: number };
-  cachedToken = {
-    token: json.access_token,
-    expiresAt: now + json.expires_in * 1000,
+  const json = await res.json() as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
   };
 
-  logger.info('Token Canva obtenido', { expiresIn: json.expires_in }, SCOPE);
+  // Canva puede rotar el refresh_token; guardarlo si cambia
+  if (json.refresh_token && json.refresh_token !== refreshToken) {
+    await query(
+      `INSERT INTO agent_config (key, value, description, updated_by)
+       VALUES ($1, $2, $3, 1)
+       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      ['canva_refresh_token', json.refresh_token, 'Canva OAuth refresh token']
+    );
+    logger.info('Canva refresh_token rotado y guardado', {}, SCOPE);
+  }
+
+  cachedToken = {
+    token: json.access_token,
+    expiresAt: Date.now() + json.expires_in * 1000,
+  };
+
+  logger.info('Canva access_token renovado', { expiresIn: json.expires_in }, SCOPE);
   return cachedToken.token;
 }
+
+export async function getAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAt > now + 60_000) {
+    return cachedToken.token;
+  }
+  return refreshAccessToken();
+}
+
+// =====================================================
+// AUTOFILL
+// =====================================================
 
 export async function autofillTemplate(
   templateId: string,
@@ -54,21 +99,21 @@ export async function autofillTemplate(
   const token = await getAccessToken();
 
   const campos: Record<string, { type: 'text'; text: string }> = {
-    resumen_titulo: { type: 'text', text: slides.slide_resumen.titulo },
-    resumen_insight: { type: 'text', text: slides.slide_resumen.insight_principal },
-    resumen_variacion: { type: 'text', text: slides.slide_resumen.variacion_leads_texto },
-    embudo_conv_lead_visita: { type: 'text', text: slides.slide_embudo.conv_lead_visita },
+    resumen_titulo:            { type: 'text', text: slides.slide_resumen.titulo },
+    resumen_insight:           { type: 'text', text: slides.slide_resumen.insight_principal },
+    resumen_variacion:         { type: 'text', text: slides.slide_resumen.variacion_leads_texto },
+    embudo_conv_lead_visita:   { type: 'text', text: slides.slide_embudo.conv_lead_visita },
     embudo_conv_visita_cierre: { type: 'text', text: slides.slide_embudo.conv_visita_cierre },
-    embudo_analisis: { type: 'text', text: slides.slide_embudo.analisis_embudo },
-    fuentes_principal: { type: 'text', text: slides.slide_fuentes.fuente_principal },
-    fuentes_porcentaje: { type: 'text', text: slides.slide_fuentes.porcentaje_fuente_principal },
-    fuentes_comentario: { type: 'text', text: slides.slide_fuentes.comentario },
-    historico_tendencia: { type: 'text', text: slides.slide_historico.tendencia },
-    historico_mejor_mes: { type: 'text', text: slides.slide_historico.mejor_mes },
-    historico_comentario: { type: 'text', text: slides.slide_historico.comentario_6m },
-    cierres_unidades: { type: 'text', text: slides.slide_cierres.unidades },
-    cierres_monto: { type: 'text', text: slides.slide_cierres.monto_formateado },
-    cierres_comentario: { type: 'text', text: slides.slide_cierres.comentario_cierres },
+    embudo_analisis:           { type: 'text', text: slides.slide_embudo.analisis_embudo },
+    fuentes_principal:         { type: 'text', text: slides.slide_fuentes.fuente_principal },
+    fuentes_porcentaje:        { type: 'text', text: slides.slide_fuentes.porcentaje_fuente_principal },
+    fuentes_comentario:        { type: 'text', text: slides.slide_fuentes.comentario },
+    historico_tendencia:       { type: 'text', text: slides.slide_historico.tendencia },
+    historico_mejor_mes:       { type: 'text', text: slides.slide_historico.mejor_mes },
+    historico_comentario:      { type: 'text', text: slides.slide_historico.comentario_6m },
+    cierres_unidades:          { type: 'text', text: slides.slide_cierres.unidades },
+    cierres_monto:             { type: 'text', text: slides.slide_cierres.monto_formateado },
+    cierres_comentario:        { type: 'text', text: slides.slide_cierres.comentario_cierres },
   };
 
   const payload: CanvaAutofillPayload = {
@@ -101,10 +146,13 @@ export async function autofillTemplate(
   return designId;
 }
 
+// =====================================================
+// EXPORT
+// =====================================================
+
 export async function exportDesign(designId: string): Promise<string> {
   const token = await getAccessToken();
 
-  // Iniciar export
   const res = await fetch(`${CANVA_API_BASE}/exports`, {
     method: 'POST',
     headers: {
@@ -127,7 +175,6 @@ export async function exportDesign(designId: string): Promise<string> {
 
   logger.info('Canva export iniciado', { designId, jobId }, SCOPE);
 
-  // Polling hasta success o timeout
   const TIMEOUT_MS = 60_000;
   const POLL_INTERVAL_MS = 3_000;
   const deadline = Date.now() + TIMEOUT_MS;
@@ -151,9 +198,7 @@ export async function exportDesign(designId: string): Promise<string> {
     const jobStatus = status.job?.status;
     if (jobStatus === 'success') {
       const url = status.job?.urls?.[0];
-      if (!url) {
-        throw new Error('Canva export success pero sin URL en respuesta');
-      }
+      if (!url) throw new Error('Canva export success pero sin URL en respuesta');
       logger.info('Canva export completado', { designId, url }, SCOPE);
       return url;
     }

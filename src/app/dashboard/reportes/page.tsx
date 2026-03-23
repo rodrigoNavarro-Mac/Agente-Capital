@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +16,8 @@ import {
   CheckCircle2,
   Clock,
   Zap,
+  Link2,
+  Link2Off,
 } from 'lucide-react';
 import { getReportes, generarReporte, getReporte, type ReporteItem } from '@/lib/api';
 
@@ -45,10 +48,10 @@ const STATUS_CONFIG: Record<ReporteItem['status'], {
   variant: 'default' | 'secondary' | 'destructive' | 'outline';
   icon: React.ComponentType<{ className?: string }>;
 }> = {
-  pending:    { label: 'Pendiente',   variant: 'outline',     icon: Clock },
-  processing: { label: 'Generando…',  variant: 'secondary',   icon: Loader2 },
-  ready:      { label: 'Listo',       variant: 'default',     icon: CheckCircle2 },
-  error:      { label: 'Error',       variant: 'destructive', icon: AlertCircle },
+  pending:    { label: 'Pendiente',  variant: 'outline',     icon: Clock },
+  processing: { label: 'Generando…', variant: 'secondary',   icon: Loader2 },
+  ready:      { label: 'Listo',      variant: 'default',     icon: CheckCircle2 },
+  error:      { label: 'Error',      variant: 'destructive', icon: AlertCircle },
 };
 
 function StatusBadge({ status }: { status: ReporteItem['status'] }) {
@@ -69,12 +72,33 @@ function formatPeriodo(periodo: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+async function fetchCanvaStatus(): Promise<boolean> {
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch('/api/auth/canva/status', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return false;
+  const json = await res.json() as { success: boolean; data: { connected: boolean } };
+  return json.data?.connected ?? false;
+}
+
+async function fetchCanvaConnectUrl(): Promise<string> {
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch('/api/auth/canva/connect', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('No se pudo obtener la URL de autorización de Canva');
+  const json = await res.json() as { success: boolean; data: { url: string } };
+  return json.data.url;
+}
+
 // =====================================================
 // COMPONENTE PRINCIPAL
 // =====================================================
 
 export default function ReportesPage() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   const DESARROLLOS = getDesarrollos();
   const PERIODOS = getPeriodos();
 
@@ -84,6 +108,29 @@ export default function ReportesPage() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [pollingId, setPollingId] = useState<number | null>(null);
+  const [canvaConnected, setCanvaConnected] = useState<boolean | null>(null);
+  const [connecting, setConnecting] = useState(false);
+
+  // Verificar resultado del callback OAuth
+  useEffect(() => {
+    const result = searchParams.get('canva');
+    if (result === 'success') {
+      toast({ title: 'Canva conectado', description: 'La integración con Canva está activa.' });
+      setCanvaConnected(true);
+    } else if (result === 'error') {
+      const reason = searchParams.get('reason') ?? 'desconocido';
+      toast({
+        title: 'Error conectando Canva',
+        description: `Razón: ${reason}`,
+        variant: 'destructive',
+      });
+    }
+  }, [searchParams, toast]);
+
+  // Verificar estado de conexión al montar
+  useEffect(() => {
+    fetchCanvaStatus().then(setCanvaConnected).catch(() => setCanvaConnected(false));
+  }, []);
 
   const cargarReportes = useCallback(async () => {
     if (!desarrollo) return;
@@ -117,10 +164,10 @@ export default function ReportesPage() {
           setGenerating(false);
           cargarReportes();
           if (reporte.status === 'ready') {
-            toast({ title: 'Reporte listo', description: `Reporte ${reporte.periodo} generado exitosamente.` });
+            toast({ title: 'Reporte listo', description: `Reporte ${reporte.periodo} generado.` });
           } else {
             toast({
-              title: 'Error al generar reporte',
+              title: 'Error generando reporte',
               description: reporte.error_message ?? 'Error desconocido',
               variant: 'destructive',
             });
@@ -133,12 +180,27 @@ export default function ReportesPage() {
     return () => clearInterval(interval);
   }, [pollingId, cargarReportes, toast]);
 
+  const handleConectarCanva = async () => {
+    setConnecting(true);
+    try {
+      const url = await fetchCanvaConnectUrl();
+      window.location.href = url;
+    } catch (err) {
+      setConnecting(false);
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'No se pudo iniciar la conexión',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleGenerar = async () => {
     if (!desarrollo || !periodo) return;
     setGenerating(true);
     try {
       const result = await generarReporte(desarrollo, periodo);
-      toast({ title: 'Generando reporte…', description: `Reporte ${periodo} en proceso (ID: ${result.reporte_id})` });
+      toast({ title: 'Generando reporte…', description: `ID: ${result.reporte_id}` });
       setPollingId(result.reporte_id);
       cargarReportes();
     } catch (err) {
@@ -169,6 +231,52 @@ export default function ReportesPage() {
         </Button>
       </div>
 
+      {/* Estado de conexión Canva */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            {canvaConnected === null ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : canvaConnected ? (
+              <Link2 className="h-4 w-4 text-green-500" />
+            ) : (
+              <Link2Off className="h-4 w-4 text-muted-foreground" />
+            )}
+            Conexión con Canva
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {canvaConnected === null ? (
+            <p className="text-sm text-muted-foreground">Verificando…</p>
+          ) : canvaConnected ? (
+            <div className="flex items-center gap-3">
+              <Badge variant="default" className="flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Conectado
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                La cuenta de Canva está autorizada y lista para generar reportes.
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1">
+                <p className="text-sm text-muted-foreground">
+                  Canva no está conectado. Autoriza la app para poder generar presentaciones.
+                </p>
+              </div>
+              <Button onClick={handleConectarCanva} disabled={connecting} size="sm">
+                {connecting ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Redirigiendo…</>
+                ) : (
+                  <><Link2 className="h-4 w-4 mr-2" />Conectar Canva</>
+                )}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Generador */}
       <Card>
         <CardHeader>
@@ -177,7 +285,7 @@ export default function ReportesPage() {
             Generar nuevo reporte
           </CardTitle>
           <CardDescription>
-            Selecciona el desarrollo y período para generar la presentación en Canva
+            Selecciona el desarrollo y período para crear la presentación en Canva
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -206,8 +314,9 @@ export default function ReportesPage() {
 
             <Button
               onClick={handleGenerar}
-              disabled={generating || !desarrollo || !periodo}
+              disabled={generating || !desarrollo || !periodo || !canvaConnected}
               className="sm:w-auto"
+              title={!canvaConnected ? 'Conecta Canva primero' : undefined}
             >
               {generating ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generando…</>
@@ -217,7 +326,6 @@ export default function ReportesPage() {
             </Button>
           </div>
 
-          {/* Info del reporte existente para ese período */}
           {reporteExistente && (
             <div className="mt-4 p-3 rounded-lg bg-muted flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -242,9 +350,7 @@ export default function ReportesPage() {
       {/* Historial */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            Historial — {desarrollo}
-          </CardTitle>
+          <CardTitle className="text-base">Historial — {desarrollo}</CardTitle>
           <CardDescription>
             {reportes.length} reporte{reportes.length !== 1 ? 's' : ''} generado{reportes.length !== 1 ? 's' : ''}
           </CardDescription>
