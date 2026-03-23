@@ -1323,3 +1323,55 @@ export async function getAdminSessions(params?: {
 }
 
 
+
+// =====================================================
+// REPORTES API
+// =====================================================
+
+export interface ReporteItem {
+  id: number;
+  desarrollo: string;
+  periodo: string;
+  canva_design_id: string | null;
+  canva_export_url: string | null;
+  status: 'pending' | 'processing' | 'ready' | 'error';
+  error_message: string | null;
+  generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getReportes(desarrollo: string): Promise<ReporteItem[]> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: ReporteItem[] }>(
+    `/api/reportes?desarrollo=${encodeURIComponent(desarrollo)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  return response.data;
+}
+
+export async function getReporte(id: number): Promise<ReporteItem> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: ReporteItem }>(
+    `/api/reportes/${id}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  return response.data;
+}
+
+export async function generarReporte(desarrollo: string, periodo: string): Promise<{
+  reporte_id: number;
+  status: string;
+  url: string;
+}> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const response = await fetcher<{ success: boolean; data: { reporte_id: number; status: string; url: string } }>(
+    '/api/reportes/generar',
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: JSON.stringify({ desarrollo, periodo }),
+    }
+  );
+  return response.data;
+}

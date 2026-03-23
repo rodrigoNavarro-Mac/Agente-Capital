@@ -20,6 +20,7 @@ import {
   BookOpen,
   DollarSign,
   Monitor,
+  Presentation,
 } from 'lucide-react';
 import type { UserRole } from '@/types/documents';
 import { useSidebar } from '@/contexts/sidebar-context';
@@ -79,6 +80,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/commissions',
     icon: DollarSign,
     allowedRoles: ['admin', 'ceo'] as UserRole[]
+  },
+  {
+    title: 'Reportes Canva',
+    href: '/dashboard/reportes',
+    icon: Presentation,
+    allowedRoles: ['admin', 'ceo', 'marketing_manager'] as UserRole[]
   },
   {
     title: 'Mi Perfil',
