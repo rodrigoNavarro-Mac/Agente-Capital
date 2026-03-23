@@ -30,6 +30,18 @@ function getLast6Months(periodo: string): string[] {
   return meses;
 }
 
+// Condición de desarrollo robusta: columna directa (case-insensitive) o fallback JSONB
+// Zoho tiene typo "Desarollo" en deals — se verifica ambas claves
+function desarrolloCond(param: number): string {
+  return `(
+    LOWER(TRIM(COALESCE(
+      desarrollo,
+      data->>'Desarrollo',
+      data->>'Desarollo'
+    ))) = LOWER(TRIM($${param}))
+  )`;
+}
+
 export async function getReporteData(desarrollo: string, periodo: string): Promise<ReporteData> {
   const { desde, hasta } = periodoToRange(periodo);
   const periodoAnterior = getPeriodoAnterior(periodo);
@@ -40,7 +52,7 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   // Total leads del período
   const leadsResult = await query<{ count: string }>(
     `SELECT COUNT(*) as count FROM zoho_leads
-     WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3`,
+     WHERE ${desarrolloCond(1)} AND created_time >= $2 AND created_time <= $3`,
     [desarrollo, desde, hasta]
   );
   const totalLeads = parseInt(leadsResult.rows[0]?.count ?? '0', 10);
@@ -48,7 +60,7 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   // Total leads mes anterior
   const leadsAntResult = await query<{ count: string }>(
     `SELECT COUNT(*) as count FROM zoho_leads
-     WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3`,
+     WHERE ${desarrolloCond(1)} AND created_time >= $2 AND created_time <= $3`,
     [desarrollo, desdeAnterior, hastaAnterior]
   );
   const totalLeadsMesAnterior = parseInt(leadsAntResult.rows[0]?.count ?? '0', 10);
@@ -61,7 +73,7 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   const fuentesResult = await query<{ fuente: string; cantidad: string }>(
     `SELECT COALESCE(lead_source, 'Sin fuente') as fuente, COUNT(*) as cantidad
      FROM zoho_leads
-     WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3
+     WHERE ${desarrolloCond(1)} AND created_time >= $2 AND created_time <= $3
      GROUP BY lead_source
      ORDER BY cantidad DESC`,
     [desarrollo, desde, hasta]
@@ -75,7 +87,7 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   // Total visitas (leads que solicitaron visita en el período)
   const visitasResult = await query<{ count: string }>(
     `SELECT COUNT(*) as count FROM zoho_leads
-     WHERE desarrollo = $1
+     WHERE ${desarrolloCond(1)}
        AND created_time >= $2 AND created_time <= $3
        AND (
          data->>'Solicito_visita_cita' = 'true'
@@ -85,12 +97,15 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
   );
   const totalVisitas = parseInt(visitasResult.rows[0]?.count ?? '0', 10);
 
-  // Deals cerrados en el período
+  // Deals cerrados en el período (por closing_date, que es la fecha real de cierre)
   const cierresResult = await query<{ count: string; monto_total: string }>(
     `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as monto_total
      FROM zoho_deals
-     WHERE desarrollo = $1
-       AND created_time >= $2 AND created_time <= $3
+     WHERE ${desarrolloCond(1)}
+       AND (
+         (closing_date >= $2::date AND closing_date <= $3::date)
+         OR (closing_date IS NULL AND modified_time >= $2 AND modified_time <= $3)
+       )
        AND (
          stage ILIKE '%cerrad%'
          OR stage ILIKE '%won%'
@@ -117,16 +132,20 @@ export async function getReporteData(desarrollo: string, periodo: string): Promi
       const { desde: d, hasta: h } = periodoToRange(mes);
       const [lRes, vRes, cRes] = await Promise.all([
         query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM zoho_leads WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3`,
+          `SELECT COUNT(*) as count FROM zoho_leads WHERE ${desarrolloCond(1)} AND created_time >= $2 AND created_time <= $3`,
           [desarrollo, d, h]
         ),
         query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM zoho_leads WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3
+          `SELECT COUNT(*) as count FROM zoho_leads WHERE ${desarrolloCond(1)} AND created_time >= $2 AND created_time <= $3
            AND (data->>'Solicito_visita_cita' = 'true' OR data->>'solicito_visita_cita' = 'true')`,
           [desarrollo, d, h]
         ),
         query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM zoho_deals WHERE desarrollo = $1 AND created_time >= $2 AND created_time <= $3
+          `SELECT COUNT(*) as count FROM zoho_deals WHERE ${desarrolloCond(1)}
+           AND (
+             (closing_date >= $2::date AND closing_date <= $3::date)
+             OR (closing_date IS NULL AND modified_time >= $2 AND modified_time <= $3)
+           )
            AND (stage ILIKE '%cerrad%' OR stage ILIKE '%won%' OR stage ILIKE '%ganad%' OR stage ILIKE '%vendid%')`,
           [desarrollo, d, h]
         ),
