@@ -264,11 +264,12 @@ export default function ReportesPage() {
     try {
       const data = await getReportes(desarrollo);
       setReportes(data);
-      // Actualizar reporte seleccionado si está en la lista
-      if (selectedReporte) {
-        const updated = data.find(r => r.id === selectedReporte.id);
-        if (updated) setSelectedReporte(updated);
-      }
+      // Actualizar reporte seleccionado sin incluirlo como dependencia
+      setSelectedReporte(prev => {
+        if (!prev) return prev;
+        const updated = data.find(r => r.id === prev.id);
+        return updated ?? prev;
+      });
     } catch (err) {
       toast({
         title: 'Error cargando reportes',
@@ -278,7 +279,7 @@ export default function ReportesPage() {
     } finally {
       setLoading(false);
     }
-  }, [desarrollo, selectedReporte, toast]);
+  }, [desarrollo, toast]);
 
   useEffect(() => {
     cargarReportes();
