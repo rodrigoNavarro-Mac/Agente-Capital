@@ -7,7 +7,7 @@ import crypto from 'crypto';
 export const dynamic = 'force-dynamic';
 
 const CANVA_AUTH_URL = 'https://www.canva.com/api/oauth/authorize';
-const SCOPE_CANVA = 'design:content:write asset:read export:write';
+const SCOPE_CANVA = 'brandtemplate:content:write brandtemplate:meta:read design:content:write design:content:read asset:read';
 const SCOPE_LOG = 'canva-connect';
 
 /**
