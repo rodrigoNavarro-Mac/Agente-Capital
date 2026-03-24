@@ -103,8 +103,10 @@ export async function sendTextMessage(
 
         const data: WhatsAppSendMessageResponse = await response.json();
 
+        const wamid = data.messages?.[0]?.id ?? null;
+        console.log('[whatsapp-client] sendTextMessage OK', { wamid, to: to.substring(0, 6) + '***', phoneNumberId });
         logger.debug('WhatsApp message sent successfully', {
-            messageId: data.messages?.[0]?.id,
+            messageId: wamid,
         }, 'whatsapp-client');
 
         return data;
