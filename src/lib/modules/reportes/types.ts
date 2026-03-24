@@ -11,6 +11,23 @@ export interface FuenteLeads {
   porcentaje: number;
 }
 
+export interface MotivoDescarte {
+  motivo: string;
+  cantidad: number;
+}
+
+export interface DescartesSemanal {
+  semana: string; // 'S1' .. 'S4'
+  cantidad: number;
+}
+
+export interface CierreDetalle {
+  deal_name: string;
+  monto: number;
+  fecha_firma: string;
+  asesor: string;
+}
+
 export interface ReporteData {
   desarrollo: string;
   periodo: string;
@@ -24,11 +41,16 @@ export interface ReporteData {
   // Cierres / ventas
   totalCierres: number;
   montoTotalVentas: number;
+  cierresDetalle: CierreDetalle[];
   // Conversiones
   tasaConversionLeadVisita: number; // 0-100
   tasaConversionVisitaCierre: number; // 0-100
   // Histórico 6 meses
   historico6Meses: MesHistorico[];
+  // Descartes
+  totalDescartes: number;
+  descartesPorMotivo: MotivoDescarte[];
+  descartesSemanal: DescartesSemanal[];
 }
 
 export interface SlideResumen {
@@ -55,6 +77,12 @@ export interface SlideHistorico {
   comentario_6m: string;
 }
 
+export interface SlideDescartes {
+  total_descartes: string;
+  top_motivos: string[]; // top 3
+  insight: string;
+}
+
 export interface SlideCierres {
   unidades: string;
   monto_formateado: string;
@@ -66,6 +94,7 @@ export interface SlideContent {
   slide_embudo: SlideEmbudo;
   slide_fuentes: SlideFuentes;
   slide_historico: SlideHistorico;
+  slide_descartes: SlideDescartes;
   slide_cierres: SlideCierres;
 }
 

@@ -10,6 +10,7 @@ const mockSlides: SlideContent = {
   slide_embudo: { conv_lead_visita: '30%', conv_visita_cierre: '20%', analisis_embudo: 'OK' },
   slide_fuentes: { fuente_principal: 'FB', porcentaje_fuente_principal: '50%', comentario: 'OK' },
   slide_historico: { tendencia: 'Up', mejor_mes: '2026-03', comentario_6m: 'Good' },
+  slide_descartes: { total_descartes: '10', top_motivos: ['Sin interés', 'Precio'], insight: 'OK' },
   slide_cierres: { unidades: '3', monto_formateado: '$3M', comentario_cierres: 'OK' },
 };
 

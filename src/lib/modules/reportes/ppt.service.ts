@@ -1,124 +1,335 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PptxGenJS = require('pptxgenjs');
-import type { SlideContent } from './types';
+import type { SlideContent, ReporteData } from './types';
 
-const COLORS = {
-  navy: '1B2A3B',
-  gold: 'C9A84C',
-  white: 'FFFFFF',
-  lightText: 'B0BEC5',
-  lightBg: 'F5F7FA',
-  darkText: '1B2A3B',
+// LAYOUT_WIDE = 13.33" × 7.5" — widescreen 16:9 estándar de PowerPoint.
+// Las coordenadas del spec original van hasta y:6.2, lo que requiere 7.5" de alto.
+const LAYOUT = 'LAYOUT_WIDE';
+
+const C = {
+  primary: '607443', // verde Capital
+  text:    '2F2F2F', // texto oscuro
+  bg:      'FFFFFF', // fondo blanco
+  gray:    '757575', // labels secundarios
+  lightBg: 'EEF2EA', // verde muy claro para filas alternas / cabecera
 };
+
+function formatMes(mes: string): string {
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const m = parseInt(mes.split('-')[1], 10);
+  return meses[m - 1] ?? mes;
+}
+
+function formatMonto(n: number): string {
+  return `$${n.toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
+}
 
 export async function generateReportPPT(
   slides: SlideContent,
+  data: ReporteData,
   desarrollo: string,
   periodo: string
 ): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pptx = new PptxGenJS() as any;
-  pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+  pptx.layout = LAYOUT;
   pptx.title = `Reporte ${desarrollo} ${periodo}`;
   pptx.author = 'Capital Plus AI';
 
-  // SLIDE 1: Resumen
+  const [year] = periodo.split('-');
+  const mesNombre = formatMes(periodo);
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 1 — RESUMEN
+  // ══════════════════════════════════════════════════════════
   const s1 = pptx.addSlide();
-  s1.background = { color: COLORS.navy };
-  s1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.08, h: 7.5, fill: { color: COLORS.gold } });
-  s1.addText(`REPORTE DE VENTAS · ${desarrollo.toUpperCase()} · ${periodo}`, {
-    x: 0.3, y: 0.3, w: 12.5, h: 0.4, fontSize: 11, color: COLORS.gold, bold: false,
+  s1.background = { color: C.bg };
+
+  // Título
+  s1.addText(`${desarrollo.toUpperCase()} · ${mesNombre} ${year}`, {
+    x: 1, y: 0.5, w: 6, h: 0.5,
+    fontSize: 20, bold: true, color: C.text,
   });
   s1.addText(slides.slide_resumen.titulo, {
-    x: 0.3, y: 1.0, w: 12.5, h: 1.0, fontSize: 32, color: COLORS.white, bold: true,
+    x: 1, y: 1.0, w: 10, h: 0.5,
+    fontSize: 14, color: C.gray,
   });
-  s1.addShape(pptx.ShapeType.rect, { x: 0.3, y: 2.2, w: 5, h: 0.04, fill: { color: COLORS.gold } });
+
+  // KPIs — fila horizontal
+  // LEADS
+  s1.addText(String(data.totalLeads), {
+    x: 1.2, y: 1.8, w: 2, h: 0.9,
+    fontSize: 42, bold: true, color: C.primary,
+  });
+  s1.addText('LEADS', {
+    x: 1.2, y: 2.8, w: 2, h: 0.4,
+    fontSize: 14, color: C.gray,
+  });
+
+  // VISITAS
+  s1.addText(String(data.totalVisitas), {
+    x: 3.8, y: 1.8, w: 2, h: 0.9,
+    fontSize: 42, bold: true, color: C.primary,
+  });
+  s1.addText('VISITAS', {
+    x: 3.8, y: 2.8, w: 2, h: 0.4,
+    fontSize: 14, color: C.gray,
+  });
+
+  // CIERRES
+  s1.addText(String(data.totalCierres), {
+    x: 6.4, y: 1.8, w: 2, h: 0.9,
+    fontSize: 42, bold: true, color: C.primary,
+  });
+  s1.addText('CIERRES', {
+    x: 6.4, y: 2.8, w: 2, h: 0.4,
+    fontSize: 14, color: C.gray,
+  });
+
+  // MONTO
+  s1.addText(formatMonto(data.montoTotalVentas), {
+    x: 8.8, y: 1.8, w: 4, h: 0.9,
+    fontSize: 28, bold: true, color: C.primary,
+  });
+  s1.addText('MONTO', {
+    x: 8.8, y: 2.8, w: 2, h: 0.4,
+    fontSize: 14, color: C.gray,
+  });
+
+  // Separador horizontal
+  s1.addShape(pptx.ShapeType.rect, {
+    x: 1, y: 3.4, w: 8.5, h: 0.03,
+    fill: { color: C.primary },
+    line: { type: 'none' },
+  });
+
+  // Insight LLM
   s1.addText(slides.slide_resumen.insight_principal, {
-    x: 0.3, y: 2.5, w: 8, h: 2.5, fontSize: 16, color: COLORS.lightText,
+    x: 1, y: 3.6, w: 8.5, h: 1.8,
+    fontSize: 14, color: C.text,
   });
   s1.addText(slides.slide_resumen.variacion_leads_texto, {
-    x: 0.3, y: 5.5, w: 8, h: 1.0, fontSize: 18, color: COLORS.gold, bold: true,
+    x: 1, y: 5.5, w: 8.5, h: 0.5,
+    fontSize: 12, color: C.gray,
   });
 
-  // SLIDE 2: Embudo
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 2 — EMBUDO
+  // ══════════════════════════════════════════════════════════
   const s2 = pptx.addSlide();
-  s2.background = { color: COLORS.lightBg };
-  s2.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 1.0, fill: { color: COLORS.navy } });
+  s2.background = { color: C.bg };
+
   s2.addText('EMBUDO DE CONVERSIÓN', {
-    x: 0.5, y: 0.2, w: 12, h: 0.6, fontSize: 18, color: COLORS.white, bold: true,
-  });
-  s2.addText('Lead → Visita', { x: 1.0, y: 1.8, w: 5.5, h: 0.4, fontSize: 13, color: COLORS.darkText });
-  s2.addText(slides.slide_embudo.conv_lead_visita, {
-    x: 0.5, y: 2.1, w: 5.5, h: 1.5, fontSize: 44, color: COLORS.gold, bold: true,
-  });
-  s2.addShape(pptx.ShapeType.rect, { x: 6.5, y: 1.8, w: 0.04, h: 3.0, fill: { color: COLORS.gold } });
-  s2.addText('Visita → Cierre', { x: 7.5, y: 1.8, w: 5.5, h: 0.4, fontSize: 13, color: COLORS.darkText });
-  s2.addText(slides.slide_embudo.conv_visita_cierre, {
-    x: 7.0, y: 2.1, w: 5.5, h: 1.5, fontSize: 44, color: COLORS.darkText, bold: true,
-  });
-  s2.addText(slides.slide_embudo.analisis_embudo, {
-    x: 1.0, y: 5.2, w: 11, h: 1.8, fontSize: 14, color: COLORS.darkText,
+    x: 1, y: 0.5, w: 8, h: 0.5,
+    fontSize: 20, bold: true, color: C.text,
   });
 
-  // SLIDE 3: Fuentes
+  // Headers tabla embudo
+  s2.addText('Leads',   { x: 2.5, y: 1.5, w: 2, h: 0.4, fontSize: 14, color: C.gray });
+  s2.addText('Visitas', { x: 5.0, y: 1.5, w: 2, h: 0.4, fontSize: 14, color: C.gray });
+  s2.addText('Cierres', { x: 7.5, y: 1.5, w: 2, h: 0.4, fontSize: 14, color: C.gray });
+
+  // Valores tabla embudo
+  s2.addText(String(data.totalLeads),    { x: 2.5, y: 2.2, w: 2, h: 0.8, fontSize: 26, bold: true, color: C.primary });
+  s2.addText(String(data.totalVisitas),  { x: 5.0, y: 2.2, w: 2, h: 0.8, fontSize: 26, bold: true, color: C.primary });
+  s2.addText(String(data.totalCierres),  { x: 7.5, y: 2.2, w: 2, h: 0.8, fontSize: 26, bold: true, color: C.primary });
+
+  // Conversiones
+  s2.addText(`Lead → Visita: ${data.tasaConversionLeadVisita}%`,   { x: 2.5, y: 3.2, w: 3, h: 0.5, fontSize: 13, color: C.text });
+  s2.addText(`Visita → Cierre: ${data.tasaConversionVisitaCierre}%`, { x: 5.0, y: 3.2, w: 3, h: 0.5, fontSize: 13, color: C.text });
+
+  // Gráfica embudo
+  s2.addChart(pptx.ChartType.bar, [
+    { name: 'Volumen', labels: ['Leads', 'Visitas', 'Cierres'], values: [data.totalLeads, data.totalVisitas, data.totalCierres] },
+  ], {
+    x: 1, y: 4, w: 8, h: 2,
+    chartColors: [C.primary],
+    showLegend: false,
+    showValue: true,
+    dataLabelFontSize: 10,
+    catAxisLabelFontSize: 10,
+    valAxisHidden: true,
+    barGrouping: 'clustered',
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 3 — HISTÓRICO 6 MESES
+  // ══════════════════════════════════════════════════════════
   const s3 = pptx.addSlide();
-  s3.background = { color: COLORS.navy };
-  s3.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 1.0, fill: { color: COLORS.gold } });
-  s3.addText('FUENTES DE LEADS', {
-    x: 0.5, y: 0.2, w: 12, h: 0.6, fontSize: 18, color: COLORS.darkText, bold: true,
-  });
-  s3.addText('FUENTE PRINCIPAL', { x: 1.0, y: 1.8, w: 8, h: 0.4, fontSize: 11, color: COLORS.lightText });
-  s3.addText(slides.slide_fuentes.fuente_principal, {
-    x: 0.8, y: 2.2, w: 8, h: 1.2, fontSize: 36, color: COLORS.white, bold: true,
-  });
-  s3.addText(slides.slide_fuentes.porcentaje_fuente_principal, {
-    x: 9.0, y: 1.8, w: 4, h: 2, fontSize: 52, color: COLORS.gold, bold: true, align: 'center',
-  });
-  s3.addText(slides.slide_fuentes.comentario, {
-    x: 1.0, y: 5.2, w: 11, h: 1.8, fontSize: 14, color: COLORS.lightText,
+  s3.background = { color: C.bg };
+
+  s3.addText('HISTÓRICO 6 MESES', {
+    x: 1, y: 0.5, w: 8, h: 0.5,
+    fontSize: 20, bold: true, color: C.text,
   });
 
-  // SLIDE 4: Histórico
+  const mesLabels = data.historico6Meses.map(m => formatMes(m.mes));
+
+  // Gráfica principal centrada
+  s3.addChart(pptx.ChartType.bar, [
+    { name: 'Leads',   labels: mesLabels, values: data.historico6Meses.map(m => m.leads)   },
+    { name: 'Visitas', labels: mesLabels, values: data.historico6Meses.map(m => m.visitas) },
+    { name: 'Cierres', labels: mesLabels, values: data.historico6Meses.map(m => m.cierres) },
+  ], {
+    x: 1, y: 1.5, w: 8.5, h: 4.5,
+    chartColors: [C.primary, '2F2F2F', 'AAAAAA'],
+    showLegend: true,
+    legendPos: 'b',
+    legendFontSize: 10,
+    showValue: false,
+    catAxisLabelFontSize: 11,
+    barGrouping: 'clustered',
+  });
+
+  // Tabla compacta debajo
+  s3.addTable(
+    [
+      [
+        { text: 'Mes',     options: { bold: true, fontSize: 9, color: C.bg, fill: { color: C.primary } } },
+        ...data.historico6Meses.map(m => ({ text: formatMes(m.mes), options: { bold: true, fontSize: 9, color: C.bg, fill: { color: C.primary } } })),
+      ],
+      [
+        { text: 'Leads',   options: { fontSize: 9, color: C.text } },
+        ...data.historico6Meses.map(m => ({ text: String(m.leads),   options: { fontSize: 9, color: C.text } })),
+      ],
+      [
+        { text: 'Visitas', options: { fontSize: 9, color: C.text } },
+        ...data.historico6Meses.map(m => ({ text: String(m.visitas), options: { fontSize: 9, color: C.text } })),
+      ],
+      [
+        { text: 'Cierres', options: { fontSize: 9, color: C.text } },
+        ...data.historico6Meses.map(m => ({ text: String(m.cierres), options: { fontSize: 9, color: C.text } })),
+      ],
+    ],
+    {
+      x: 1, y: 6, w: 8.5,
+      colW: [1.1, 1.23, 1.23, 1.23, 1.23, 1.23, 1.24],
+      border: { type: 'solid', color: 'DDDDDD', pt: 0.5 },
+    }
+  );
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 4 — DESCARTES
+  // ══════════════════════════════════════════════════════════
   const s4 = pptx.addSlide();
-  s4.background = { color: COLORS.lightBg };
-  s4.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 1.0, fill: { color: COLORS.navy } });
-  s4.addText('TENDENCIA 6 MESES', {
-    x: 0.5, y: 0.2, w: 12, h: 0.6, fontSize: 18, color: COLORS.white, bold: true,
-  });
-  s4.addText('TENDENCIA', { x: 1.0, y: 1.5, w: 11, h: 0.4, fontSize: 11, color: COLORS.darkText });
-  s4.addText(slides.slide_historico.tendencia, {
-    x: 1.0, y: 1.9, w: 11, h: 1.0, fontSize: 22, color: COLORS.darkText, bold: true,
-  });
-  s4.addShape(pptx.ShapeType.rect, { x: 1.0, y: 3.1, w: 11, h: 0.04, fill: { color: COLORS.gold } });
-  s4.addText('MEJOR MES', { x: 1.0, y: 3.3, w: 11, h: 0.4, fontSize: 11, color: COLORS.gold });
-  s4.addText(slides.slide_historico.mejor_mes, {
-    x: 1.0, y: 3.7, w: 11, h: 0.8, fontSize: 20, color: COLORS.darkText, bold: true,
-  });
-  s4.addText(slides.slide_historico.comentario_6m, {
-    x: 1.0, y: 5.0, w: 11, h: 2.0, fontSize: 14, color: COLORS.darkText,
+  s4.background = { color: C.bg };
+
+  s4.addText('DESCARTES DEL PERÍODO', {
+    x: 1, y: 0.5, w: 8, h: 0.5,
+    fontSize: 20, bold: true, color: C.text,
   });
 
-  // SLIDE 5: Cierres
+  // KPI total descartes
+  s4.addText(String(data.totalDescartes), {
+    x: 1.2, y: 1.5, w: 3, h: 0.8,
+    fontSize: 36, bold: true, color: C.primary,
+  });
+  s4.addText('descartes en el período', {
+    x: 1.2, y: 2.2, w: 4, h: 0.35,
+    fontSize: 12, color: C.gray,
+  });
+
+  // Gráfica semanal (barras por semana)
+  s4.addChart(pptx.ChartType.bar, [
+    {
+      name: 'Descartes',
+      labels: data.descartesSemanal.map(d => d.semana),
+      values: data.descartesSemanal.map(d => d.cantidad),
+    },
+  ], {
+    x: 1, y: 2.5, w: 6, h: 3.5,
+    chartColors: [C.primary],
+    showLegend: false,
+    showValue: true,
+    dataLabelFontSize: 11,
+    catAxisLabelFontSize: 12,
+    valAxisHidden: false,
+    barGrouping: 'clustered',
+  });
+
+  // Top motivos — columna derecha
+  s4.addText('MOTIVOS PRINCIPALES', {
+    x: 7.2, y: 2.5, w: 2.5, h: 0.4,
+    fontSize: 11, bold: true, color: C.text,
+  });
+
+  const top3 = data.descartesPorMotivo.slice(0, 3);
+  // Si no hay motivos desde datos, usar los del LLM
+  const motivosDisplay = top3.length > 0
+    ? top3.map(m => `${m.motivo} (${m.cantidad})`)
+    : (slides.slide_descartes.top_motivos ?? []);
+
+  motivosDisplay.forEach((motivo, i) => {
+    s4.addText(`${i + 1}. ${motivo}`, {
+      x: 7.2, y: 3.1 + i * 0.75, w: 2.5, h: 0.6,
+      fontSize: 11, color: C.text,
+    });
+  });
+
+  // Insight LLM
+  s4.addText(slides.slide_descartes.insight, {
+    x: 1, y: 6.2, w: 8.5, h: 0.6,
+    fontSize: 12, color: C.gray,
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 5 — CIERRES
+  // ══════════════════════════════════════════════════════════
   const s5 = pptx.addSlide();
-  s5.background = { color: COLORS.navy };
-  s5.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.08, fill: { color: COLORS.gold } });
+  s5.background = { color: C.bg };
+
   s5.addText('CIERRES DEL PERÍODO', {
-    x: 1.0, y: 0.3, w: 11, h: 0.6, fontSize: 18, color: COLORS.gold, bold: true,
-  });
-  s5.addText('UNIDADES VENDIDAS', { x: 1.0, y: 1.8, w: 6, h: 0.4, fontSize: 11, color: COLORS.lightText });
-  s5.addText(slides.slide_cierres.unidades, {
-    x: 0.5, y: 2.0, w: 6, h: 2.5, fontSize: 72, color: COLORS.white, bold: true, align: 'center',
-  });
-  s5.addShape(pptx.ShapeType.rect, { x: 6.8, y: 1.5, w: 0.04, h: 3.5, fill: { color: COLORS.gold } });
-  s5.addText('MONTO TOTAL', { x: 7.5, y: 1.8, w: 5.5, h: 0.4, fontSize: 11, color: COLORS.lightText });
-  s5.addText(slides.slide_cierres.monto_formateado, {
-    x: 7.2, y: 2.3, w: 5.5, h: 1.5, fontSize: 28, color: COLORS.gold, bold: true,
-  });
-  s5.addText(slides.slide_cierres.comentario_cierres, {
-    x: 1.0, y: 5.8, w: 11, h: 1.5, fontSize: 14, color: COLORS.lightText,
+    x: 1, y: 0.5, w: 8, h: 0.5,
+    fontSize: 20, bold: true, color: C.text,
   });
 
-  // Exportar como Buffer
+  // Unidades
+  s5.addText(String(data.totalCierres), {
+    x: 1.2, y: 1.8, w: 2.5, h: 0.9,
+    fontSize: 36, bold: true, color: C.primary,
+  });
+  s5.addText('unidades', {
+    x: 1.2, y: 2.7, w: 2.5, h: 0.4,
+    fontSize: 12, color: C.gray,
+  });
+
+  // Monto
+  s5.addText(formatMonto(data.montoTotalVentas), {
+    x: 4.5, y: 1.8, w: 5, h: 0.9,
+    fontSize: 36, bold: true, color: C.primary,
+  });
+  s5.addText('monto total', {
+    x: 4.5, y: 2.7, w: 4, h: 0.4,
+    fontSize: 12, color: C.gray,
+  });
+
+  // Tabla detalle (de commission_sales)
+  if (data.cierresDetalle.length > 0) {
+    const headerRow = [
+      { text: 'Unidad / Deal', options: { bold: true, fontSize: 10, color: C.bg, fill: { color: C.primary } } },
+      { text: 'Asesor',        options: { bold: true, fontSize: 10, color: C.bg, fill: { color: C.primary } } },
+      { text: 'Monto',         options: { bold: true, fontSize: 10, color: C.bg, fill: { color: C.primary } } },
+      { text: 'Fecha',         options: { bold: true, fontSize: 10, color: C.bg, fill: { color: C.primary } } },
+    ];
+    const dataRows = data.cierresDetalle.map(c => [
+      { text: c.deal_name,                      options: { fontSize: 10, color: C.text } },
+      { text: c.asesor,                          options: { fontSize: 10, color: C.text } },
+      { text: formatMonto(c.monto),              options: { fontSize: 10, color: C.text } },
+      { text: c.fecha_firma,                     options: { fontSize: 10, color: C.text } },
+    ]);
+    s5.addTable([headerRow, ...dataRows], {
+      x: 1, y: 3, w: 8.5,
+      colW: [3.5, 2.5, 1.5, 1.0],
+      border: { type: 'solid', color: 'DDDDDD', pt: 0.5 },
+      autoPage: false,
+    });
+  } else {
+    s5.addText(slides.slide_cierres.comentario_cierres, {
+      x: 1, y: 3, w: 8.5, h: 2,
+      fontSize: 14, color: C.gray,
+    });
+  }
+
   const arrayBuffer = await pptx.write({ outputType: 'arraybuffer' }) as ArrayBuffer;
   return Buffer.from(arrayBuffer);
 }

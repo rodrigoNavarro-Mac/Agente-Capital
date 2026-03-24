@@ -135,7 +135,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // 6. Generar PPTX
     let pptBuffer: Buffer;
     try {
-      pptBuffer = await generateReportPPT(slides, desarrollo, periodo);
+      pptBuffer = await generateReportPPT(slides, reporteData, desarrollo, periodo);
       addStep('ppt_generar', true, `size=${pptBuffer.length} bytes`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

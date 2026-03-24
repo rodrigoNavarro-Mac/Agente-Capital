@@ -22,9 +22,13 @@ const mockData: ReporteData = {
   totalVisitas: 20,
   totalCierres: 5,
   montoTotalVentas: 5_000_000,
+  cierresDetalle: [],
   tasaConversionLeadVisita: 40,
   tasaConversionVisitaCierre: 25,
   historico6Meses: [],
+  totalDescartes: 8,
+  descartesPorMotivo: [{ motivo: 'Sin interés', cantidad: 5 }],
+  descartesSemanal: [{ semana: 'S1', cantidad: 2 }, { semana: 'S2', cantidad: 3 }, { semana: 'S3', cantidad: 2 }, { semana: 'S4', cantidad: 1 }],
 };
 
 const validSlideContent = {
@@ -32,6 +36,7 @@ const validSlideContent = {
   slide_embudo: { conv_lead_visita: '40%', conv_visita_cierre: '25%', analisis_embudo: 'Embudo eficiente' },
   slide_fuentes: { fuente_principal: 'Facebook', porcentaje_fuente_principal: '60%', comentario: 'Domina Facebook' },
   slide_historico: { tendencia: 'Creciente', mejor_mes: '2026-03', comentario_6m: 'Tendencia positiva' },
+  slide_descartes: { total_descartes: '8', top_motivos: ['Sin interés'], insight: 'Reducir tiempo de respuesta' },
   slide_cierres: { unidades: '5', monto_formateado: '$5,000,000 MXN', comentario_cierres: 'Buen cierre' },
 };
 
@@ -75,6 +80,7 @@ describe('analizarReporte', () => {
     expect(result).toHaveProperty('slide_embudo');
     expect(result).toHaveProperty('slide_fuentes');
     expect(result).toHaveProperty('slide_historico');
+    expect(result).toHaveProperty('slide_descartes');
     expect(result).toHaveProperty('slide_cierres');
   });
 });

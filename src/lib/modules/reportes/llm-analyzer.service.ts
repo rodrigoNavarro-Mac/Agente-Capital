@@ -14,6 +14,10 @@ export async function analizarReporte(
     ? `+${data.variacionLeadsPct}%`
     : `${data.variacionLeadsPct}%`;
 
+  const top3Motivos = data.descartesPorMotivo.slice(0, 3)
+    .map(m => `${m.motivo} (${m.cantidad})`)
+    .join(', ') || 'Sin datos';
+
   const mensajeUsuario = `Analiza los siguientes datos de ventas del desarrollo inmobiliario "${desarrollo}" para el período ${periodo}:
 
 MÉTRICAS DEL PERÍODO:
@@ -23,6 +27,8 @@ MÉTRICAS DEL PERÍODO:
 - Monto total de ventas: $${data.montoTotalVentas.toLocaleString('es-MX')} MXN
 - Tasa conversión lead→visita: ${data.tasaConversionLeadVisita}%
 - Tasa conversión visita→cierre: ${data.tasaConversionVisitaCierre}%
+- Total descartes: ${data.totalDescartes}
+- Top motivos de descarte: ${top3Motivos}
 
 FUENTES DE LEADS:
 ${data.leadsPorFuente.map(f => `- ${f.fuente}: ${f.cantidad} leads (${f.porcentaje}%)`).join('\n')}
@@ -52,6 +58,11 @@ Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicio
     "mejor_mes": "mes con mejor desempeño y por qué",
     "comentario_6m": "análisis del comportamiento en 6 meses"
   },
+  "slide_descartes": {
+    "total_descartes": "número de descartes como texto",
+    "top_motivos": ["motivo 1", "motivo 2", "motivo 3"],
+    "insight": "análisis de los descartes y qué acciones tomar en 1-2 oraciones"
+  },
   "slide_cierres": {
     "unidades": "número de cierres como texto",
     "monto_formateado": "monto total formateado en pesos mexicanos",
@@ -64,17 +75,13 @@ Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicio
       role: 'system',
       content: 'Eres un analista de ventas inmobiliarias experto. Analizas métricas de CRM y generas insights concisos para presentaciones ejecutivas. SIEMPRE responde con JSON válido y sin ningún texto adicional.',
     },
-    {
-      role: 'user',
-      content: mensajeUsuario,
-    },
+    { role: 'user', content: mensajeUsuario },
   ];
 
   logger.info('Generando análisis LLM del reporte', { desarrollo, periodo }, SCOPE);
 
-  const raw = await runLLM(messages, { temperature: 0.3, max_tokens: 1000 });
+  const raw = await runLLM(messages, { temperature: 0.3, max_tokens: 1200 });
 
-  // Limpiar posible markdown
   const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
   let parsed: SlideContent;
@@ -87,10 +94,12 @@ Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicio
     );
   }
 
-  // Validar campos requeridos
-  const requiredSlides = ['slide_resumen', 'slide_embudo', 'slide_fuentes', 'slide_historico', 'slide_cierres'];
+  const requiredSlides: (keyof SlideContent)[] = [
+    'slide_resumen', 'slide_embudo', 'slide_fuentes',
+    'slide_historico', 'slide_descartes', 'slide_cierres',
+  ];
   for (const slide of requiredSlides) {
-    if (!parsed[slide as keyof SlideContent]) {
+    if (!parsed[slide]) {
       throw new Error(`LLM no devolvió el campo requerido: ${slide}`);
     }
   }
