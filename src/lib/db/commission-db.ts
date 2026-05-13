@@ -771,6 +771,30 @@ export async function upsertCommissionSale(
 }
 
 /**
+ * Actualiza solo los campos de asesor externo (para alternar interno/externo en comisiones).
+ * No toca el resto de la venta ni exige resincronizar desde Zoho.
+ */
+export async function updateCommissionSaleAsesorExterno(
+  saleId: number,
+  asesor_externo: string | null,
+  asesor_externo_id: string | null
+): Promise<void> {
+  try {
+    await query(
+      `UPDATE commission_sales
+       SET asesor_externo = $1,
+           asesor_externo_id = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [asesor_externo, asesor_externo_id, saleId]
+    );
+  } catch (error) {
+    logger.error('Error actualizando asesor externo de venta', error, { saleId }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
  * Actualiza el estado de cÃ¡lculo de comisiÃ³n de una venta
  */
 export async function updateCommissionSaleCalculation(

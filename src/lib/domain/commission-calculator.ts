@@ -75,6 +75,17 @@ export function getRoleDisplayName(roleType: CommissionRoleType): string {
 }
 
 /**
+ * Indica si la venta debe usar el "slot" de asesor externo en el cálculo:
+ * hay nombre de asesor externo en la venta, o el propietario del deal es literalmente "Asesor Externo".
+ */
+export function saleUsesExternalAdvisorSlot(sale: CommissionSale): boolean {
+  if (sale.asesor_externo?.trim()) return true;
+  const p = sale.propietario_deal?.trim().toLowerCase();
+  if (p === 'asesor externo') return true;
+  return false;
+}
+
+/**
  * Normaliza el nombre de una persona basándose en el role_type
  * Si el nombre guardado es genérico, lo reemplaza con el nombre específico
  */
@@ -93,8 +104,14 @@ export function normalizePersonName(roleType: CommissionRoleType, currentName: s
     return sale.propietario_deal;
   }
 
-  if (roleType === 'external_advisor' && sale?.asesor_externo) {
-    return sale.asesor_externo;
+  if (roleType === 'external_advisor') {
+    if (sale?.asesor_externo?.trim()) {
+      return sale.asesor_externo;
+    }
+    if (currentName?.trim()) {
+      return currentName;
+    }
+    return 'Asesor externo';
   }
 
   // Si el nombre actual es genérico, reemplazarlo con el nombre específico

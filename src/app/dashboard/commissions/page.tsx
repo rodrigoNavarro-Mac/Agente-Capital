@@ -42,7 +42,7 @@ import type {
   PartnerCommission,
   PartnerInvoice,
 } from '@/types/commissions';
-import { getRoleDisplayName, normalizePersonName } from '@/lib/domain/commission-calculator';
+import { getRoleDisplayName, normalizePersonName, saleUsesExternalAdvisorSlot } from '@/lib/domain/commission-calculator';
 import { logger } from '@/lib/utils/logger';
 import { normalizeDevelopmentDisplay, normalizeDevelopmentForFilter } from '@/lib/utils/utils';
 
@@ -2838,6 +2838,7 @@ function DistributionTab({
   const [calculating, setCalculating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loadingDistributions, setLoadingDistributions] = useState(false);
+  const [switchingAdvisorMode, setSwitchingAdvisorMode] = useState(false);
   const { toast } = useToast();
 
   // Filtrar ventas por desarrollo y año
@@ -2992,6 +2993,100 @@ function DistributionTab({
       logger.error('Error calculating commissions:', error);
     } finally {
       setCalculating(false);
+    }
+  };
+
+  const handleAdvisorClassificationChange = async (mode: 'internal' | 'external') => {
+    if (!selectedSaleId) return;
+    const sale = filteredSales.find(s => s.id === selectedSaleId);
+    if (!sale) return;
+
+    const cfg = configs.find(c => c.desarrollo.toLowerCase() === sale.desarrollo.toLowerCase());
+    if (!cfg || !(Number(cfg.external_advisor_percent ?? 0) > 0)) return;
+
+    setSwitchingAdvisorMode(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const asesorExterno =
+        mode === 'external'
+          ? (sale.asesor_externo?.trim() || 'Asesor externo')
+          : null;
+      const asesorExternoId =
+        mode === 'external' ? (sale.asesor_externo_id ?? null) : null;
+
+      const patchRes = await fetch('/api/commissions/sales', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sale_id: sale.id,
+          asesor_externo: asesorExterno,
+          asesor_externo_id: asesorExternoId,
+        }),
+      });
+      const patchData = await patchRes.json();
+      if (!patchData.success) {
+        toast({
+          title: 'Error',
+          description: patchData.error || 'No se pudo actualizar la clasificación del asesor',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (sale.propietario_deal?.trim().toLowerCase() === 'asesor externo' && mode === 'internal') {
+        toast({
+          title: 'Aviso',
+          description:
+            'El propietario del deal en CRM sigue siendo "Asesor Externo". El cálculo puede seguir usando la ruta de asesor externo hasta que se corrija en Zoho.',
+        });
+      }
+
+      if (sale.commission_calculated) {
+        const response = await fetch('/api/commissions/distributions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ sale_id: sale.id, recalculate: true }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          toast({
+            title: 'Distribución actualizada',
+            description:
+              mode === 'external'
+                ? `Asesor externo: ${Number(cfg.external_advisor_percent).toFixed(2)}% del pool de fase venta (según configuración del desarrollo).`
+                : `Asesor interno: ${Number(cfg.deal_owner_percent).toFixed(2)}% del pool; el % de asesor externo se redistribuye entre gerente e interno.`,
+          });
+          await loadDistributions(sale.id);
+          onRefresh();
+        } else {
+          toast({
+            title: 'Error al recalcular',
+            description: data.error || 'No se pudieron recalcular las comisiones',
+            variant: 'destructive',
+          });
+        }
+      } else {
+        onRefresh();
+        toast({
+          title: 'Clasificación guardada',
+          description: 'Cuando calcules comisiones, se aplicará esta clasificación con los porcentajes configurados.',
+        });
+      }
+    } catch (error) {
+      logger.error('Error changing advisor classification', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo completar el cambio',
+        variant: 'destructive',
+      });
+    } finally {
+      setSwitchingAdvisorMode(false);
     }
   };
 
@@ -3464,7 +3559,61 @@ function DistributionTab({
                   Selecciona una venta para ver su distribución de comisiones
                 </div>
               ) : (
-                <div className="border rounded-lg">
+                <>
+                  {selectedSale &&
+                    (() => {
+                      const cfg = configs.find(
+                        c => c.desarrollo.toLowerCase() === selectedSale.desarrollo.toLowerCase()
+                      );
+                      const extPct = cfg ? Number(cfg.external_advisor_percent ?? 0) : 0;
+                      if (!cfg || extPct <= 0) return null;
+                      const internalPct = Number(cfg.deal_owner_percent);
+                      const ownerIsLiteralExternal =
+                        selectedSale.propietario_deal?.trim().toLowerCase() === 'asesor externo';
+                      return (
+                        <div className="mb-3 rounded-lg border border-dashed bg-muted/30 p-3 space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                            <Label className="text-sm font-medium shrink-0 whitespace-nowrap">
+                              Comisión del asesor (fase venta)
+                            </Label>
+                            <Select
+                              value={saleUsesExternalAdvisorSlot(selectedSale) ? 'external' : 'internal'}
+                              onValueChange={(v) =>
+                                handleAdvisorClassificationChange(v as 'internal' | 'external')
+                              }
+                              disabled={switchingAdvisorMode || calculating || deleting}
+                            >
+                              <SelectTrigger className="w-full sm:max-w-lg">
+                                <SelectValue placeholder="Clasificación" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="internal" disabled={ownerIsLiteralExternal}>
+                                  Asesor interno — {internalPct.toFixed(2)}% del pool (propietario del deal)
+                                </SelectItem>
+                                <SelectItem value="external">
+                                  Asesor externo — {extPct.toFixed(2)}% del pool (configurado)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {switchingAdvisorMode && (
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Cambia cómo se aplica la comisión del desarrollo para esta venta. Si ya hay montos calculados,
+                            se recalcularán. En la tabla, el rol se muestra como &quot;Asesor Interno&quot; o
+                            &quot;Asesor Externo&quot; y el nombre con el campo correspondiente del deal.
+                          </p>
+                          {ownerIsLiteralExternal && (
+                            <p className="text-xs text-amber-700">
+                              El propietario del deal en CRM es &quot;Asesor Externo&quot;: puede seguir aplicándose la
+                              comisión de asesor externo. Para forzar solo asesor interno, cambie el propietario en Zoho.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  <div className="border rounded-lg">
                   {loadingDistributions ? (
                     <div className="p-8 flex items-center justify-center">
                       <Loader2 className="h-6 w-6 animate-spin" />
@@ -4010,6 +4159,7 @@ function DistributionTab({
                     </div>
                   )}
                 </div>
+                </>
               )}
             </div>
           </div>

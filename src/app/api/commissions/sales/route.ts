@@ -12,11 +12,13 @@ import {
   getCommissionSale,
   upsertCommissionSale,
   getCommissionSaleByZohoDealId,
+  updateCommissionSaleAsesorExterno,
 } from '@/lib/db/commission-db';
 import { logger } from '@/lib/utils/logger';
 import { validateRequest, commissionSaleInputSchema } from '@/lib/utils/validation';
 import type { APIResponse } from '@/types/documents';
 import type { CommissionSalesFilters, CommissionSaleInput } from '@/types/commissions';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
@@ -214,6 +216,80 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
   }
 }
 
+const patchSaleAsesorExternoSchema = z.object({
+  sale_id: z.number().int().positive(),
+  asesor_externo: z.string().max(220).nullable(),
+  asesor_externo_id: z.string().max(120).nullable().optional(),
+});
 
+/**
+ * PATCH /api/commissions/sales
+ * Actualiza solo datos de asesor externo (alternar clasificación interno/externo en comisiones).
+ */
+export async function PATCH(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
+  try {
+    const authHeader = request.headers.get('authorization');
+    const token = extractTokenFromHeader(authHeader);
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      return NextResponse.json(
+        { success: false, error: 'Token inválido o expirado' },
+        { status: 401 }
+      );
+    }
+
+    if (!ALLOWED_ROLES.includes(payload.role || '')) {
+      return NextResponse.json(
+        { success: false, error: 'No tienes permisos para esta acción' },
+        { status: 403 }
+      );
+    }
+
+    const rawBody = await request.json();
+    const parsed = patchSaleAsesorExternoSchema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: 'Datos inválidos: sale_id y asesor_externo son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    const { sale_id, asesor_externo, asesor_externo_id } = parsed.data;
+
+    const existing = await getCommissionSale(sale_id);
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: 'Venta no encontrada' },
+        { status: 404 }
+      );
+    }
+
+    const extId =
+      asesor_externo === null ? null : (asesor_externo_id ?? existing.asesor_externo_id ?? null);
+
+    await updateCommissionSaleAsesorExterno(sale_id, asesor_externo, extId);
+
+    const updated = await getCommissionSale(sale_id);
+    return NextResponse.json({ success: true, data: updated });
+  } catch (error) {
+    logger.error('Error actualizando asesor externo (PATCH sales)', error, {}, 'commissions-sales');
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Error al actualizar venta',
+      },
+      { status: 500 }
+    );
+  }
+}
 
 
