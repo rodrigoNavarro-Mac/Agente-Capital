@@ -40,9 +40,7 @@ import { getPhoneNumberIdByDevelopment } from './channel-router';
 import { maybeHandleFaq } from './faq/faq-router';
 import { tryExtractContext } from './context-extractor';
 import { personalizeResponse } from './response-personalizer';
-
-// Imports Legacy (reservados para uso futuro)
-// import { classifyPerfilCompra, classifyPresupuesto, classifyUrgencia } from './intent-classifier';
+import { isBusinessHours } from '@/lib/business-hours';
 
 /**
  * Mensaje saliente del bot (texto, imagen o documento PDF)
@@ -116,17 +114,7 @@ const ALLOWED_NEXT_STATES_BY_STATE: Record<ConversationState, ConversationState[
     SOLICITUD_HORARIO: ['SOLICITUD_NOMBRE'],
     SOLICITUD_NOMBRE: ['CLIENT_ACCEPTA', 'SOLICITUD_NOMBRE'],
     CLIENT_ACCEPTA: [],
-    ENVIO_BROCHURE: ['INICIO'],
-    REVALIDACION_INTERES: ['INICIO'],
-    VALIDACION_PRODUCTO: ['INICIO'],
-    PERFIL_COMPRA: ['INICIO'],
-    CALIFICACION_PRESUPUESTO: ['INICIO'],
-    OFERTA_PLAN_PAGOS: ['INICIO'],
-    CALIFICACION_URGENCIA: ['INICIO'],
-    SOLICITUD_ACCION: ['INICIO'],
-    HANDOVER_ASESOR: ['INICIO'],
     SALIDA_ELEGANTE: [],
-    CONVERSACION_LIBRE: [],
 };
 
 /** responseKeys que repiten la pregunta del estado actual; si LLM devuelve state igual + esta clave, usar FSM (anti-repeat) */
@@ -136,21 +124,6 @@ const REPEAT_RESPONSE_KEYS_BY_STATE: Partial<Record<ConversationState, string[]>
     INFO_REINTENTO: ['INFO_REINTENTO'],
     SOLICITUD_NOMBRE: ['SOLICITUD_NOMBRE'],
 };
-
-// =====================================================
-// CONFIGURACIÓN HORARIA
-// =====================================================
-
-export function isBusinessHours(): boolean {
-    // Horario laboral: 09:00 - 18:00 (Cancún Time - America/Cancun)
-    const now = new Date();
-    const cancunTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Cancun' }));
-    const _hours = cancunTime.getHours();
-
-    // TEMPORAL: Retornar false para permitir pruebas inmediatas
-    // return hours >= 9 && hours < 18;
-    return false;
-}
 
 /** Resolves assigned agent email for Cliq invite: from Zoho Owner or env fallback by development */
 function getAssignedAgentEmail(ownerEmail?: string | null, development?: string): string | null {
@@ -236,7 +209,7 @@ export async function handleIncomingMessage(
     console.log('[WhatsApp] state=', conversation?.state ?? 'NEW', '| Si siempre NEW, ejecuta migracion 037');
 
     // 3. CONTROL POR HORARIO
-    if (isBusinessHours()) {
+    if (!isBusinessHours()) {
         if (conversation?.is_qualified || conversation?.state === 'CLIENT_ACCEPTA') {
             return { outboundMessages: [] };
         }
@@ -246,7 +219,7 @@ export async function handleIncomingMessage(
         };
     }
 
-    // FUERA DE HORARIO LAABORAL -> EJECUTAR FLUJO FSM
+    // DENTRO DE HORARIO LABORAL -> EJECUTAR FLUJO FSM
 
     if (!conversation) {
         conversation = await upsertConversation(userPhone, development, {

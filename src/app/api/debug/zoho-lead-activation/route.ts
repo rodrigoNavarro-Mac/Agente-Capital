@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { handleZohoLeadCreated } from '@/lib/modules/whatsapp/zoho-lead-activation';
 import { getBienvenidaTemplateForDevelopment } from '@/lib/modules/whatsapp/development-content';
 import { validateMexicanPhone, validateWhatsAppPhone, sendTemplateMessage } from '@/lib/modules/whatsapp/whatsapp-client';
-import { isBusinessHours } from '@/lib/modules/whatsapp/conversation-flows';
+import { isBusinessHours } from '@/lib/business-hours';
 import { getPhoneNumberIdByDevelopment } from '@/lib/modules/whatsapp/channel-router';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 

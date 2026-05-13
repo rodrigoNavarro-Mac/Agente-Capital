@@ -40,7 +40,7 @@ vi.mock('../conversation-state', () => ({
 
 const mockIsBusinessHours = vi.fn();
 
-vi.mock('../conversation-flows', () => ({
+vi.mock('@/lib/business-hours', () => ({
     isBusinessHours: () => mockIsBusinessHours(),
 }));
 

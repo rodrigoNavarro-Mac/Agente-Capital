@@ -4798,6 +4798,38 @@ export async function claimWhatsAppMessage(messageId: string): Promise<boolean> 
 // =====================================================
 
 /**
+ * Devuelve el MAX(modified_time) de una tabla Zoho local.
+ *
+ * Por qué: para hacer sync incremental con `If-Modified-Since` necesitamos
+ * saber hasta qué fecha tenemos sincronizado. Tomamos el registro más
+ * reciente de la tabla local; si no hay nada, devolvemos null para que el
+ * caller haga un full sync (sin header).
+ *
+ * @param table 'zoho_leads' | 'zoho_deals' | 'zoho_activities' | 'zoho_notes'
+ * @returns Date con el último modified_time, o null si la tabla está vacía
+ *   o no existe todavía (primer sync).
+ */
+export async function getLastModifiedTime(
+  table: 'zoho_leads' | 'zoho_deals' | 'zoho_activities' | 'zoho_notes'
+): Promise<Date | null> {
+  try {
+    const result = await query<{ max_modified: Date | null }>(
+      `SELECT MAX(modified_time) as max_modified FROM ${table}`
+    );
+    return result.rows[0]?.max_modified ?? null;
+  } catch (error) {
+    // Si la tabla no existe (primera vez), tratamos como sync inicial
+    if (error instanceof Error && (
+      error.message.includes('no existe la relación') ||
+      error.message.includes('does not exist')
+    )) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * Devuelve IDs de leads o deals que NO tienen ninguna entrada en zoho_stage_history.
  * Usado para el backfill incremental del historial durante el sync.
  * @param recordType 'lead' | 'deal'

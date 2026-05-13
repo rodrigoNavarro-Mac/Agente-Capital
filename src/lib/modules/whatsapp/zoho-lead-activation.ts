@@ -1,7 +1,7 @@
 import { validateMexicanPhone, validateWhatsAppPhone, sendTemplateMessage } from './whatsapp-client';
 import { getBienvenidaTemplateForDevelopment } from './development-content';
 import { getConversation, upsertConversation, updateState, mergeUserData } from './conversation-state';
-import { isBusinessHours } from './conversation-flows';
+import { isBusinessHours } from '@/lib/business-hours';
 import { createCliqChannel, addBotToCliqChannel, postMessageToCliqViaWebhook } from '@/lib/services/zoho-cliq';
 import { upsertWhatsAppCliqThread, markContextSent } from '@/lib/db/whatsapp-cliq';
 import { saveBridgeLog } from '@/lib/db/postgres';

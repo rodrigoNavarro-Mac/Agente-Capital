@@ -2360,6 +2360,7 @@ function SalesTab({
   availableDevelopments: string[];
 }) {
   const [syncing, setSyncing] = useState(false);
+  const [syncingZoho, setSyncingZoho] = useState(false);
   const [partnersMap, setPartnersMap] = useState<Record<number, Array<{ socio: string; participacion: number }>>>({});
   const [loadingPartners, setLoadingPartners] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
@@ -2520,6 +2521,49 @@ function SalesTab({
     }
   };
 
+  // Sincroniza deals desde Zoho hacia la BD local y luego procesa ventas.
+  // Hace sync incremental (solo los deals que cambiaron) para no sobrecargar
+  // la API de Zoho ni acercarse al timeout de Vercel.
+  const handleSyncZoho = async () => {
+    setSyncingZoho(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/sync-deals', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: 'Sincronizacion con Zoho completada',
+          description: data.data.message || `${data.data.recordsSynced} deals sincronizados`,
+        });
+        setPartnersMap({});
+        onRefresh();
+      } else {
+        toast({
+          title: 'Error al sincronizar con Zoho',
+          description: data.error || 'Error desconocido',
+          variant: 'destructive',
+        });
+        logger.error('Error syncing deals from Zoho:', data.error);
+      }
+    } catch (error) {
+      toast({
+        title: 'Error al sincronizar con Zoho',
+        description: error instanceof Error ? error.message : 'Error de red',
+        variant: 'destructive',
+      });
+      logger.error('Error syncing deals from Zoho:', error);
+    } finally {
+      setSyncingZoho(false);
+    }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -2531,7 +2575,8 @@ function SalesTab({
           <div className="flex flex-col gap-4">
             <CardTitle>Ventas Comisionables</CardTitle>
             <CardDescription>
-              Deals cerrados-ganados que generan comisión. Procesa los deals desde la base de datos local.
+              Deals cerrados-ganados que generan comision. Primero sincroniza los deals desde Zoho
+              y despues carga las ventas desde la base de datos local.
             </CardDescription>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-wrap">
               <div className="flex items-center gap-2">
@@ -2566,10 +2611,31 @@ function SalesTab({
                 </SelectContent>
               </Select>
               <Button
-                onClick={handleSync}
+                onClick={handleSyncZoho}
                 variant="default"
-                disabled={syncing}
+                disabled={syncingZoho || syncing}
                 className="w-full sm:w-auto"
+                title="Sincroniza solo los deals desde Zoho (incremental) y procesa las ventas comisionables"
+              >
+                {syncingZoho ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sincronizando Zoho...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <span className="hidden sm:inline">Sincronizar Deals desde Zoho</span>
+                    <span className="sm:hidden">Sync Zoho</span>
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleSync}
+                variant="secondary"
+                disabled={syncing || syncingZoho}
+                className="w-full sm:w-auto"
+                title="Solo procesa las ventas desde la base de datos local (sin tocar Zoho)"
               >
                 {syncing ? (
                   <>

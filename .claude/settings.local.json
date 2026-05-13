@@ -10,7 +10,13 @@
       "Bash(xargs grep:*)",
       "Bash(npx tsc:*)",
       "Bash(grep -v \"^\\\\s*//\")",
-      "Bash(ls /c/Users/rnava/Documents/Capital/Agente/.env*)"
+      "Bash(ls /c/Users/rnava/Documents/Capital/Agente/.env*)",
+      "Bash(node -e \"require\\(''pptxgenjs''\\)\")",
+      "Bash(ls /c/Users/rnava/Documents/Capital/Agente/src/app/api/reportes/[id]/)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(wc -l /c/Users/rnava/Documents/Capital/Agente/src/lib/modules/whatsapp/*.ts)"
     ]
   }
 }

@@ -361,6 +361,13 @@ async function zohoRequest<T>(
     TIMEOUTS.ZOHO_REQUEST
   );
 
+  // 304 Not Modified: respuesta válida cuando se usó If-Modified-Since y
+  // no hay registros nuevos/modificados desde el timestamp dado.
+  // Zoho devuelve 304 sin body; lo tratamos como "lista vacía".
+  if (response.status === 304) {
+    return { data: [], info: { more_records: false } } as T;
+  }
+
   if (!response.ok) {
     const errorText = await response.text();
 
@@ -452,11 +459,24 @@ async function zohoRequest<T>(
  * Obtiene todos los leads de ZOHO CRM
  * @param page Página a obtener (por defecto 1)
  * @param perPage Registros por página (máximo 200, por defecto 200)
+ * @param modifiedSince Si se proporciona, Zoho solo devolverá leads cuyo
+ *   Modified_Time sea posterior a esta fecha. Se envía como header
+ *   `If-Modified-Since` en formato ISO 8601. Permite hacer sync incremental
+ *   y evitar timeouts en Vercel cuando hay miles de registros.
  */
-export async function getZohoLeads(page: number = 1, perPage: number = 200): Promise<ZohoLeadsResponse> {
+export async function getZohoLeads(
+  page: number = 1,
+  perPage: number = 200,
+  modifiedSince?: Date
+): Promise<ZohoLeadsResponse> {
   try {
+    const headers: Record<string, string> = {};
+    if (modifiedSince) {
+      headers['If-Modified-Since'] = modifiedSince.toISOString();
+    }
     const response = await zohoRequest<ZohoLeadsResponse>(
-      `/Leads?page=${page}&per_page=${perPage}`
+      `/Leads?page=${page}&per_page=${perPage}`,
+      { headers }
     );
     return response;
   } catch (error) {
@@ -585,11 +605,22 @@ export async function createZohoLeadRecord(params: CreateZohoLeadParams): Promis
  * Obtiene todos los deals de ZOHO CRM
  * @param page Página a obtener (por defecto 1)
  * @param perPage Registros por página (máximo 200, por defecto 200)
+ * @param modifiedSince Si se proporciona, Zoho solo devolverá deals cuyo
+ *   Modified_Time sea posterior a esta fecha (sync incremental).
  */
-export async function getZohoDeals(page: number = 1, perPage: number = 200): Promise<ZohoDealsResponse> {
+export async function getZohoDeals(
+  page: number = 1,
+  perPage: number = 200,
+  modifiedSince?: Date
+): Promise<ZohoDealsResponse> {
   try {
+    const headers: Record<string, string> = {};
+    if (modifiedSince) {
+      headers['If-Modified-Since'] = modifiedSince.toISOString();
+    }
     const response = await zohoRequest<ZohoDealsResponse>(
-      `/Deals?page=${page}&per_page=${perPage}`
+      `/Deals?page=${page}&per_page=${perPage}`,
+      { headers }
     );
     return response;
   } catch (error) {
@@ -748,14 +779,20 @@ export interface ZohoActivitiesResponse {
 export async function getZohoActivities(
   activityType: 'Calls' | 'Tasks' | 'all' = 'all',
   page: number = 1,
-  perPage: number = 200
+  perPage: number = 200,
+  modifiedSince?: Date
 ): Promise<ZohoActivitiesResponse> {
   try {
+    // Header opcional para sync incremental
+    const reqOptions: RequestInit = modifiedSince
+      ? { headers: { 'If-Modified-Since': modifiedSince.toISOString() } }
+      : {};
+
     if (activityType === 'all') {
       // Obtener todas las actividades combinadas
       const [calls, tasks] = await Promise.all([
-        zohoRequest<ZohoActivitiesResponse>(`/Calls?page=${page}&per_page=${perPage}`, {}, false).catch(() => ({ data: [], info: {} })),
-        zohoRequest<ZohoActivitiesResponse>(`/Tasks?page=${page}&per_page=${perPage}`, {}, false).catch(() => ({ data: [], info: {} })),
+        zohoRequest<ZohoActivitiesResponse>(`/Calls?page=${page}&per_page=${perPage}`, reqOptions, false).catch(() => ({ data: [], info: {} })),
+        zohoRequest<ZohoActivitiesResponse>(`/Tasks?page=${page}&per_page=${perPage}`, reqOptions, false).catch(() => ({ data: [], info: {} })),
       ]);
 
       const allActivities: ZohoActivity[] = [
@@ -775,7 +812,7 @@ export async function getZohoActivities(
     } else {
       const response = await zohoRequest<ZohoActivitiesResponse>(
         `/${activityType}?page=${page}&per_page=${perPage}`,
-        {},
+        reqOptions,
         false
       ).catch(() => ({ data: [], info: {} }));
 
@@ -793,13 +830,16 @@ export async function getZohoActivities(
  * Obtiene todas las actividades de ZOHO CRM (sin paginación)
  * Útil para análisis completo
  */
-export async function getAllZohoActivities(activityType: 'Calls' | 'Tasks' | 'all' = 'all'): Promise<ZohoActivity[]> {
+export async function getAllZohoActivities(
+  activityType: 'Calls' | 'Tasks' | 'all' = 'all',
+  modifiedSince?: Date
+): Promise<ZohoActivity[]> {
   const allActivities: ZohoActivity[] = [];
   let currentPage = 1;
   let hasMore = true;
 
   while (hasMore) {
-    const response = await getZohoActivities(activityType, currentPage, 200);
+    const response = await getZohoActivities(activityType, currentPage, 200, modifiedSince);
     if (response.data) {
       allActivities.push(...response.data);
     }
@@ -919,13 +959,13 @@ export function parseStageTransitionsFromTimeline(
  * Obtiene todos los leads de ZOHO CRM (sin paginación, todos los registros)
  * Útil para sincronización completa
  */
-export async function getAllZohoLeads(): Promise<ZohoLead[]> {
+export async function getAllZohoLeads(modifiedSince?: Date): Promise<ZohoLead[]> {
   const allLeads: ZohoLead[] = [];
   let currentPage = 1;
   let hasMore = true;
 
   while (hasMore) {
-    const response = await getZohoLeads(currentPage, 200);
+    const response = await getZohoLeads(currentPage, 200, modifiedSince);
     if (response.data) {
       allLeads.push(...response.data);
     }
@@ -943,13 +983,13 @@ export async function getAllZohoLeads(): Promise<ZohoLead[]> {
  * Obtiene todos los deals de ZOHO CRM (sin paginación, todos los registros)
  * Útil para sincronización completa
  */
-export async function getAllZohoDeals(): Promise<ZohoDeal[]> {
+export async function getAllZohoDeals(modifiedSince?: Date): Promise<ZohoDeal[]> {
   const allDeals: ZohoDeal[] = [];
   let currentPage = 1;
   let hasMore = true;
 
   while (hasMore) {
-    const response = await getZohoDeals(currentPage, 200);
+    const response = await getZohoDeals(currentPage, 200, modifiedSince);
     if (response.data) {
       allDeals.push(...response.data);
     }

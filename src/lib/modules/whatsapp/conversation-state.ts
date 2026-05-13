@@ -21,17 +21,7 @@ export type ConversationState =
     | 'SOLICITUD_HORARIO'        // Pedir horario preferido de contacto antes del nombre
     | 'SOLICITUD_NOMBRE'         // Pedir nombre antes de handover
     | 'CLIENT_ACCEPTA'           // Handover, Lead en Zoho
-    | 'ENVIO_BROCHURE'           // (Legacy) Enviar PDF brochure
-    | 'REVALIDACION_INTERES'     // (Legacy) ¿Cambió de opinión después del brochure?
-    | 'VALIDACION_PRODUCTO'      // (Legacy) Aclarar que son LOTES
-    | 'PERFIL_COMPRA'            // (Legacy) ¿Cómo usarás el lote?
-    | 'CALIFICACION_PRESUPUESTO' // (Legacy) Rango de inversión
-    | 'OFERTA_PLAN_PAGOS'        // (Legacy) Ofrecer financiamiento
-    | 'CALIFICACION_URGENCIA'    // (Legacy) Timeframe de decisión
-    | 'SOLICITUD_ACCION'         // (Legacy) CTA: Cita o Cotización
-    | 'HANDOVER_ASESOR'          // (Legacy) Transferir a humano
-    | 'SALIDA_ELEGANTE'          // No califica - despedida
-    | 'CONVERSACION_LIBRE';      // Post-handover (opcional)
+    | 'SALIDA_ELEGANTE';         // No califica - despedida
 
 /**
  * Calidad del lead

@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTokenFromHeader, verifyAccessToken } from '@/lib/auth/auth';
 import { getAllZohoLeads, getAllZohoDeals, getAllZohoActivities, getZohoNotesForRecords, getZohoRecordTimeline, parseStageTransitionsFromTimeline } from '@/lib/services/zoho-crm';
-import { syncZohoLead, syncZohoDeal, syncZohoNote, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory } from '@/lib/db/postgres';
+import { syncZohoLead, syncZohoDeal, syncZohoNote, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory, getLastModifiedTime } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
@@ -27,6 +27,40 @@ function checkSyncAccess(role?: string): boolean {
     return false;
   }
   return ALLOWED_ROLES.includes(role);
+}
+
+/**
+ * Procesa un arreglo de elementos en chunks paralelos.
+ *
+ * Por qué: hacer 2000 awaits secuenciales (uno a uno) es demasiado lento
+ * para el límite de 300s de Vercel. En cambio, procesamos N elementos a la vez
+ * (concurrency), avanzando chunk por chunk. Esto baja el tiempo total
+ * dramáticamente sin saturar a Zoho ni a la base de datos.
+ *
+ * @param items Lista de elementos a procesar
+ * @param concurrency Cuántos procesar en paralelo dentro de cada chunk
+ * @param handler Función async que procesa un elemento
+ */
+async function processInChunks<T, R>(
+  items: T[],
+  concurrency: number,
+  handler: (item: T, index: number) => Promise<R>
+): Promise<Array<{ status: 'fulfilled'; value: R } | { status: 'rejected'; reason: unknown }>> {
+  const results: Array<
+    { status: 'fulfilled'; value: R } | { status: 'rejected'; reason: unknown }
+  > = [];
+
+  for (let i = 0; i < items.length; i += concurrency) {
+    const chunk = items.slice(i, i + concurrency);
+    // Promise.allSettled NO falla si un elemento individual lanza error.
+    // Así no perdemos los resultados exitosos por culpa de uno malo.
+    const chunkResults = await Promise.allSettled(
+      chunk.map((item, idx) => handler(item, i + idx))
+    );
+    results.push(...chunkResults);
+  }
+
+  return results;
 }
 
 /**
@@ -91,6 +125,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     if (typeParam === 'leads' || typeParam === 'deals') {
       syncType = typeParam;
     }
+    // Backfill de stage history es caro (~30-60s de delays a Zoho). Por defecto
+    // NO se incluye en el sync regular para evitar timeouts. Para correrlo,
+    // hay que llamar explícitamente con ?backfill=true
+    const includeBackfill = searchParams.get('backfill') === 'true';
+
+    // Sync incremental por defecto: solo trae registros con Modified_Time
+    // posterior al MAX(modified_time) que ya tenemos en BD. Esto evita
+    // que el endpoint exceda los 300s de Vercel cuando hay miles de registros.
+    //
+    // Si el cliente pasa ?force=true, hacemos full sync (sin If-Modified-Since)
+    // y además ejecutamos los deletes (porque tenemos la lista completa).
+    const forceFull = searchParams.get('force') === 'true';
 
     // 4. Sincronizar datos
     let zohoLeadIds: string[] = [];
@@ -98,10 +144,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     
     if (syncType === 'leads' || syncType === 'full') {
       try {
-        logger.info('Starting Zoho leads sync', { syncType }, logScope);
+        // En modo incremental, leemos el último Modified_Time que tenemos
+        // sincronizado y se lo pasamos a Zoho como If-Modified-Since.
+        // Zoho solo nos devolverá los leads que cambiaron desde entonces.
+        const leadsSince = forceFull ? null : await getLastModifiedTime('zoho_leads');
+        logger.info('Starting Zoho leads sync', {
+          syncType,
+          mode: leadsSince ? 'incremental' : 'full',
+          since: leadsSince?.toISOString(),
+        }, logScope);
         let leads;
         try {
-          leads = await getAllZohoLeads();
+          leads = await getAllZohoLeads(leadsSince ?? undefined);
         } catch (fetchError) {
           // Detectar errores de red temprano
           const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
@@ -120,67 +174,81 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         }
         zohoLeadIds = leads.map(lead => lead.id);
         logger.debug('Leads fetched from Zoho', { count: leads.length }, logScope);
-        
-        let leadsProcessed = 0;
-        for (const lead of leads) {
-          try {
-            const wasCreated = await syncZohoLead(lead);
+
+        // Sincronizar leads en chunks paralelos.
+        // Antes: 2000 awaits secuenciales = ~2000 * 50ms = 100s solo en BD.
+        // Ahora: chunks de 15 en paralelo = ~7s para 2000 registros.
+        const leadResults = await processInChunks(leads, 15, async (lead) => {
+          return await syncZohoLead(lead);
+        });
+
+        leadResults.forEach((result, idx) => {
+          if (result.status === 'fulfilled') {
             recordsSynced++;
-            if (wasCreated === true) {
+            if (result.value === true) {
               recordsCreated++;
-            } else if (wasCreated === false) {
+            } else if (result.value === false) {
               recordsUpdated++;
             }
-            // Si wasCreated es null, no se cuenta como creado ni actualizado (sin cambios)
-            
-            // Sincronizar notas del lead
-            try {
-              const notesMap = await getZohoNotesForRecords('Leads', [lead.id]);
-              const notes = notesMap.get(lead.id) || [];
-              for (const note of notes) {
-                await syncZohoNote(note, 'Leads', lead.id);
-              }
-            } catch (noteError) {
-              // No crítico si falla la sincronización de notas
-              // Solo loggear si no es un error de respuesta vacía
-              const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
-              if (!errorMsg.includes('Unexpected end of JSON')) {
-                logger.warn('Could not sync notes for lead', { leadId: lead.id }, logScope);
-              }
-            }
-            
-            leadsProcessed++;
-            // Log de progreso cada 50 leads
-            if (leadsProcessed % 50 === 0) {
-              logger.debug('Leads sync progress', {
-                processed: leadsProcessed,
-                total: leads.length,
-                percent: Math.round((leadsProcessed / leads.length) * 100),
-              }, logScope);
-            }
-          } catch (error) {
+            // value === null significa "sin cambios", no se cuenta
+          } else {
             recordsFailed++;
-            logger.error('Error syncing lead', error, { leadId: lead.id }, logScope);
+            logger.error('Error syncing lead', result.reason, { leadId: leads[idx]?.id }, logScope);
           }
-        }
+        });
+
         logger.info('Leads sync completed', {
           recordsSynced,
           recordsCreated,
           recordsUpdated,
           recordsFailed,
         }, logScope);
-        
-        // Eliminar leads que ya no existen en Zoho
-        try {
-          logger.debug('Checking for deleted leads in Zoho', { count: zohoLeadIds.length }, logScope);
-          const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
-          recordsDeleted += deletedCount;
-          if (deletedCount > 0) {
-            logger.info('Deleted leads not present in Zoho', { deletedCount }, logScope);
+
+        // Sincronizar notas SOLO de los leads que vinieron en esta tanda.
+        // En sync incremental esto es muy barato (solo decenas de IDs en lugar
+        // de miles). En full sync sigue siendo manejable porque las notas se
+        // bajan en lotes paralelos.
+        if (zohoLeadIds.length > 0) {
+          try {
+            logger.debug('Fetching notes for leads in batch', { count: zohoLeadIds.length }, logScope);
+            const notesMap = await getZohoNotesForRecords('Leads', zohoLeadIds);
+
+            // Aplanar el mapa en una lista de "tareas" de sync de nota
+            const noteTasks: Array<{ note: any; leadId: string }> = [];
+            notesMap.forEach((notes, leadId) => {
+              notes.forEach(note => noteTasks.push({ note, leadId }));
+            });
+
+            if (noteTasks.length > 0) {
+              logger.debug('Syncing lead notes in parallel chunks', { count: noteTasks.length }, logScope);
+              // Chunks de 20 escrituras en paralelo a Postgres (seguro y rápido)
+              await processInChunks(noteTasks, 20, async ({ note, leadId }) => {
+                return await syncZohoNote(note, 'Leads', leadId);
+              });
+            }
+          } catch (notesError) {
+            // No crítico: las notas son secundarias al sync de leads
+            logger.warn('Failed batch syncing notes for leads (non-critical)', undefined, logScope);
+            logger.error('Notes batch sync error', notesError, undefined, logScope);
           }
-        } catch (deleteError) {
-          logger.warn('Failed deleting leads not present in Zoho', undefined, logScope);
-          logger.error('Delete leads error', deleteError, undefined, logScope);
+        }
+
+        // Eliminar leads que ya no existen en Zoho.
+        // SOLO en modo force=true: en sync incremental NO recibimos la lista
+        // completa de leads, así que no podemos saber cuáles fueron borrados
+        // en Zoho. Hacer el delete con una lista parcial borraría leads válidos.
+        if (forceFull) {
+          try {
+            logger.debug('Checking for deleted leads in Zoho', { count: zohoLeadIds.length }, logScope);
+            const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
+            recordsDeleted += deletedCount;
+            if (deletedCount > 0) {
+              logger.info('Deleted leads not present in Zoho', { deletedCount }, logScope);
+            }
+          } catch (deleteError) {
+            logger.warn('Failed deleting leads not present in Zoho', undefined, logScope);
+            logger.error('Delete leads error', deleteError, undefined, logScope);
+          }
         }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
@@ -190,10 +258,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 
     if (syncType === 'deals' || syncType === 'full') {
       try {
-        logger.info('Starting Zoho deals sync', { syncType }, logScope);
+        const dealsSince = forceFull ? null : await getLastModifiedTime('zoho_deals');
+        logger.info('Starting Zoho deals sync', {
+          syncType,
+          mode: dealsSince ? 'incremental' : 'full',
+          since: dealsSince?.toISOString(),
+        }, logScope);
         let deals;
         try {
-          deals = await getAllZohoDeals();
+          deals = await getAllZohoDeals(dealsSince ?? undefined);
         } catch (fetchError) {
           // Detectar errores de red temprano
           const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
@@ -214,66 +287,69 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         }
         zohoDealIds = deals.map(deal => deal.id);
         logger.debug('Deals fetched from Zoho', { count: deals.length }, logScope);
-        
-        let dealsProcessed = 0;
-        for (const deal of deals) {
-          try {
-            const wasCreated = await syncZohoDeal(deal);
+
+        // Mismo patrón que para leads: chunks paralelos + notas en batch
+        const dealResults = await processInChunks(deals, 15, async (deal) => {
+          return await syncZohoDeal(deal);
+        });
+
+        dealResults.forEach((result, idx) => {
+          if (result.status === 'fulfilled') {
             recordsSynced++;
-            if (wasCreated === true) {
+            if (result.value === true) {
               recordsCreated++;
-            } else if (wasCreated === false) {
+            } else if (result.value === false) {
               recordsUpdated++;
             }
-            // Si wasCreated es null, no se cuenta como creado ni actualizado (sin cambios)
-            
-            // Sincronizar notas del deal
-            try {
-              const notesMap = await getZohoNotesForRecords('Deals', [deal.id]);
-              const notes = notesMap.get(deal.id) || [];
-              for (const note of notes) {
-                await syncZohoNote(note, 'Deals', deal.id);
-              }
-            } catch (noteError) {
-              // No crítico si falla la sincronización de notas
-              const errorMsg = noteError instanceof Error ? noteError.message : String(noteError);
-              if (!errorMsg.includes('Unexpected end of JSON')) {
-                logger.warn('Could not sync notes for deal', { dealId: deal.id }, logScope);
-              }
-            }
-            
-            dealsProcessed++;
-            // Log de progreso cada 25 deals
-            if (dealsProcessed % 25 === 0) {
-              logger.debug('Deals sync progress', {
-                processed: dealsProcessed,
-                total: deals.length,
-                percent: Math.round((dealsProcessed / deals.length) * 100),
-              }, logScope);
-            }
-          } catch (error) {
+          } else {
             recordsFailed++;
-            logger.error('Error syncing deal', error, { dealId: deal.id }, logScope);
+            logger.error('Error syncing deal', result.reason, { dealId: deals[idx]?.id }, logScope);
           }
-        }
+        });
+
         logger.info('Deals sync completed', {
           recordsSynced,
           recordsCreated,
           recordsUpdated,
           recordsFailed,
         }, logScope);
-        
-        // Eliminar deals que ya no existen en Zoho
-        try {
-          logger.debug('Checking for deleted deals in Zoho', { count: zohoDealIds.length }, logScope);
-          const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
-          recordsDeleted += deletedCount;
-          if (deletedCount > 0) {
-            logger.info('Deleted deals not present in Zoho', { deletedCount }, logScope);
+
+        // Notas de deals SOLO de los que vinieron en esta tanda (idem leads)
+        if (zohoDealIds.length > 0) {
+          try {
+            logger.debug('Fetching notes for deals in batch', { count: zohoDealIds.length }, logScope);
+            const notesMap = await getZohoNotesForRecords('Deals', zohoDealIds);
+
+            const noteTasks: Array<{ note: any; dealId: string }> = [];
+            notesMap.forEach((notes, dealId) => {
+              notes.forEach(note => noteTasks.push({ note, dealId }));
+            });
+
+            if (noteTasks.length > 0) {
+              logger.debug('Syncing deal notes in parallel chunks', { count: noteTasks.length }, logScope);
+              await processInChunks(noteTasks, 20, async ({ note, dealId }) => {
+                return await syncZohoNote(note, 'Deals', dealId);
+              });
+            }
+          } catch (notesError) {
+            logger.warn('Failed batch syncing notes for deals (non-critical)', undefined, logScope);
+            logger.error('Notes batch sync error', notesError, undefined, logScope);
           }
-        } catch (deleteError) {
-          logger.warn('Failed deleting deals not present in Zoho', undefined, logScope);
-          logger.error('Delete deals error', deleteError, undefined, logScope);
+        }
+
+        // Deletes solo en force=true (igual razonamiento que para leads)
+        if (forceFull) {
+          try {
+            logger.debug('Checking for deleted deals in Zoho', { count: zohoDealIds.length }, logScope);
+            const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
+            recordsDeleted += deletedCount;
+            if (deletedCount > 0) {
+              logger.info('Deleted deals not present in Zoho', { deletedCount }, logScope);
+            }
+          } catch (deleteError) {
+            logger.warn('Failed deleting deals not present in Zoho', undefined, logScope);
+            logger.error('Delete deals error', deleteError, undefined, logScope);
+          }
         }
       } catch (error) {
         errorMessage = errorMessage 
@@ -283,9 +359,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       }
     }
 
-    // Backfill incremental de historial de etapas (75 registros por sync)
-    // Solo para registros que nunca han tenido entrada en zoho_stage_history
-    if (syncType === 'full') {
+    // Backfill incremental de historial de etapas.
+    // Es caro porque hace ~75 llamadas a Zoho con delays de 450ms (rate limit).
+    // Solo se ejecuta si el cliente pide explícitamente ?backfill=true.
+    if (syncType === 'full' && includeBackfill) {
       try {
         logger.info('Starting stage history backfill', {}, logScope);
 
@@ -399,28 +476,54 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
     // Sincronizar actividades (solo en sync full)
     if (syncType === 'full') {
       try {
-        logger.info('Starting Zoho activities sync', {}, logScope);
-        const activities = await getAllZohoActivities('all');
-        let activitiesSynced = 0;
-        for (const activity of activities) {
-          try {
-            const leadId = activity.Who_Id?.id;
-            const dealId = activity.What_Id?.id;
-            let actDesarrollo: string | undefined;
-            if (leadId) {
-              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_leads WHERE zoho_id=$1', [leadId]);
-              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
-            } else if (dealId) {
-              const r = await query<{ desarrollo: string | null }>('SELECT desarrollo FROM zoho_deals WHERE zoho_id=$1', [dealId]);
-              actDesarrollo = r.rows[0]?.desarrollo ?? undefined;
-            }
-            await syncZohoActivity(activity, leadId, dealId, actDesarrollo);
-            activitiesSynced++;
-          } catch {
-            logger.warn('Could not sync activity', { activityId: activity.id }, logScope);
+        // Igual que con leads/deals: solo bajamos actividades modificadas
+        // desde el último sync (a menos que force=true).
+        const activitiesSince = forceFull ? null : await getLastModifiedTime('zoho_activities');
+        logger.info('Starting Zoho activities sync', {
+          mode: activitiesSince ? 'incremental' : 'full',
+          since: activitiesSince?.toISOString(),
+        }, logScope);
+        const activities = await getAllZohoActivities('all', activitiesSince ?? undefined);
+
+        // Pre-cargar mapas zoho_id -> desarrollo en DOS queries totales.
+        // Antes: 1 query por actividad (problema N+1). Para 1000 actividades
+        // serían 1000 round-trips a la BD; ahora son solo 2.
+        const [leadsDesarrolloRes, dealsDesarrolloRes] = await Promise.all([
+          query<{ zoho_id: string; desarrollo: string | null }>(
+            'SELECT zoho_id, desarrollo FROM zoho_leads WHERE desarrollo IS NOT NULL'
+          ),
+          query<{ zoho_id: string; desarrollo: string | null }>(
+            'SELECT zoho_id, desarrollo FROM zoho_deals WHERE desarrollo IS NOT NULL'
+          ),
+        ]);
+
+        const leadDesarrolloMap = new Map<string, string>();
+        leadsDesarrolloRes.rows.forEach(r => {
+          if (r.desarrollo) leadDesarrolloMap.set(r.zoho_id, r.desarrollo);
+        });
+        const dealDesarrolloMap = new Map<string, string>();
+        dealsDesarrolloRes.rows.forEach(r => {
+          if (r.desarrollo) dealDesarrolloMap.set(r.zoho_id, r.desarrollo);
+        });
+
+        const activityResults = await processInChunks(activities, 20, async (activity) => {
+          const leadId = activity.Who_Id?.id;
+          const dealId = activity.What_Id?.id;
+          let actDesarrollo: string | undefined;
+          if (leadId) {
+            actDesarrollo = leadDesarrolloMap.get(leadId);
+          } else if (dealId) {
+            actDesarrollo = dealDesarrolloMap.get(dealId);
           }
+          return await syncZohoActivity(activity, leadId, dealId, actDesarrollo);
+        });
+
+        const activitiesSynced = activityResults.filter(r => r.status === 'fulfilled').length;
+        const activitiesFailed = activityResults.filter(r => r.status === 'rejected').length;
+        if (activitiesFailed > 0) {
+          logger.warn('Some activities failed to sync', { activitiesFailed }, logScope);
         }
-        logger.info('Activities sync completed', { activitiesSynced }, logScope);
+        logger.info('Activities sync completed', { activitiesSynced, activitiesFailed }, logScope);
       } catch (actSyncError) {
         // No-crítico: no fallar el sync general por actividades
         logger.warn('Activities sync failed (non-critical)', undefined, logScope);
@@ -460,6 +563,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       data: {
         syncType,
         status,
+        // Indica al frontend si esta corrida fue incremental o full
+        mode: forceFull ? 'full' : 'incremental',
         recordsSynced,
         recordsUpdated,
         recordsCreated,

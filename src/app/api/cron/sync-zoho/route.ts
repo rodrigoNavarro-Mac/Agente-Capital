@@ -10,8 +10,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllZohoLeads, getAllZohoDeals, getAllZohoActivities, getZohoRecordTimeline, parseStageTransitionsFromTimeline } from '@/lib/services/zoho-crm';
-import { syncZohoLead, syncZohoDeal, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory } from '@/lib/db/postgres';
+import { syncZohoLead, syncZohoDeal, syncZohoActivity, logZohoSync, deleteZohoLeadsNotInZoho, deleteZohoDealsNotInZoho, query, getRecordsWithoutStageHistory, bulkInsertStageHistory, getLastModifiedTime } from '@/lib/db/postgres';
 import { logger } from '@/lib/utils/logger';
+
+// Vercel: el cron también puede toparse con el límite de 300s. Lo declaramos
+// explícitamente y usamos sync incremental para no quedarnos sin tiempo.
+export const maxDuration = 300;
 
 // =====================================================
 // CONFIGURACIÓN
@@ -55,19 +59,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (typeParam === 'leads' || typeParam === 'deals') {
       syncType = typeParam;
     }
+    // En el cron, el modo por defecto es incremental para que NUNCA se topen
+    // con el límite de 300s. ?force=true fuerza un full sync (sólo cuando
+    // se programa manualmente, por ejemplo el primer día de la semana).
+    const forceFull = searchParams.get('force') === 'true';
 
-    logger.info('[ZohoSyncCron] Iniciando sincronización automática', { syncType }, 'cron-sync-zoho');
+    logger.info('[ZohoSyncCron] Iniciando sincronización automática', {
+      syncType,
+      mode: forceFull ? 'full' : 'incremental',
+    }, 'cron-sync-zoho');
 
     // 3. Sincronizar datos
     let zohoLeadIds: string[] = [];
     let zohoDealIds: string[] = [];
-    
+
     if (syncType === 'leads' || syncType === 'full') {
       try {
-        logger.info('[ZohoSyncCron] Sincronizando leads', {}, 'cron-sync-zoho');
+        const leadsSince = forceFull ? null : await getLastModifiedTime('zoho_leads');
+        logger.info('[ZohoSyncCron] Sincronizando leads', {
+          mode: leadsSince ? 'incremental' : 'full',
+          since: leadsSince?.toISOString(),
+        }, 'cron-sync-zoho');
         let leads;
         try {
-          leads = await getAllZohoLeads();
+          leads = await getAllZohoLeads(leadsSince ?? undefined);
         } catch (fetchError) {
           // Detectar errores de red temprano
           const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
@@ -102,17 +117,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
         logger.info('[ZohoSyncCron] Sincronizados leads', { count: recordsSynced }, 'cron-sync-zoho');
-        
-        // Eliminar leads que ya no existen en Zoho
-        try {
-          logger.debug('[ZohoSyncCron] Verificando leads eliminados en Zoho', {}, 'cron-sync-zoho');
-          const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
-          recordsDeleted += deletedCount;
-          if (deletedCount > 0) {
-            logger.info('[ZohoSyncCron] Eliminados leads que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
+
+        // Deletes solo en force=true: sync incremental no trae la lista completa
+        if (forceFull) {
+          try {
+            logger.debug('[ZohoSyncCron] Verificando leads eliminados en Zoho', {}, 'cron-sync-zoho');
+            const deletedCount = await deleteZohoLeadsNotInZoho(zohoLeadIds);
+            recordsDeleted += deletedCount;
+            if (deletedCount > 0) {
+              logger.info('[ZohoSyncCron] Eliminados leads que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
+            }
+          } catch (deleteError) {
+            logger.warn('[ZohoSyncCron] Error eliminando leads eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
           }
-        } catch (deleteError) {
-          logger.warn('[ZohoSyncCron] Error eliminando leads eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
         }
       } catch (error) {
         errorMessage = `Error sincronizando leads: ${error instanceof Error ? error.message : String(error)}`;
@@ -122,10 +139,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (syncType === 'deals' || syncType === 'full') {
       try {
-        logger.info('[ZohoSyncCron] Sincronizando deals', {}, 'cron-sync-zoho');
+        const dealsSince = forceFull ? null : await getLastModifiedTime('zoho_deals');
+        logger.info('[ZohoSyncCron] Sincronizando deals', {
+          mode: dealsSince ? 'incremental' : 'full',
+          since: dealsSince?.toISOString(),
+        }, 'cron-sync-zoho');
         let deals;
         try {
-          deals = await getAllZohoDeals();
+          deals = await getAllZohoDeals(dealsSince ?? undefined);
         } catch (fetchError) {
           // Detectar errores de red temprano
           const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
@@ -162,18 +183,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
         logger.info('[ZohoSyncCron] Sincronizados deals', { count: recordsSynced }, 'cron-sync-zoho');
-        
-        // Eliminar deals que ya no existen en Zoho
-        try {
-          logger.debug('[ZohoSyncCron] Verificando deals eliminados en Zoho', {}, 'cron-sync-zoho');
-          const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
-          recordsDeleted += deletedCount;
-          if (deletedCount > 0) {
-            logger.info('[ZohoSyncCron] Eliminados deals que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
-          }
-        } catch (deleteError) {
 
-          logger.warn('[ZohoSyncCron] Error eliminando deals eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
+        // Deletes solo en force=true (idem leads)
+        if (forceFull) {
+          try {
+            logger.debug('[ZohoSyncCron] Verificando deals eliminados en Zoho', {}, 'cron-sync-zoho');
+            const deletedCount = await deleteZohoDealsNotInZoho(zohoDealIds);
+            recordsDeleted += deletedCount;
+            if (deletedCount > 0) {
+              logger.info('[ZohoSyncCron] Eliminados deals que ya no existen en Zoho', { deletedCount }, 'cron-sync-zoho');
+            }
+          } catch (deleteError) {
+            logger.warn('[ZohoSyncCron] Error eliminando deals eliminados en Zoho', { error: deleteError }, 'cron-sync-zoho');
+          }
         }
       } catch (error) {
         errorMessage = errorMessage 
@@ -262,8 +284,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Sincronizar actividades (solo en sync full)
     if (syncType === 'full') {
       try {
-        logger.info('[ZohoSyncCron] Sincronizando actividades', {}, 'cron-sync-zoho');
-        const activities = await getAllZohoActivities('all');
+        const activitiesSince = forceFull ? null : await getLastModifiedTime('zoho_activities');
+        logger.info('[ZohoSyncCron] Sincronizando actividades', {
+          mode: activitiesSince ? 'incremental' : 'full',
+          since: activitiesSince?.toISOString(),
+        }, 'cron-sync-zoho');
+        const activities = await getAllZohoActivities('all', activitiesSince ?? undefined);
         let activitiesSynced = 0;
         for (const activity of activities) {
           try {
