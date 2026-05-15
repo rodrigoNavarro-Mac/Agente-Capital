@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, EyeOff, ChevronDown, ChevronUp, MinusCircle } from 'lucide-react';
+import { Loader2, Save, Calculator, RefreshCw, Settings, ShoppingCart, PieChart, BarChart3, Plus, Edit, Trash2, CheckCircle2, Clock, Upload, Download, X, Eye, EyeOff, ChevronDown, ChevronUp, MinusCircle, Copy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { decodeAccessToken } from '@/lib/auth/auth';
@@ -45,6 +45,11 @@ import type {
 import { getRoleDisplayName, normalizePersonName, saleUsesExternalAdvisorSlot } from '@/lib/domain/commission-calculator';
 import { logger } from '@/lib/utils/logger';
 import { normalizeDevelopmentDisplay, normalizeDevelopmentForFilter } from '@/lib/utils/utils';
+import {
+  buildPartnerPostPhaseMonthEmailHtml,
+  buildPartnerSalePhaseMonthEmailHtml,
+} from '@/lib/utils/partnerCommissionMonthEmailHtml';
+import { buildDashboardAdvisorMonthCommissionsPayEmailHtml } from '@/lib/utils/dashboardAdvisorCommissionsPayEmailHtml';
 
 export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
@@ -4479,6 +4484,56 @@ function DashboardTab({
     return Number((amount + calculateIva(amount, isCash)).toFixed(2));
   };
 
+  const handleCopyAdvisorMonthPayEmail = useCallback(
+    async (opts: {
+      monthHumanLabel: string;
+      monthYearKey: string;
+      monthNum: number;
+      distributionsSlice: Array<
+        CommissionDistribution & {
+          producto: string | null;
+          fecha_firma: string;
+          cliente_nombre: string;
+          desarrollo: string;
+          plazo_deal: string | null;
+        }
+      >;
+    }) => {
+      if (personFilter === 'all') {
+        toast({
+          title: 'Selecciona un asesor',
+          description: 'Elige una persona en el filtro para copiar el HTML de comisiones a pagar.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      try {
+        const html = buildDashboardAdvisorMonthCommissionsPayEmailHtml({
+          advisorName: personFilter,
+          selectedYear,
+          month: opts.monthNum,
+          monthHumanLabel: opts.monthHumanLabel,
+          monthYearKey: opts.monthYearKey,
+          distributions: opts.distributionsSlice,
+          ivaPercent,
+          paymentStatusFilter,
+        });
+        await navigator.clipboard.writeText(html);
+        toast({
+          title: 'HTML copiado (estilos para correo)',
+          description: `${opts.monthHumanLabel} · ${personFilter}`,
+        });
+      } catch {
+        toast({
+          title: 'No se pudo copiar',
+          description: 'Comprueba permisos del portapapeles o que el sitio use HTTPS.',
+          variant: 'destructive',
+        });
+      }
+    },
+    [personFilter, selectedYear, ivaPercent, paymentStatusFilter, toast],
+  );
+
   if (loading) {
     return <div className="flex items-center justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -5109,8 +5164,8 @@ function DashboardTab({
 
                         return (
                           <div key={month} className="space-y-2 border rounded-md p-3 bg-slate-50/50">
-                            <div className="flex items-center justify-between pb-2 border-b border-yellow-600">
-                              <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-between pb-2 border-b border-yellow-600 flex-wrap gap-2">
+                              <div className="flex items-center gap-3 flex-wrap">
                                 <h3 className="text-sm font-bold text-yellow-600">{monthNames[month - 1]} {selectedYear}</h3>
                                 <span className="text-xs text-muted-foreground bg-slate-200 px-2 py-0.5 rounded">
                                   {monthYear}
@@ -5119,7 +5174,27 @@ function DashboardTab({
                                   {numTransacciones} {numTransacciones === 1 ? 'transacción' : 'transacciones'}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-4 text-right">
+                              <div className="flex flex-wrap items-center gap-3 justify-end">
+                                {personFilter !== 'all' && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0 gap-1 h-8 text-xs"
+                                    onClick={() =>
+                                      void handleCopyAdvisorMonthPayEmail({
+                                        monthHumanLabel: `${monthNames[month - 1]} ${selectedYear}`,
+                                        monthYearKey: monthYear,
+                                        monthNum: month,
+                                        distributionsSlice: monthDistributions,
+                                      })
+                                    }
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    Copiar HTML
+                                  </Button>
+                                )}
+                                <div className="flex items-center gap-4 text-right">
                                 <div>
                                   <div className="text-[10px] text-muted-foreground">Subtotal</div>
                                   <div className="text-sm font-semibold">
@@ -5147,6 +5222,7 @@ function DashboardTab({
                                     })}
                                   </div>
                                 </div>
+                              </div>
                               </div>
                             </div>
 
@@ -5440,6 +5516,56 @@ function PartnersTab({
   };
   const calculateTotalWithIva = (amount: number, isCash: boolean = false) => {
     return Number((amount + calculateIva(amount, isCash)).toFixed(2));
+  };
+
+  const copyPartnerMonthCardHtml = async (
+    phase: 'sale-phase' | 'post-sale-phase',
+    monthKey: string,
+    monthLabel: string,
+    monthData: Record<string, PartnerCommission[]>,
+    socios: string[],
+    totalSocios: number,
+    totalTransacciones: number,
+  ) => {
+    try {
+      const html =
+        phase === 'sale-phase'
+          ? buildPartnerSalePhaseMonthEmailHtml({
+              monthLabel,
+              monthKey,
+              totalSocios,
+              totalTransacciones,
+              socios,
+              monthData,
+              sales,
+              configs,
+              partnerInvoices,
+              ivaPercent,
+            })
+          : buildPartnerPostPhaseMonthEmailHtml({
+              monthLabel,
+              monthKey,
+              totalSocios,
+              totalTransacciones,
+              socios,
+              monthData,
+              sales,
+              configs,
+              partnerInvoices,
+              ivaPercent,
+            });
+      await navigator.clipboard.writeText(html);
+      toast({
+        title: 'HTML copiado (estilos para correo)',
+        description: `Mes: ${monthLabel}. Pega en un correo que permita HTML; en Outlook suele funcionar mejor con «Insertar > HTML» si está disponible.`,
+      });
+    } catch {
+      toast({
+        title: 'No se pudo copiar',
+        description: 'Comprueba permisos del portapapeles o que el sitio use conexión segura (HTTPS).',
+        variant: 'destructive',
+      });
+    }
   };
 
   // Recargar automáticamente cuando cambian los filtros (año, estado, desarrollo)
@@ -5790,7 +5916,7 @@ function PartnersTab({
                       return (
                         <Card key={monthKey}>
                           <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <div>
                                 <CardTitle className="text-lg">
                                   {capitalizedMonth}
@@ -5804,6 +5930,26 @@ function PartnersTab({
                                   </span>
                                 </div>
                               </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 gap-1"
+                                onClick={() =>
+                                  void copyPartnerMonthCardHtml(
+                                    'sale-phase',
+                                    monthKey,
+                                    capitalizedMonth,
+                                    monthData,
+                                    socios,
+                                    totalSocios,
+                                    totalTransacciones,
+                                  )
+                                }
+                              >
+                                <Copy className="h-4 w-4" />
+                                Copiar HTML
+                              </Button>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-6">
@@ -6306,7 +6452,7 @@ function PartnersTab({
                       return (
                         <Card key={monthKey}>
                           <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <div>
                                 <CardTitle className="text-lg">
                                   {capitalizedMonth}
@@ -6320,6 +6466,26 @@ function PartnersTab({
                                   </span>
                                 </div>
                               </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 gap-1"
+                                onClick={() =>
+                                  void copyPartnerMonthCardHtml(
+                                    'post-sale-phase',
+                                    monthKey,
+                                    capitalizedMonth,
+                                    monthData as Record<string, PartnerCommission[]>,
+                                    socios,
+                                    totalSocios,
+                                    totalTransacciones,
+                                  )
+                                }
+                              >
+                                <Copy className="h-4 w-4" />
+                                Copiar HTML
+                              </Button>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-6">
