@@ -995,6 +995,82 @@ export async function getZohoStats(filters?: {
   return response.data;
 }
 
+// =====================================================
+// ZOHO TIME BUCKETS (NESTED DAILY / WEEKLY / MONTHLY SERIES)
+// =====================================================
+
+export interface ZohoBucketMetrics {
+  leads: number;       // Leads created in bucket
+  movements: number;   // Leads + deals with modified_time in bucket
+  closed: number;      // Deals (won + lost) closed in bucket
+  won: number;         // Deals won in bucket
+  calls: number;       // Calls (zoho_activities) in bucket
+}
+
+export interface ZohoOwnerRow extends ZohoBucketMetrics {
+  owner: string;       // Advisor (owner_name) or 'Sin asignar'
+}
+
+export interface ZohoDayBlock {
+  date: string;        // 'YYYY-MM-DD'
+  label: string;       // 'Lunes 19 May'
+  totals: ZohoBucketMetrics;
+  owners: ZohoOwnerRow[];
+}
+
+export interface ZohoWeekBlock {
+  week: string;        // Monday 'YYYY-MM-DD'
+  label: string;       // 'S1 (19 May - 25 May)'
+  totals: ZohoBucketMetrics;
+  days: ZohoDayBlock[];
+}
+
+export interface ZohoMonthBlock {
+  month: string;       // First day of month 'YYYY-MM-DD'
+  label: string;       // 'Mayo 2026'
+  totals: ZohoBucketMetrics;
+  owners: ZohoOwnerRow[];
+}
+
+export interface ZohoTimeBucketsResponse {
+  daily: ZohoDayBlock[];     // last 7 days, newest first
+  weekly: ZohoWeekBlock[];   // last 8 weeks, newest first
+  monthly: ZohoMonthBlock[]; // current + previous month
+}
+
+/**
+ * Obtiene tres series rolling (diaria, semanal, mensual) con KPIs por bucket.
+ * No usa filtros de periodo (siempre rolling); sí respeta desarrollo/source/owner.
+ */
+export async function getZohoTimeBuckets(filters?: {
+  desarrollo?: string;
+  source?: string;
+  owner?: string;
+}): Promise<ZohoTimeBucketsResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  const params = new URLSearchParams();
+  if (filters?.desarrollo) params.append('desarrollo', filters.desarrollo);
+  if (filters?.source) params.append('source', filters.source);
+  if (filters?.owner) params.append('owner', filters.owner);
+
+  const queryString = params.toString();
+  const url = queryString ? `/api/zoho/time-buckets?${queryString}` : '/api/zoho/time-buckets';
+
+  const response = await fetcher<{ success: boolean; data: ZohoTimeBucketsResponse; error?: string }>(
+    url,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }
+  );
+
+  if (!response.success) {
+    throw new Error(response.error || 'Error obteniendo series temporales de Zoho CRM');
+  }
+
+  return response.data;
+}
+
 /**
  * Inicia una sincronización de datos de Zoho CRM
  * @param type Tipo de sincronización: 'leads', 'deals' o 'full'

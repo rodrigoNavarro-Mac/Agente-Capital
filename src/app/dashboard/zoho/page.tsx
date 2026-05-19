@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, RefreshCw, TrendingUp, Users, AlertCircle, Calendar, Database, Clock, Target, TrendingDown, Filter, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
@@ -15,13 +16,20 @@ import {
   getZohoStats,
   getZohoNotesInsightsAI,
   getZohoNotesInsightsStored,
+  getZohoTimeBuckets,
   triggerZohoSync,
   getUserDevelopments,
   type ZohoLead,
   type ZohoDeal,
   type ZohoStats,
   type ZohoNoteForAI,
-  type ZohoNotesInsightsResponse
+  type ZohoNotesInsightsResponse,
+  type ZohoTimeBucketsResponse,
+  type ZohoDayBlock,
+  type ZohoWeekBlock,
+  type ZohoMonthBlock,
+  type ZohoOwnerRow,
+  type ZohoBucketMetrics
 } from '@/lib/api';
 import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
@@ -32,6 +40,221 @@ import { logger } from '@/lib/utils/logger';
 import { DatePickerWithRange } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
 
+// =====================================================
+// HELPER COMPONENTS FOR THE NESTED TIME-BUCKETS TABLES
+// =====================================================
+
+/**
+ * Collapsible section with a clickable header. Used for day / week / month
+ * blocks in the Estadisticas tab. Each section keeps its own open/closed
+ * state so they can be expanded independently.
+ *
+ * Why a real component (instead of inline JSX inside the render)?
+ * - We need useState to track the open/closed flag PER section, and hooks
+ *   can only live inside a component, not inside a function called during
+ *   render.
+ */
+function CollapsibleSection({
+  title,
+  summary,
+  defaultOpen = false,
+  level = 0,
+  children,
+}: {
+  title: string;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  level?: 0 | 1;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  const headerStyle = level === 0
+    ? 'bg-muted/40 hover:bg-muted/60 border-b text-sm font-semibold'
+    : 'bg-muted/20 hover:bg-muted/30 border-b text-sm font-medium';
+
+  return (
+    <div className={`rounded-md border ${level === 1 ? 'ml-4' : ''}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-left transition ${headerStyle}`}
+        aria-expanded={open}
+      >
+        {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+        <span className="flex-1 truncate">{title}</span>
+        {summary && <span className="text-xs text-muted-foreground shrink-0">{summary}</span>}
+      </button>
+      {open && <div className="p-2">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Small summary chips shown next to each collapsible header.
+ * Renders only the metrics that are > 0 to reduce noise.
+ */
+function MetricsSummary({ totals }: { totals: ZohoBucketMetrics }) {
+  const items: Array<{ label: string; value: number }> = [
+    { label: 'L', value: totals.leads },
+    { label: 'M', value: totals.movements },
+    { label: 'C', value: totals.closed },
+    { label: 'G', value: totals.won },
+    { label: 'Ll', value: totals.calls },
+  ];
+  return (
+    <span className="flex items-center gap-2 text-xs">
+      {items.map((it) => (
+        <span
+          key={it.label}
+          className={it.value > 0 ? 'text-foreground' : 'text-muted-foreground/50'}
+          title={`${it.label}=${it.value}`}
+        >
+          {it.label}:{it.value}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Renders the inner advisor breakdown table for a day or a month.
+ * Columns: Asesor | Leads | Seguimiento | Cerrados | Ganados | Llamadas
+ *
+ * Note: in this codebase "seguimiento" = movement / lead-or-deal update.
+ */
+function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoBucketMetrics }) {
+  if (owners.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic px-2 py-3">
+        Sin actividad en este periodo.
+      </p>
+    );
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Asesor</TableHead>
+          <TableHead className="text-right">Leads</TableHead>
+          <TableHead className="text-right">Seguimiento</TableHead>
+          <TableHead className="text-right">Cerrados</TableHead>
+          <TableHead className="text-right">Ganados</TableHead>
+          <TableHead className="text-right">Llamadas</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {owners.map((o) => (
+          <TableRow key={o.owner}>
+            <TableCell className="font-medium">{o.owner}</TableCell>
+            <TableCell className="text-right">{o.leads}</TableCell>
+            <TableCell className="text-right">{o.movements}</TableCell>
+            <TableCell className="text-right">{o.closed}</TableCell>
+            <TableCell className="text-right">{o.won}</TableCell>
+            <TableCell className="text-right">{o.calls}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+      <TableFooter>
+        <TableRow>
+          <TableCell className="font-semibold">Totales</TableCell>
+          <TableCell className="text-right font-semibold">{totals.leads}</TableCell>
+          <TableCell className="text-right font-semibold">{totals.movements}</TableCell>
+          <TableCell className="text-right font-semibold">{totals.closed}</TableCell>
+          <TableCell className="text-right font-semibold">{totals.won}</TableCell>
+          <TableCell className="text-right font-semibold">{totals.calls}</TableCell>
+        </TableRow>
+      </TableFooter>
+    </Table>
+  );
+}
+
+/**
+ * Daily table: a stack of collapsible day sections. The most recent day
+ * is open by default.
+ */
+function DailyTable({ days }: { days: ZohoDayBlock[] }) {
+  if (days.length === 0) {
+    return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {days.map((day, idx) => (
+        <CollapsibleSection
+          key={day.date}
+          title={day.label}
+          summary={<MetricsSummary totals={day.totals} />}
+          defaultOpen={idx === 0}
+          level={0}
+        >
+          <OwnersTable owners={day.owners} totals={day.totals} />
+        </CollapsibleSection>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Weekly table: a stack of collapsible week sections. Each week expands
+ * to show its 7 days (Lun -> Dom), which are themselves collapsible.
+ */
+function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
+  if (weeks.length === 0) {
+    return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {weeks.map((week, idx) => (
+        <CollapsibleSection
+          key={week.week}
+          title={week.label}
+          summary={<MetricsSummary totals={week.totals} />}
+          defaultOpen={idx === 0}
+          level={0}
+        >
+          <div className="space-y-2">
+            {week.days.map((day) => (
+              <CollapsibleSection
+                key={day.date}
+                title={day.label}
+                summary={<MetricsSummary totals={day.totals} />}
+                defaultOpen={false}
+                level={1}
+              >
+                <OwnersTable owners={day.owners} totals={day.totals} />
+              </CollapsibleSection>
+            ))}
+          </div>
+        </CollapsibleSection>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Monthly table: 2 collapsible sections (current month + previous month).
+ * Each shows advisor breakdown directly (no nested days).
+ */
+function MonthlyTable({ months }: { months: ZohoMonthBlock[] }) {
+  if (months.length === 0) {
+    return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {months.map((m, idx) => (
+        <CollapsibleSection
+          key={m.month}
+          title={m.label}
+          summary={<MetricsSummary totals={m.totals} />}
+          defaultOpen={idx === 0}
+          level={0}
+        >
+          <OwnersTable owners={m.owners} totals={m.totals} />
+        </CollapsibleSection>
+      ))}
+    </div>
+  );
+}
 
 export default function ZohoCRMPage() {
   const [loading, setLoading] = useState(true);
@@ -45,6 +268,9 @@ export default function ZohoCRMPage() {
   // Stats desde backend (incluye Activities/Calls). Lo usamos para KPIs que no podemos calcular solo con leads/deals.
   const [activityStats, setActivityStats] = useState<ZohoStats | null>(null);
   const [activityStatsLoading, setActivityStatsLoading] = useState(false);
+  // Series temporales rolling (diaria/semanal/mensual) para tablas de actividad en pestana Estadisticas.
+  const [timeBuckets, setTimeBuckets] = useState<ZohoTimeBucketsResponse | null>(null);
+  const [timeBucketsLoading, setTimeBucketsLoading] = useState(false);
   // Insights con IA (on-demand)
   const [aiNotesInsights, setAiNotesInsights] = useState<ZohoNotesInsightsResponse | null>(null);
   const [aiNotesInsightsLoading, setAiNotesInsightsLoading] = useState(false);
@@ -323,6 +549,41 @@ export default function ZohoCRMPage() {
     selectedStatus,
     showLastMonth,
   ]);
+
+  // =====================================================
+  // TIME BUCKETS (TABLAS DIARIA / SEMANAL / MENSUAL)
+  // =====================================================
+  // Se cargan solo en pestana 'stats'. Las tablas son rolling (no respetan
+  // el filtro de periodo) pero si respetan desarrollo / fuente / asesor.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTimeBuckets = async () => {
+      try {
+        if (activeTab !== 'stats') return;
+
+        if (!cancelled) setTimeBuckets(null);
+        setTimeBucketsLoading(true);
+
+        const data = await getZohoTimeBuckets({
+          desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+          source: selectedSource.length === 0 ? undefined : selectedSource.join(','),
+          owner: selectedOwner.length === 0 ? undefined : selectedOwner.join(','),
+        });
+        if (!cancelled) setTimeBuckets(data);
+      } catch (e) {
+        logger.error('Error loading Zoho time buckets:', e);
+        if (!cancelled) setTimeBuckets(null);
+      } finally {
+        if (!cancelled) setTimeBucketsLoading(false);
+      }
+    };
+
+    loadTimeBuckets();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedDesarrollo, selectedSource, selectedOwner]);
 
   // =====================================================
   // INSIGHTS DE NOTAS (TOP PALABRAS + TENDENCIA)
@@ -3420,6 +3681,72 @@ export default function ZohoCRMPage() {
                         );
                       })}
                     </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* SECCION: TABLAS DE SERIES TEMPORALES PLEGABLES (DIARIA / SEMANAL / MENSUAL) */}
+              {/*
+                Cada tarjeta contiene secciones plegables. Las leyendas L/M/C/G/Ll en
+                el encabezado significan: Leads, Movimientos (seguimiento), Cerrados,
+                Ganados, Llamadas. Las tablas internas son rolling: no respetan el
+                filtro de periodo, pero si respetan desarrollo / fuente / asesor.
+              */}
+              <div className="grid gap-4 grid-cols-1">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Actividad diaria por asesor (ultimos 7 dias)</CardTitle>
+                    <CardDescription>
+                      Despliega un dia para ver el desglose de leads, seguimiento, cierres y llamadas por asesor.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {timeBucketsLoading && !timeBuckets ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        <p className="text-sm text-muted-foreground">Cargando...</p>
+                      </div>
+                    ) : (
+                      <DailyTable days={timeBuckets?.daily ?? []} />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Actividad semanal por asesor (ultimas 8 semanas)</CardTitle>
+                    <CardDescription>
+                      Despliega una semana para ver sus 7 dias (Lunes a Domingo); dentro de cada dia, el desglose por asesor.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {timeBucketsLoading && !timeBuckets ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        <p className="text-sm text-muted-foreground">Cargando...</p>
+                      </div>
+                    ) : (
+                      <WeeklyTable weeks={timeBuckets?.weekly ?? []} />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Actividad mensual por asesor (este mes y mes pasado)</CardTitle>
+                    <CardDescription>
+                      Desglose por asesor para el mes en curso y el mes anterior.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {timeBucketsLoading && !timeBuckets ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        <p className="text-sm text-muted-foreground">Cargando...</p>
+                      </div>
+                    ) : (
+                      <MonthlyTable months={timeBuckets?.monthly ?? []} />
+                    )}
                   </CardContent>
                 </Card>
               </div>
