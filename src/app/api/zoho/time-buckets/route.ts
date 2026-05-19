@@ -11,10 +11,12 @@
  *   leads      = zoho_leads.created_time
  *   contacted  = zoho_leads.created_time WHERE lead_status ILIKE '%contactado%'
  *   movements  = zoho_leads.modified_time WHERE lead_status is set
- *                 AND NOT ILIKE '%intento de contacto%' (=> Seguimiento)
- *   closed     = zoho_deals (won|lost) by closing_date
- *   won        = zoho_deals (won)      by closing_date
- *   calls      = zoho_activities (Call) by call_start_time
+ *                 AND NOT ILIKE '%intento de contacto%'
+ *                 AND NOT ILIKE '%descartado%'        (=> Seguimiento)
+ *   closed     = zoho_deals (won|lost)    by closing_date
+ *               + zoho_leads (descartado) by modified_time
+ *   won        = zoho_deals (won)         by closing_date
+ *   calls      = zoho_activities (Call)   by call_start_time
  *
  * Same auth + scope rules as /api/zoho/stats and /api/zoho/analytics.
  */
@@ -205,7 +207,9 @@ async function aggregate(params: {
  * (modified_time) cae en el bucket. Solo aplica a leads (no a deals),
  * porque "Intento de contacto" es un estado de Lead.
  */
-const SEGUIMIENTO_WHERE = `lead_status IS NOT NULL AND lead_status NOT ILIKE '%intento de contacto%'`;
+// Seguimiento NO incluye leads aun en "Intento de contacto" (todavia no se
+// trabajaron) NI los marcados como "Descartado" (esos cuentan como Cerrados).
+const SEGUIMIENTO_WHERE = `lead_status IS NOT NULL AND lead_status NOT ILIKE '%intento de contacto%' AND lead_status NOT ILIKE '%descartado%'`;
 
 async function aggregateSeguimiento(params: {
   grain: 'day' | 'month';
@@ -269,7 +273,16 @@ async function collectMetrics(
   filters: Filters,
   debug: boolean = false
 ): Promise<Map<string, OwnerRow & { bucket: string }>> {
-  const [leadsRows, contactedRows, movementsRows, movementsNewRows, closedRows, wonRows, callsRows] = await Promise.all([
+  const [
+    leadsRows,
+    contactedRows,
+    movementsRows,
+    movementsNewRows,
+    closedRows,
+    leadsDescartadosRows,
+    wonRows,
+    callsRows,
+  ] = await Promise.all([
     aggregate({
       table: 'zoho_leads',
       dateCol: 'created_time',
@@ -300,6 +313,17 @@ async function collectMetrics(
       filters,
       options: { includeSource: true, includeOwner: true },
       extraWhere: `stage ~* '${CLOSED_REGEX}'`,
+    }),
+    // Leads "descartados" tambien cuentan como cerrados: el asesor los
+    // saco del pipeline en `modified_time`. NO van a Seguimiento.
+    aggregate({
+      table: 'zoho_leads',
+      dateCol: 'modified_time',
+      grain,
+      startDate,
+      filters,
+      options: { includeSource: true, includeOwner: true },
+      extraWhere: `lead_status ILIKE '%descartado%'`,
     }),
     aggregate({
       table: 'zoho_deals',
@@ -342,7 +366,9 @@ async function collectMetrics(
   apply('contacted', contactedRows);
   apply('movements', movementsRows);
   apply('movementsNew', movementsNewRows);
+  // closed = deals cerrados (won|lost) + leads marcados como descartado.
   apply('closed', closedRows);
+  apply('closed', leadsDescartadosRows);
   apply('won', wonRows);
   apply('calls', callsRows);
 
@@ -363,7 +389,8 @@ async function collectMetrics(
         contacted: contactedRows.reduce((s, r) => s + r.count, 0),
         movements: movementsRows.reduce((s, r) => s + r.count, 0),
         movementsNew: movementsNewRows.reduce((s, r) => s + r.count, 0),
-        closed: closedRows.reduce((s, r) => s + r.count, 0),
+        closedDeals: closedRows.reduce((s, r) => s + r.count, 0),
+        leadsDescartados: leadsDescartadosRows.reduce((s, r) => s + r.count, 0),
         won: wonRows.reduce((s, r) => s + r.count, 0),
         calls: callsRows.reduce((s, r) => s + r.count, 0),
       },

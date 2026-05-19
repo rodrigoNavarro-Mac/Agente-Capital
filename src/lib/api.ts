@@ -1002,12 +1002,12 @@ export async function getZohoStats(filters?: {
 export interface ZohoBucketMetrics {
   leads: number;        // Leads creados en el bucket (created_time)
   contacted: number;    // Leads en estado "Contactado" (created_time en bucket)
-  movements: number;    // Leads en Seguimiento (modified_time en bucket, no en Intento de contacto)
+  movements: number;    // Leads en Seguimiento (modified_time en bucket, no en Intento de contacto ni Descartado)
   // De los `movements`, cuantos fueron CREADOS en el mismo bucket. El resto
   // (`movements - movementsNew`) son leads de periodos anteriores que se
   // siguen trabajando = trazabilidad.
   movementsNew: number;
-  closed: number;       // Deals cerrados (ganados + perdidos) en el bucket
+  closed: number;       // Deals cerrados (ganados + perdidos) + leads marcados como Descartado, en el bucket
   won: number;          // Deals ganados en el bucket
   calls: number;        // Llamadas (zoho_activities) en el bucket
 }

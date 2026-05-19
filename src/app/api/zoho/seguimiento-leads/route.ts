@@ -11,6 +11,7 @@
  * Seguimiento criterion (same as /api/zoho/time-buckets):
  *   - lead_status IS NOT NULL
  *   - lead_status NOT ILIKE '%intento de contacto%'
+ *   - lead_status NOT ILIKE '%descartado%'     (los descartados cuentan como Cerrados)
  *   - modified_time in [from, to)
  *
  * Auth + scope rules identical to /api/zoho/time-buckets.
@@ -189,6 +190,8 @@ export async function GET(
       `modified_time <  ($2::timestamptz)`,
       `lead_status IS NOT NULL`,
       `lead_status NOT ILIKE '%intento de contacto%'`,
+      // Los descartados cuentan como Cerrados, no como Seguimiento.
+      `lead_status NOT ILIKE '%descartado%'`,
     ];
     const params: unknown[] = [fromDate.toISOString(), toDate.toISOString()];
     let p = 3;
