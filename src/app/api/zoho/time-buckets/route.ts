@@ -446,8 +446,11 @@ function ownersFromMap(map: Map<string, OwnerRow & { bucket: string }>, bucket: 
   // Collect every owner row that belongs to this bucket. Skip rows with no
   // activity at all (defensive: shouldn't happen because of how we populated
   // the map, but a bucket with truly zero activity will yield an empty list).
+  //
+  // Note: we wrap with Array.from() because the project's tsconfig target
+  // is below ES2015 and does not allow iterating MapIterator with for...of.
   const owners: OwnerRow[] = [];
-  for (const row of map.values()) {
+  for (const row of Array.from(map.values())) {
     if (row.bucket !== bucket) continue;
     const hasActivity = row.leads || row.movements || row.closed || row.won || row.calls;
     if (!hasActivity) continue;
