@@ -17,6 +17,7 @@ import {
   getZohoNotesInsightsAI,
   getZohoNotesInsightsStored,
   getZohoTimeBuckets,
+  getZohoSeguimientoLeads,
   triggerZohoSync,
   getUserDevelopments,
   type ZohoLead,
@@ -29,8 +30,11 @@ import {
   type ZohoWeekBlock,
   type ZohoMonthBlock,
   type ZohoOwnerRow,
-  type ZohoBucketMetrics
+  type ZohoBucketMetrics,
+  type ZohoSeguimientoLead,
+  type ZohoSeguimientoLeadsResponse,
 } from '@/lib/api';
+import { Dialog } from '@/components/ui/dialog';
 import { decodeAccessToken } from '@/lib/auth/auth';
 import type { UserRole } from '@/types/documents';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie, ReferenceLine, ComposedChart } from 'recharts';
@@ -92,16 +96,25 @@ function CollapsibleSection({
 
 /**
  * Small summary chips shown next to each collapsible header.
- * Renders only the metrics that are > 0 to reduce noise.
+ * Renders only the metrics that are > 0 to reduce noise. The Seguimiento
+ * chip (M) shows a small breakdown "M:total (Nn/Ao)" when applicable:
+ *   N = nuevos (leads creados en el mismo periodo)
+ *   A = anteriores (leads de periodos previos a los que se les sigue dando seguimiento)
  */
 function MetricsSummary({ totals }: { totals: ZohoBucketMetrics }) {
-  const items: Array<{ label: string; value: number }> = [
-    { label: 'L', value: totals.leads },
-    { label: 'Co', value: totals.contacted },
-    { label: 'M', value: totals.movements },
-    { label: 'C', value: totals.closed },
-    { label: 'G', value: totals.won },
-    { label: 'Ll', value: totals.calls },
+  const older = Math.max(0, totals.movements - totals.movementsNew);
+  const items: Array<{ label: string; value: number; suffix?: string; title: string }> = [
+    { label: 'L', value: totals.leads, title: `Leads creados: ${totals.leads}` },
+    { label: 'Co', value: totals.contacted, title: `Contactado: ${totals.contacted}` },
+    {
+      label: 'M',
+      value: totals.movements,
+      suffix: totals.movements > 0 ? ` (${totals.movementsNew}N/${older}A)` : undefined,
+      title: `Seguimiento total: ${totals.movements} -- nuevos: ${totals.movementsNew}, anteriores: ${older}`,
+    },
+    { label: 'C', value: totals.closed, title: `Cerrados: ${totals.closed}` },
+    { label: 'G', value: totals.won, title: `Ganados: ${totals.won}` },
+    { label: 'Ll', value: totals.calls, title: `Llamadas: ${totals.calls}` },
   ];
   return (
     <span className="flex items-center gap-2 text-xs">
@@ -109,9 +122,9 @@ function MetricsSummary({ totals }: { totals: ZohoBucketMetrics }) {
         <span
           key={it.label}
           className={it.value > 0 ? 'text-foreground' : 'text-muted-foreground/50'}
-          title={`${it.label}=${it.value}`}
+          title={it.title}
         >
-          {it.label}:{it.value}
+          {it.label}:{it.value}{it.suffix ?? ''}
         </span>
       ))}
     </span>
@@ -119,12 +132,104 @@ function MetricsSummary({ totals }: { totals: ZohoBucketMetrics }) {
 }
 
 /**
- * Renders the inner advisor breakdown table for a day or a month.
- * Columns: Asesor | Leads | Seguimiento | Cerrados | Ganados | Llamadas
- *
- * Note: in this codebase "seguimiento" = movement / lead-or-deal update.
+ * A clickable "Seguimiento" bucket, sent to the parent so it can open the
+ * detail modal. The range [from, to) is expressed as ISO timestamps
+ * anchored to the America/Merida timezone (UTC-6), to match the backend.
  */
-function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoBucketMetrics }) {
+export interface SeguimientoBucket {
+  from: string;          // ISO inclusive
+  to: string;            // ISO exclusive
+  label: string;         // e.g. 'Martes 19 May' or 'Mayo 2026'
+  scope: 'day' | 'month';
+}
+
+/**
+ * Build the [from, to) range for a single day in America/Merida.
+ * Merida is UTC-6 year-round (no DST), so we hard-code -06:00.
+ *
+ *   dateKey = '2026-05-19'
+ *   from = '2026-05-19T00:00:00-06:00' (=> '2026-05-19T06:00:00.000Z' in UTC)
+ *   to   = '2026-05-20T00:00:00-06:00' (=> '2026-05-20T06:00:00.000Z' in UTC)
+ */
+function mkDayBucketRange(dateKey: string, label: string): SeguimientoBucket {
+  const from = new Date(`${dateKey}T00:00:00-06:00`).toISOString();
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const next = new Date(Date.UTC(y, (m - 1), d + 1));
+  const nextKey = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+  const to = new Date(`${nextKey}T00:00:00-06:00`).toISOString();
+  return { from, to, label, scope: 'day' };
+}
+
+/**
+ * Build the [from, to) range for a single month in America/Merida.
+ *
+ *   monthKey = '2026-05-01'
+ *   from = '2026-05-01T00:00:00-06:00'
+ *   to   = '2026-06-01T00:00:00-06:00'
+ */
+function mkMonthBucketRange(monthKey: string, label: string): SeguimientoBucket {
+  const from = new Date(`${monthKey}T00:00:00-06:00`).toISOString();
+  const [y, m] = monthKey.split('-').map(Number);
+  const nextMonth = new Date(Date.UTC(y, m, 1));
+  const nextKey = `${nextMonth.getUTCFullYear()}-${String(nextMonth.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const to = new Date(`${nextKey}T00:00:00-06:00`).toISOString();
+  return { from, to, label, scope: 'month' };
+}
+
+/**
+ * Renders a "Seguimiento" cell. When `onClick` is provided AND total > 0,
+ * the cell becomes a button that opens the detail modal. The breakdown
+ * "total (Nn/Ao)" surfaces how many are new vs older without needing the
+ * modal: N = creados en este periodo, A = creados antes.
+ */
+function SeguimientoCell({
+  total,
+  newCount,
+  emphasis = false,
+  onClick,
+}: {
+  total: number;
+  newCount: number;
+  emphasis?: boolean;
+  onClick?: () => void;
+}) {
+  const older = Math.max(0, total - newCount);
+  const breakdown = total > 0 ? ` (${newCount}N/${older}A)` : '';
+  const text = `${total}${breakdown}`;
+  const className = emphasis ? 'font-semibold' : '';
+
+  if (onClick && total > 0) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${className} text-right text-blue-600 hover:underline hover:text-blue-700 cursor-pointer w-full`}
+        title="Ver leads en Seguimiento (trazabilidad)"
+      >
+        {text}
+      </button>
+    );
+  }
+  return <span className={className}>{text}</span>;
+}
+
+/**
+ * Renders the inner advisor breakdown table for a day or a month.
+ * Columns: Asesor | Leads | Contactado | Seguimiento | Cerrados | Ganados | Llamadas
+ *
+ * The "Seguimiento" cell is clickable when `onSeguimientoClick` is provided:
+ * opens a modal listing the exact leads being followed up (with new vs
+ * older breakdown).
+ */
+function OwnersTable({
+  owners,
+  totals,
+  onSeguimientoClick,
+}: {
+  owners: ZohoOwnerRow[];
+  totals: ZohoBucketMetrics;
+  onSeguimientoClick?: (owner: string | null) => void;
+}) {
   if (owners.length === 0) {
     return (
       <p className="text-xs text-muted-foreground italic px-2 py-3">
@@ -151,7 +256,13 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
             <TableCell className="font-medium">{o.owner}</TableCell>
             <TableCell className="text-right">{o.leads}</TableCell>
             <TableCell className="text-right">{o.contacted}</TableCell>
-            <TableCell className="text-right">{o.movements}</TableCell>
+            <TableCell className="text-right">
+              <SeguimientoCell
+                total={o.movements}
+                newCount={o.movementsNew}
+                onClick={onSeguimientoClick ? () => onSeguimientoClick(o.owner) : undefined}
+              />
+            </TableCell>
             <TableCell className="text-right">{o.closed}</TableCell>
             <TableCell className="text-right">{o.won}</TableCell>
             <TableCell className="text-right">{o.calls}</TableCell>
@@ -163,7 +274,14 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
           <TableCell className="font-semibold">Totales</TableCell>
           <TableCell className="text-right font-semibold">{totals.leads}</TableCell>
           <TableCell className="text-right font-semibold">{totals.contacted}</TableCell>
-          <TableCell className="text-right font-semibold">{totals.movements}</TableCell>
+          <TableCell className="text-right">
+            <SeguimientoCell
+              total={totals.movements}
+              newCount={totals.movementsNew}
+              emphasis
+              onClick={onSeguimientoClick ? () => onSeguimientoClick(null) : undefined}
+            />
+          </TableCell>
           <TableCell className="text-right font-semibold">{totals.closed}</TableCell>
           <TableCell className="text-right font-semibold">{totals.won}</TableCell>
           <TableCell className="text-right font-semibold">{totals.calls}</TableCell>
@@ -193,28 +311,37 @@ function thisMondayUTCKey(): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
+type SeguimientoOpener = (bucket: SeguimientoBucket, owner: string | null) => void;
+
 /**
  * Daily table: a stack of collapsible day sections (Mon -> Sun of this week).
  * The day matching today is open by default; if not present, the first day.
  */
-function DailyTable({ days }: { days: ZohoDayBlock[] }) {
+function DailyTable({ days, onOpenSeguimiento }: { days: ZohoDayBlock[]; onOpenSeguimiento: SeguimientoOpener }) {
   if (days.length === 0) {
     return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
   }
   const todayKey = todayUTCKey();
   return (
     <div className="space-y-2">
-      {days.map((day) => (
-        <CollapsibleSection
-          key={day.date}
-          title={day.label}
-          summary={<MetricsSummary totals={day.totals} />}
-          defaultOpen={day.date === todayKey}
-          level={0}
-        >
-          <OwnersTable owners={day.owners} totals={day.totals} />
-        </CollapsibleSection>
-      ))}
+      {days.map((day) => {
+        const bucket = mkDayBucketRange(day.date, day.label);
+        return (
+          <CollapsibleSection
+            key={day.date}
+            title={day.label}
+            summary={<MetricsSummary totals={day.totals} />}
+            defaultOpen={day.date === todayKey}
+            level={0}
+          >
+            <OwnersTable
+              owners={day.owners}
+              totals={day.totals}
+              onSeguimientoClick={(owner) => onOpenSeguimiento(bucket, owner)}
+            />
+          </CollapsibleSection>
+        );
+      })}
     </div>
   );
 }
@@ -223,7 +350,7 @@ function DailyTable({ days }: { days: ZohoDayBlock[] }) {
  * Weekly table: a stack of collapsible week sections. Each week expands
  * to show its 7 days (Lun -> Dom), which are themselves collapsible.
  */
-function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
+function WeeklyTable({ weeks, onOpenSeguimiento }: { weeks: ZohoWeekBlock[]; onOpenSeguimiento: SeguimientoOpener }) {
   if (weeks.length === 0) {
     return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
   }
@@ -240,17 +367,24 @@ function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
           level={0}
         >
           <div className="space-y-2">
-            {week.days.map((day) => (
-              <CollapsibleSection
-                key={day.date}
-                title={day.label}
-                summary={<MetricsSummary totals={day.totals} />}
-                defaultOpen={day.date === todayKey}
-                level={1}
-              >
-                <OwnersTable owners={day.owners} totals={day.totals} />
-              </CollapsibleSection>
-            ))}
+            {week.days.map((day) => {
+              const bucket = mkDayBucketRange(day.date, day.label);
+              return (
+                <CollapsibleSection
+                  key={day.date}
+                  title={day.label}
+                  summary={<MetricsSummary totals={day.totals} />}
+                  defaultOpen={day.date === todayKey}
+                  level={1}
+                >
+                  <OwnersTable
+                    owners={day.owners}
+                    totals={day.totals}
+                    onSeguimientoClick={(owner) => onOpenSeguimiento(bucket, owner)}
+                  />
+                </CollapsibleSection>
+              );
+            })}
           </div>
         </CollapsibleSection>
       ))}
@@ -262,23 +396,228 @@ function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
  * Monthly table: 2 collapsible sections (current month + previous month).
  * Each shows advisor breakdown directly (no nested days).
  */
-function MonthlyTable({ months }: { months: ZohoMonthBlock[] }) {
+function MonthlyTable({ months, onOpenSeguimiento }: { months: ZohoMonthBlock[]; onOpenSeguimiento: SeguimientoOpener }) {
   if (months.length === 0) {
     return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
   }
   return (
     <div className="space-y-2">
-      {months.map((m, idx) => (
-        <CollapsibleSection
-          key={m.month}
-          title={m.label}
-          summary={<MetricsSummary totals={m.totals} />}
-          defaultOpen={idx === 0}
-          level={0}
-        >
-          <OwnersTable owners={m.owners} totals={m.totals} />
-        </CollapsibleSection>
-      ))}
+      {months.map((m, idx) => {
+        const bucket = mkMonthBucketRange(m.month, m.label);
+        return (
+          <CollapsibleSection
+            key={m.month}
+            title={m.label}
+            summary={<MetricsSummary totals={m.totals} />}
+            defaultOpen={idx === 0}
+            level={0}
+          >
+            <OwnersTable
+              owners={m.owners}
+              totals={m.totals}
+              onSeguimientoClick={(owner) => onOpenSeguimiento(bucket, owner)}
+            />
+          </CollapsibleSection>
+        );
+      })}
+    </div>
+  );
+}
+
+// =====================================================
+// SEGUIMIENTO DETAIL MODAL
+// =====================================================
+
+interface SeguimientoModalRequest {
+  bucket: SeguimientoBucket;
+  owner: string | null;     // null = "todos los asesores del bucket"
+  desarrollo?: string;
+  source?: string;
+}
+
+/**
+ * Formatea una fecha ISO (UTC) usando la zona America/Merida. Si la fecha
+ * es invalida o nula, retorna un string vacio.
+ */
+function formatMerida(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('es-MX', {
+    timeZone: 'America/Merida',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Modal que muestra la lista detallada de leads en Seguimiento para un
+ * (bucket, owner). Carga datos al abrirse y agrupa los leads en dos
+ * secciones: "Leads de este periodo" (creados dentro del bucket) y
+ * "Leads anteriores" (creados antes del bucket pero seguidos hoy).
+ */
+function SeguimientoModal({
+  request,
+  onClose,
+}: {
+  request: SeguimientoModalRequest | null;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<ZohoSeguimientoLeadsResponse | null>(null);
+
+  // Cada vez que `request` cambia (nuevo click), volvemos a cargar.
+  useEffect(() => {
+    if (!request) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setData(null);
+    getZohoSeguimientoLeads({
+      from: request.bucket.from,
+      to: request.bucket.to,
+      owner: request.owner ?? undefined,
+      desarrollo: request.desarrollo,
+      source: request.source,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setData(res);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Error cargando leads.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+
+  const open = request !== null;
+
+  const title = request
+    ? `Seguimiento - ${request.bucket.label}${request.owner ? ` - ${request.owner}` : ' - Todos los asesores'}`
+    : 'Seguimiento';
+
+  const leadsNew = data?.leads.filter((l) => l.isSamePeriod) ?? [];
+  const leadsOld = data?.leads.filter((l) => !l.isSamePeriod) ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }} title={title} size="full">
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Cargando leads...</span>
+        </div>
+      )}
+      {error && (
+        <div className="flex items-start gap-2 p-3 border border-red-200 bg-red-50 rounded-md text-sm text-red-800">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {data && !loading && !error && (
+        <div className="space-y-4">
+          {/* Resumen rapido */}
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Badge variant="secondary" className="font-normal">
+              Total: {data.leads.length}
+            </Badge>
+            <Badge variant="default" className="font-normal">
+              De este periodo: {data.totalSamePeriod}
+            </Badge>
+            <Badge variant="outline" className="font-normal">
+              Anteriores: {data.totalOlder}
+            </Badge>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {formatMerida(data.from)} hasta {formatMerida(data.to)}
+            </span>
+          </div>
+
+          <SeguimientoLeadList
+            sectionTitle="Leads de este periodo (creados en el mismo bucket)"
+            leads={leadsNew}
+            emptyHint="Ningun lead nuevo movido en este bucket."
+          />
+          <SeguimientoLeadList
+            sectionTitle="Leads anteriores (creados antes; aun se les sigue dando seguimiento)"
+            leads={leadsOld}
+            emptyHint="Ningun lead anterior con movimiento en este bucket."
+          />
+
+          {data.leads.length === 0 && (
+            <p className="text-sm text-center text-muted-foreground py-6">
+              No hay leads en Seguimiento para este periodo.
+            </p>
+          )}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+function SeguimientoLeadList({
+  sectionTitle,
+  leads,
+  emptyHint,
+}: {
+  sectionTitle: string;
+  leads: ZohoSeguimientoLead[];
+  emptyHint: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">{sectionTitle} <span className="text-muted-foreground">({leads.length})</span></h3>
+      {leads.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground px-2">{emptyHint}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Lead</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Asesor</TableHead>
+                <TableHead>Desarrollo</TableHead>
+                <TableHead>Origen</TableHead>
+                <TableHead>Creado</TableHead>
+                <TableHead>Ultima modificacion</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {leads.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell className="font-medium">
+                    <div>{l.fullName ?? '(Sin nombre)'}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {l.email ?? ''}{l.email && l.phone ? ' - ' : ''}{l.phone ?? ''}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="font-normal">
+                      {l.leadStatus ?? '(sin estado)'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{l.ownerName ?? 'Sin asignar'}</TableCell>
+                  <TableCell>{l.desarrollo ?? '-'}</TableCell>
+                  <TableCell>{l.leadSource ?? '-'}</TableCell>
+                  <TableCell className="text-xs">{formatMerida(l.createdTime)}</TableCell>
+                  <TableCell className="text-xs">{formatMerida(l.modifiedTime)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
@@ -330,6 +669,12 @@ export default function ZohoCRMPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsSortKey, setAnalyticsSortKey] = useState<string>('total_leads');
   const [analyticsSortAsc, setAnalyticsSortAsc] = useState(false);
+
+  // Modal para ver la lista de leads en Seguimiento (trazabilidad).
+  // Cuando es null, el modal esta cerrado. Cuando es un objeto, el modal se
+  // abre y dispara la carga de leads para el (bucket, owner) que el usuario
+  // selecciono haciendo clic en la celda Seguimiento.
+  const [seguimientoModal, setSeguimientoModal] = useState<SeguimientoModalRequest | null>(null);
 
   const { toast } = useToast();
 
@@ -487,6 +832,24 @@ export default function ZohoCRMPage() {
   const colors = useMemo(() => {
     return getDevelopmentColors(selectedDesarrollo);
   }, [selectedDesarrollo]);
+
+  /**
+   * Handler que las tablas (diaria, semanal, mensual) invocan cuando el
+   * usuario hace clic en la celda Seguimiento. Captura el (bucket, owner)
+   * y los filtros activos para que el modal pueda traer la lista exacta
+   * de leads que estan detras de ese conteo.
+   */
+  const handleOpenSeguimiento = useCallback<SeguimientoOpener>(
+    (bucket, owner) => {
+      setSeguimientoModal({
+        bucket,
+        owner,
+        desarrollo: selectedDesarrollo === 'all' ? undefined : selectedDesarrollo,
+        source: selectedSource.length === 0 ? undefined : selectedSource.join(','),
+      });
+    },
+    [selectedDesarrollo, selectedSource]
+  );
 
   // Calcular fechas según el periodo seleccionado (rangos de calendario)
   // Calcular fechas según el periodo seleccionado (rangos de calendario)
@@ -3734,7 +4097,7 @@ export default function ZohoCRMPage() {
                         <p className="text-sm text-muted-foreground">Cargando...</p>
                       </div>
                     ) : (
-                      <DailyTable days={timeBuckets?.daily ?? []} />
+                      <DailyTable days={timeBuckets?.daily ?? []} onOpenSeguimiento={handleOpenSeguimiento} />
                     )}
                   </CardContent>
                 </Card>
@@ -3753,7 +4116,7 @@ export default function ZohoCRMPage() {
                         <p className="text-sm text-muted-foreground">Cargando...</p>
                       </div>
                     ) : (
-                      <WeeklyTable weeks={timeBuckets?.weekly ?? []} />
+                      <WeeklyTable weeks={timeBuckets?.weekly ?? []} onOpenSeguimiento={handleOpenSeguimiento} />
                     )}
                   </CardContent>
                 </Card>
@@ -3772,7 +4135,7 @@ export default function ZohoCRMPage() {
                         <p className="text-sm text-muted-foreground">Cargando...</p>
                       </div>
                     ) : (
-                      <MonthlyTable months={timeBuckets?.monthly ?? []} />
+                      <MonthlyTable months={timeBuckets?.monthly ?? []} onOpenSeguimiento={handleOpenSeguimiento} />
                     )}
                   </CardContent>
                 </Card>
@@ -4278,6 +4641,13 @@ export default function ZohoCRMPage() {
         </TabsContent>
 
       </Tabs>
+
+      {/* Modal de trazabilidad para Seguimiento: se monta a nivel pagina
+          para que su z-index funcione independientemente del tab actual. */}
+      <SeguimientoModal
+        request={seguimientoModal}
+        onClose={() => setSeguimientoModal(null)}
+      />
     </div>
   );
 }

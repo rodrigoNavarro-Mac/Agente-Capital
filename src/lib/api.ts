@@ -1000,12 +1000,16 @@ export async function getZohoStats(filters?: {
 // =====================================================
 
 export interface ZohoBucketMetrics {
-  leads: number;       // Leads created in bucket
-  contacted: number;   // Leads en estado "Contactado" (created_time en bucket)
-  movements: number;   // Leads + deals with modified_time in bucket
-  closed: number;      // Deals (won + lost) closed in bucket
-  won: number;         // Deals won in bucket
-  calls: number;       // Calls (zoho_activities) in bucket
+  leads: number;        // Leads creados en el bucket (created_time)
+  contacted: number;    // Leads en estado "Contactado" (created_time en bucket)
+  movements: number;    // Leads en Seguimiento (modified_time en bucket, no en Intento de contacto)
+  // De los `movements`, cuantos fueron CREADOS en el mismo bucket. El resto
+  // (`movements - movementsNew`) son leads de periodos anteriores que se
+  // siguen trabajando = trazabilidad.
+  movementsNew: number;
+  closed: number;       // Deals cerrados (ganados + perdidos) en el bucket
+  won: number;          // Deals ganados en el bucket
+  calls: number;        // Llamadas (zoho_activities) en el bucket
 }
 
 export interface ZohoOwnerRow extends ZohoBucketMetrics {
@@ -1067,6 +1071,73 @@ export async function getZohoTimeBuckets(filters?: {
 
   if (!response.success) {
     throw new Error(response.error || 'Error obteniendo series temporales de Zoho CRM');
+  }
+
+  return response.data;
+}
+
+// =====================================================
+// ZOHO SEGUIMIENTO LEADS DETAIL (trazabilidad)
+// =====================================================
+
+export interface ZohoSeguimientoLead {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  leadStatus: string | null;
+  ownerName: string | null;
+  desarrollo: string | null;
+  leadSource: string | null;
+  createdTime: string | null;
+  modifiedTime: string | null;
+  // True si el lead fue CREADO dentro de la misma ventana que se esta
+  // consultando (mismo dia / semana / mes que el bucket). Permite separar
+  // "leads de este periodo" vs "leads anteriores".
+  isSamePeriod: boolean;
+}
+
+export interface ZohoSeguimientoLeadsResponse {
+  from: string;
+  to: string;
+  owner: string | null;
+  totalSamePeriod: number;
+  totalOlder: number;
+  leads: ZohoSeguimientoLead[];
+}
+
+/**
+ * Obtiene la lista detallada de leads en Seguimiento para un rango
+ * [from, to) y un owner opcional. Respeta el scoping de desarrollos del
+ * usuario (sales_manager) igual que el endpoint de buckets.
+ */
+export async function getZohoSeguimientoLeads(params: {
+  from: string;   // ISO 8601 (inclusive)
+  to: string;     // ISO 8601 (exclusive)
+  owner?: string; // owner_name ('Sin asignar' para los sin asignar)
+  desarrollo?: string;
+  source?: string;
+}): Promise<ZohoSeguimientoLeadsResponse> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  const search = new URLSearchParams();
+  search.append('from', params.from);
+  search.append('to', params.to);
+  if (params.owner) search.append('owner', params.owner);
+  if (params.desarrollo) search.append('desarrollo', params.desarrollo);
+  if (params.source) search.append('source', params.source);
+
+  const url = `/api/zoho/seguimiento-leads?${search.toString()}`;
+
+  const response = await fetcher<{ success: boolean; data: ZohoSeguimientoLeadsResponse; error?: string }>(
+    url,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }
+  );
+
+  if (!response.success) {
+    throw new Error(response.error || 'Error obteniendo leads de seguimiento');
   }
 
   return response.data;
