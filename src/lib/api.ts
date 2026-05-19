@@ -1001,6 +1001,7 @@ export async function getZohoStats(filters?: {
 
 export interface ZohoBucketMetrics {
   leads: number;       // Leads created in bucket
+  contacted: number;   // Leads en estado "Contactado" (created_time en bucket)
   movements: number;   // Leads + deals with modified_time in bucket
   closed: number;      // Deals (won + lost) closed in bucket
   won: number;         // Deals won in bucket

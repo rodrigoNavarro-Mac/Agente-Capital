@@ -37,6 +37,7 @@ const TZ = 'America/Merida';
 
 export interface Metrics {
   leads: number;
+  contacted: number; // Leads en estado "Contactado" (lead_status ILIKE '%contactado%')
   movements: number;
   closed: number;
   won: number;
@@ -244,7 +245,7 @@ async function collectMetrics(
   filters: Filters,
   debug: boolean = false
 ): Promise<Map<string, OwnerRow & { bucket: string }>> {
-  const [leadsRows, movementsRows, closedRows, wonRows, callsRows] = await Promise.all([
+  const [leadsRows, contactedRows, movementsRows, closedRows, wonRows, callsRows] = await Promise.all([
     aggregate({
       table: 'zoho_leads',
       dateCol: 'created_time',
@@ -252,6 +253,18 @@ async function collectMetrics(
       startDate,
       filters,
       options: { includeSource: true, includeOwner: true },
+    }),
+    // "Contactado": leads cuyo estado contiene la palabra "contactado". Se
+    // agrupan por created_time (mismo bucket que la columna Leads) para que
+    // sea facil leer "de los X leads de este dia, Y estan en Contactado".
+    aggregate({
+      table: 'zoho_leads',
+      dateCol: 'created_time',
+      grain,
+      startDate,
+      filters,
+      options: { includeSource: true, includeOwner: true },
+      extraWhere: `lead_status ILIKE '%contactado%'`,
     }),
     aggregateMovements({ grain, startDate, filters }),
     aggregate({
@@ -290,7 +303,7 @@ async function collectMetrics(
     const key = makeKey(bucket, owner);
     let cur = map.get(key);
     if (!cur) {
-      cur = { bucket, owner, leads: 0, movements: 0, closed: 0, won: 0, calls: 0 };
+      cur = { bucket, owner, leads: 0, contacted: 0, movements: 0, closed: 0, won: 0, calls: 0 };
       map.set(key, cur);
     }
     return cur;
@@ -301,6 +314,7 @@ async function collectMetrics(
   };
 
   apply('leads', leadsRows);
+  apply('contacted', contactedRows);
   apply('movements', movementsRows);
   apply('closed', closedRows);
   apply('won', wonRows);
@@ -320,6 +334,7 @@ async function collectMetrics(
       },
       counts: {
         leads: leadsRows.reduce((s, r) => s + r.count, 0),
+        contacted: contactedRows.reduce((s, r) => s + r.count, 0),
         movements: movementsRows.reduce((s, r) => s + r.count, 0),
         closed: closedRows.reduce((s, r) => s + r.count, 0),
         won: wonRows.reduce((s, r) => s + r.count, 0),
@@ -431,11 +446,12 @@ function buildMonthlyKeys(): string[] {
 // =====================================================
 
 function emptyMetrics(): Metrics {
-  return { leads: 0, movements: 0, closed: 0, won: 0, calls: 0 };
+  return { leads: 0, contacted: 0, movements: 0, closed: 0, won: 0, calls: 0 };
 }
 
 function addMetrics(target: Metrics, src: Metrics): void {
   target.leads += src.leads;
+  target.contacted += src.contacted;
   target.movements += src.movements;
   target.closed += src.closed;
   target.won += src.won;
@@ -452,11 +468,12 @@ function ownersFromMap(map: Map<string, OwnerRow & { bucket: string }>, bucket: 
   const owners: OwnerRow[] = [];
   for (const row of Array.from(map.values())) {
     if (row.bucket !== bucket) continue;
-    const hasActivity = row.leads || row.movements || row.closed || row.won || row.calls;
+    const hasActivity = row.leads || row.contacted || row.movements || row.closed || row.won || row.calls;
     if (!hasActivity) continue;
     owners.push({
       owner: row.owner,
       leads: row.leads,
+      contacted: row.contacted,
       movements: row.movements,
       closed: row.closed,
       won: row.won,

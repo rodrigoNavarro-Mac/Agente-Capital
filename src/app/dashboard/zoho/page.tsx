@@ -97,6 +97,7 @@ function CollapsibleSection({
 function MetricsSummary({ totals }: { totals: ZohoBucketMetrics }) {
   const items: Array<{ label: string; value: number }> = [
     { label: 'L', value: totals.leads },
+    { label: 'Co', value: totals.contacted },
     { label: 'M', value: totals.movements },
     { label: 'C', value: totals.closed },
     { label: 'G', value: totals.won },
@@ -137,6 +138,7 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
         <TableRow>
           <TableHead>Asesor</TableHead>
           <TableHead className="text-right">Leads</TableHead>
+          <TableHead className="text-right">Contactado</TableHead>
           <TableHead className="text-right">Seguimiento</TableHead>
           <TableHead className="text-right">Cerrados</TableHead>
           <TableHead className="text-right">Ganados</TableHead>
@@ -148,6 +150,7 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
           <TableRow key={o.owner}>
             <TableCell className="font-medium">{o.owner}</TableCell>
             <TableCell className="text-right">{o.leads}</TableCell>
+            <TableCell className="text-right">{o.contacted}</TableCell>
             <TableCell className="text-right">{o.movements}</TableCell>
             <TableCell className="text-right">{o.closed}</TableCell>
             <TableCell className="text-right">{o.won}</TableCell>
@@ -159,6 +162,7 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
         <TableRow>
           <TableCell className="font-semibold">Totales</TableCell>
           <TableCell className="text-right font-semibold">{totals.leads}</TableCell>
+          <TableCell className="text-right font-semibold">{totals.contacted}</TableCell>
           <TableCell className="text-right font-semibold">{totals.movements}</TableCell>
           <TableCell className="text-right font-semibold">{totals.closed}</TableCell>
           <TableCell className="text-right font-semibold">{totals.won}</TableCell>
