@@ -9,7 +9,9 @@
  *
  * Metrics per (day or month, owner):
  *   leads      = zoho_leads.created_time
- *   movements  = zoho_leads OR zoho_deals .modified_time
+ *   contacted  = zoho_leads.created_time WHERE lead_status ILIKE '%contactado%'
+ *   movements  = zoho_leads.modified_time WHERE lead_status is set
+ *                 AND NOT ILIKE '%intento de contacto%' (=> Seguimiento)
  *   closed     = zoho_deals (won|lost) by closing_date
  *   won        = zoho_deals (won)      by closing_date
  *   calls      = zoho_activities (Call) by call_start_time
@@ -192,38 +194,30 @@ async function aggregate(params: {
   }
 }
 
-async function aggregateMovements(params: {
+/**
+ * "Seguimiento": leads cuyo estado NO contiene "intento de contacto"
+ * (es decir, ya pasaron de la fase inicial) Y cuya ultima modificacion
+ * (modified_time) cae en el bucket. Solo aplica a leads (no a deals),
+ * porque "Intento de contacto" es un estado de Lead.
+ */
+async function aggregateSeguimiento(params: {
   grain: 'day' | 'month';
   startDate: Date;
   filters: Filters;
 }): Promise<AggRow[]> {
   const { grain, startDate, filters } = params;
 
-  const leadsRows = await aggregate({
+  return aggregate({
     table: 'zoho_leads',
     dateCol: 'modified_time',
     grain,
     startDate,
     filters,
     options: { includeSource: true, includeOwner: true },
+    // Excluimos leads en "Intento de contacto" (case-insensitive). Si
+    // lead_status es NULL no cuenta como seguimiento (lead aun sin clasificar).
+    extraWhere: `lead_status IS NOT NULL AND lead_status NOT ILIKE '%intento de contacto%'`,
   });
-  const dealsRows = await aggregate({
-    table: 'zoho_deals',
-    dateCol: 'modified_time',
-    grain,
-    startDate,
-    filters,
-    options: { includeSource: true, includeOwner: true },
-  });
-
-  const map = new Map<string, AggRow>();
-  for (const r of [...leadsRows, ...dealsRows]) {
-    const key = `${r.bucket}__${r.owner}`;
-    const cur = map.get(key);
-    if (cur) cur.count += r.count;
-    else map.set(key, { ...r });
-  }
-  return Array.from(map.values());
 }
 
 // =====================================================
@@ -266,7 +260,7 @@ async function collectMetrics(
       options: { includeSource: true, includeOwner: true },
       extraWhere: `lead_status ILIKE '%contactado%'`,
     }),
-    aggregateMovements({ grain, startDate, filters }),
+    aggregateSeguimiento({ grain, startDate, filters }),
     aggregate({
       table: 'zoho_deals',
       dateCol: 'closing_date',
@@ -403,27 +397,59 @@ function getMondayOfThisWeek(): Date {
   return m;
 }
 
-/** Build the 7 expected day keys (oldest to newest), ending today. */
+/**
+ * Build the 7 day keys of THIS calendar week (Mon -> Sun), in that order.
+ * Future days within the week are included as zero rows (the scaffold
+ * guarantees the table always shows all 7 days).
+ */
 function buildDailyKeys(): string[] {
+  const monday = getMondayOfThisWeek();
   const out: string[] = [];
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - i);
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setUTCDate(d.getUTCDate() + i);
     out.push(bucketKeyForDate(d));
   }
   return out;
 }
 
-/** Build the 8 expected week Mondays (oldest to newest). */
-function buildWeeklyMondays(): Date[] {
-  const monday = getMondayOfThisWeek();
+/**
+ * Build the Mondays of every week that intersects the CURRENT calendar
+ * month. A week is anchored to its Monday, so the first week ("S1") is
+ * the week containing day 1 of the month (its Monday may fall in the
+ * previous month). Returns Mondays oldest -> newest.
+ *
+ * Example: May 2026 (1st falls on Friday)
+ *   S1 -> Mon Apr 27 (week containing May 1)
+ *   S2 -> Mon May 4
+ *   S3 -> Mon May 11
+ *   S4 -> Mon May 18
+ *   S5 -> Mon May 25
+ */
+function buildMonthWeekMondays(): Date[] {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+
+  // First day of current month, then walk back to its Monday.
+  const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
+  const dow = firstDayOfMonth.getUTCDay();
+  const diffToMonday = (dow + 6) % 7;
+  const firstWeekMonday = new Date(firstDayOfMonth);
+  firstWeekMonday.setUTCDate(firstWeekMonday.getUTCDate() - diffToMonday);
+
   const out: Date[] = [];
-  for (let i = 7; i >= 0; i--) {
-    const d = new Date(monday);
-    d.setUTCDate(d.getUTCDate() - i * 7);
-    out.push(d);
+  const cursor = new Date(firstWeekMonday);
+  // Add Mondays while the Monday's "week" still belongs to this month
+  // (the week belongs to a month if any of its 7 days fall in that month).
+  while (true) {
+    out.push(new Date(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+    // The new Monday "belongs" to current month if its Monday is in the
+    // month, OR if its Sunday (Monday + 6) is in the month.
+    const sunday = new Date(cursor);
+    sunday.setUTCDate(sunday.getUTCDate() + 6);
+    if (cursor.getUTCMonth() !== month && sunday.getUTCMonth() !== month) break;
   }
   return out;
 }
@@ -504,23 +530,22 @@ function buildMonthBlock(map: Map<string, OwnerRow & { bucket: string }>, key: s
 }
 
 async function buildDailyAndWeekly(filters: Filters, debug: boolean = false): Promise<{ daily: DayBlock[]; weekly: WeekBlock[] }> {
-  // Run a single day-grained query spanning the last 8 weeks (the broadest
-  // window we need); we then reuse the rows both for `daily` (last 7 days)
-  // and `weekly` (8 weeks of days).
-  const mondays = buildWeeklyMondays();
-  const startDate = new Date(mondays[0]); // earliest Monday in the window
+  // Run a single day-grained query spanning from the earliest Monday of
+  // the current calendar month's weeks. That window always covers the
+  // current week too (so we can reuse the rows for the daily breakdown).
+  const monthMondays = buildMonthWeekMondays();
+  const startDate = new Date(monthMondays[0]); // first Monday of S1
   const map = await collectMetrics('day', startDate, filters, debug);
 
-  // ---- DAILY (last 7 days, newest first) ----
-  const dailyKeys = buildDailyKeys(); // oldest -> newest
-  const daily: DayBlock[] = dailyKeys.map((k) => buildDayBlock(map, k)).reverse();
+  // ---- DAILY (Mon -> Sun of THIS week, in that order) ----
+  const dailyKeys = buildDailyKeys(); // Mon -> Sun (oldest first)
+  const daily: DayBlock[] = dailyKeys.map((k) => buildDayBlock(map, k));
 
-  // ---- WEEKLY (last 8 weeks, newest first; each week shows 7 days Mon->Sun) ----
-  // We renumber S1 = most recent week, S2 = next, etc. (matches the user's UX).
-  const weekly: WeekBlock[] = [];
-  const reversed = [...mondays].reverse(); // newest Monday first
-  reversed.forEach((monday, idx) => {
-    const sNumber = idx + 1;
+  // ---- WEEKLY (S1 -> Sn of THIS month, in that order) ----
+  // S1 = first week of the month (the week containing day 1), S2 = next, etc.
+  // Each week expands to its 7 days Mon -> Sun.
+  const weekly: WeekBlock[] = monthMondays.map((monday, idx) => {
+    const sNumber = idx + 1; // 1-based: S1 is the first week of the month
     const days: DayBlock[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
@@ -530,12 +555,12 @@ async function buildDailyAndWeekly(filters: Filters, debug: boolean = false): Pr
     }
     const totals = emptyMetrics();
     for (const day of days) addMetrics(totals, day.totals);
-    weekly.push({
+    return {
       week: bucketKeyForDate(monday),
       label: weekLabel(monday, sNumber),
       totals,
       days,
-    });
+    };
   });
 
   return { daily, weekly };

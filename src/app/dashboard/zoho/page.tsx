@@ -174,21 +174,42 @@ function OwnersTable({ owners, totals }: { owners: ZohoOwnerRow[]; totals: ZohoB
 }
 
 /**
- * Daily table: a stack of collapsible day sections. The most recent day
- * is open by default.
+ * Returns today's date as 'YYYY-MM-DD' using UTC components, to match the
+ * keys that the backend produces with `bucketKeyForDate(d.getUTCxxx())`.
+ */
+function todayUTCKey(): string {
+  const d = new Date();
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+/** Monday of the current week, as a UTC 'YYYY-MM-DD' key. */
+function thisMondayUTCKey(): string {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  const diffToMonday = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - diffToMonday);
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+/**
+ * Daily table: a stack of collapsible day sections (Mon -> Sun of this week).
+ * The day matching today is open by default; if not present, the first day.
  */
 function DailyTable({ days }: { days: ZohoDayBlock[] }) {
   if (days.length === 0) {
     return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
   }
+  const todayKey = todayUTCKey();
   return (
     <div className="space-y-2">
-      {days.map((day, idx) => (
+      {days.map((day) => (
         <CollapsibleSection
           key={day.date}
           title={day.label}
           summary={<MetricsSummary totals={day.totals} />}
-          defaultOpen={idx === 0}
+          defaultOpen={day.date === todayKey}
           level={0}
         >
           <OwnersTable owners={day.owners} totals={day.totals} />
@@ -206,14 +227,16 @@ function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
   if (weeks.length === 0) {
     return <p className="text-sm text-center text-muted-foreground py-6">Sin datos en el rango.</p>;
   }
+  const todayKey = todayUTCKey();
+  const mondayKey = thisMondayUTCKey();
   return (
     <div className="space-y-2">
-      {weeks.map((week, idx) => (
+      {weeks.map((week) => (
         <CollapsibleSection
           key={week.week}
           title={week.label}
           summary={<MetricsSummary totals={week.totals} />}
-          defaultOpen={idx === 0}
+          defaultOpen={week.week === mondayKey}
           level={0}
         >
           <div className="space-y-2">
@@ -222,7 +245,7 @@ function WeeklyTable({ weeks }: { weeks: ZohoWeekBlock[] }) {
                 key={day.date}
                 title={day.label}
                 summary={<MetricsSummary totals={day.totals} />}
-                defaultOpen={false}
+                defaultOpen={day.date === todayKey}
                 level={1}
               >
                 <OwnersTable owners={day.owners} totals={day.totals} />
@@ -3699,9 +3722,9 @@ export default function ZohoCRMPage() {
               <div className="grid gap-4 grid-cols-1">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Actividad diaria por asesor (ultimos 7 dias)</CardTitle>
+                    <CardTitle>Actividad diaria por asesor (esta semana)</CardTitle>
                     <CardDescription>
-                      Despliega un dia para ver el desglose de leads, seguimiento, cierres y llamadas por asesor.
+                      Los 7 dias de esta semana (Lunes a Domingo). Despliega un dia para ver el desglose por asesor.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -3718,9 +3741,9 @@ export default function ZohoCRMPage() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Actividad semanal por asesor (ultimas 8 semanas)</CardTitle>
+                    <CardTitle>Actividad semanal por asesor (mes corriente)</CardTitle>
                     <CardDescription>
-                      Despliega una semana para ver sus 7 dias (Lunes a Domingo); dentro de cada dia, el desglose por asesor.
+                      Semanas S1 ... Sn del mes en curso. Despliega una semana para ver sus 7 dias y el desglose por asesor.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
