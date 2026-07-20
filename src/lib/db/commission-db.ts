@@ -121,14 +121,14 @@ export async function upsertCommissionConfig(
     const result = await query<CommissionConfig>(
       `INSERT INTO commission_configs (
         desarrollo, phase_sale_percent, phase_post_sale_percent,
-        sale_manager_percent, deal_owner_percent, external_advisor_percent,
+        sale_manager_percent, deal_owner_percent, external_advisor_percent, setter_percent,
         pool_enabled, sale_pool_total_percent,
         customer_service_enabled, customer_service_percent,
         deliveries_enabled, deliveries_percent,
         bonds_enabled, bonds_percent,
         created_by, updated_by
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
       )
       ON CONFLICT (desarrollo) DO UPDATE SET
         phase_sale_percent = EXCLUDED.phase_sale_percent,
@@ -136,6 +136,7 @@ export async function upsertCommissionConfig(
         sale_manager_percent = EXCLUDED.sale_manager_percent,
         deal_owner_percent = EXCLUDED.deal_owner_percent,
         external_advisor_percent = EXCLUDED.external_advisor_percent,
+        setter_percent = EXCLUDED.setter_percent,
         pool_enabled = EXCLUDED.pool_enabled,
         sale_pool_total_percent = EXCLUDED.sale_pool_total_percent,
         customer_service_enabled = EXCLUDED.customer_service_enabled,
@@ -154,6 +155,7 @@ export async function upsertCommissionConfig(
         config.sale_manager_percent,
         config.deal_owner_percent,
         config.external_advisor_percent || null,
+        config.setter_percent || 0,
         config.pool_enabled || false,
         config.sale_pool_total_percent || 0,
         config.customer_service_enabled || false,
@@ -192,7 +194,8 @@ export async function getCommissionGlobalConfigs(): Promise<CommissionGlobalConf
  * Actualiza la configuraciÃ³n global de roles indirectos
  */
 export async function updateCommissionGlobalConfig(
-  configKey: 'operations_coordinator_percent' | 'marketing_percent' | 'legal_manager_percent' | 'post_sale_coordinator_percent',
+  configKey: 'operations_coordinator_percent' | 'marketing_percent' | 'legal_manager_percent' | 'post_sale_coordinator_percent'
+    | 'roc_mkt_coordinator_percent' | 'operations_manager_percent' | 'general_management_percent',
   configValue: number,
   userId: number
 ): Promise<CommissionGlobalConfig> {
@@ -627,6 +630,99 @@ export async function processClosedWonDealsFromLocalDB(): Promise<{
   }
 }
 
+// =====================================================
+// VENTAS PERDIDAS (deal paso a Cerrado Perdido en Zoho)
+// =====================================================
+
+/**
+ * Obtiene las ventas comisionables cuyo deal correspondiente en zoho_deals
+ * ya aparece como "Cerrado Perdido" (o equivalente) pero que aun no estan
+ * marcadas como perdidas en commission_sales.
+ * Usa el mismo matching difuso (LIKE %perdido%/%lost%) que ya usa el resto
+ * del proyecto para detectar stages "ganado"/"won".
+ */
+export async function getNewlyLostCommissionSales(): Promise<CommissionSale[]> {
+  try {
+    const result = await query<CommissionSale>(
+      `SELECT cs.*
+       FROM commission_sales cs
+       INNER JOIN zoho_deals zd ON cs.zoho_deal_id = zd.zoho_id
+       WHERE cs.is_lost = false
+         AND (
+           LOWER(COALESCE(zd.stage, zd.data->>'Stage', '')) LIKE '%perdido%'
+           OR LOWER(COALESCE(zd.stage, zd.data->>'Stage', '')) LIKE '%lost%'
+         )`
+    );
+    return result.rows;
+  } catch (error) {
+    logger.error('Error obteniendo ventas recien marcadas como perdidas en Zoho', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Marca una venta comisionable como perdida (sin borrarla, preserva el historial).
+ * Las distribuciones pendientes/solicitadas pasan a NO_APLICA (el trigger existente
+ * ya se encarga de poner amount_calculated en 0), pero las que ya estan pagadas
+ * ('paid') se dejan intactas porque ese dinero ya salio.
+ */
+export async function markCommissionSaleAsLost(saleId: number): Promise<void> {
+  try {
+    await query(
+      `UPDATE commission_sales
+       SET is_lost = true,
+           lost_detected_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [saleId]
+    );
+
+    await query(
+      `UPDATE commission_distributions
+       SET payment_status = 'NO_APLICA',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE sale_id = $1 AND payment_status IN ('pending', 'SOLICITADA')`,
+      [saleId]
+    );
+  } catch (error) {
+    logger.error('Error marcando venta como perdida', error, { saleId }, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Detecta y marca todas las ventas comisionables cuyo deal paso a
+ * "Cerrado Perdido" en Zoho desde el ultimo chequeo. Pensado para correr
+ * despues de cada sincronizacion de deals.
+ */
+export async function markLostDealsAsLost(): Promise<{
+  markedCount: number;
+  sales: Array<{ id: number; zoho_deal_id: string; cliente_nombre: string; desarrollo: string }>;
+}> {
+  const newlyLost = await getNewlyLostCommissionSales();
+  const marked: Array<{ id: number; zoho_deal_id: string; cliente_nombre: string; desarrollo: string }> = [];
+
+  for (const sale of newlyLost) {
+    try {
+      await markCommissionSaleAsLost(sale.id);
+      marked.push({
+        id: sale.id,
+        zoho_deal_id: sale.zoho_deal_id,
+        cliente_nombre: sale.cliente_nombre,
+        desarrollo: sale.desarrollo,
+      });
+    } catch (error) {
+      logger.error(`Error marcando venta ${sale.id} como perdida`, error, { saleId: sale.id }, 'commission-db');
+    }
+  }
+
+  if (marked.length > 0) {
+    logger.info(`${marked.length} venta(s) marcada(s) como perdida(s)`, { marked }, 'commission-db');
+  }
+
+  return { markedCount: marked.length, sales: marked };
+}
+
 /**
  * Obtiene ventas comisionables con filtros
  */
@@ -979,6 +1075,35 @@ export async function updateCommissionDistributionPaymentStatus(
     return result.rows[0];
   } catch (error) {
     logger.error('Error actualizando estado de pago de distribuciÃ³n', error, {}, 'commission-db');
+    throw error;
+  }
+}
+
+/**
+ * Mueve una distribucion de comision entre fase venta y postventa.
+ * Caso especial para roles como "Direccion General" que no tienen una fase
+ * fija: el monto se calcula sobre valor_total en ambos casos, por lo que
+ * mover la fase no requiere recalcular el monto, solo reetiquetarla.
+ */
+export async function updateCommissionDistributionPhase(
+  distributionId: number,
+  phase: 'sale' | 'post_sale'
+): Promise<CommissionDistribution> {
+  try {
+    const result = await query<CommissionDistribution>(
+      `UPDATE commission_distributions
+       SET phase = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [phase, distributionId]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Distribucion no encontrada: ${distributionId}`);
+    }
+    return result.rows[0];
+  } catch (error) {
+    logger.error('Error moviendo fase de distribucion', error, {}, 'commission-db');
     throw error;
   }
 }

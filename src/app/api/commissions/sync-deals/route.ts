@@ -38,7 +38,7 @@ import {
   deleteZohoDealsNotInZoho,
   getLastModifiedTime,
 } from '@/lib/db/postgres';
-import { processClosedWonDealsFromLocalDB } from '@/lib/db/commission-db';
+import { processClosedWonDealsFromLocalDB, markLostDealsAsLost } from '@/lib/db/commission-db';
 import { logger } from '@/lib/utils/logger';
 import type { APIResponse } from '@/types/documents';
 
@@ -220,6 +220,27 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       }
     }
 
+    // 5.5) Marcar como perdidas las ventas cuyo deal paso a Cerrado Perdido en Zoho
+    // (no se borran, se preserva el historial - ver markCommissionSaleAsLost)
+    let lostDealsResult: {
+      markedCount: number;
+      sales: Array<{ id: number; zoho_deal_id: string; cliente_nombre: string; desarrollo: string }>;
+    } | null = null;
+
+    if (!skipProcess) {
+      try {
+        lostDealsResult = await markLostDealsAsLost();
+        if (lostDealsResult.markedCount > 0) {
+          logger.info('Ventas marcadas como perdidas', {
+            markedCount: lostDealsResult.markedCount,
+            sales: lostDealsResult.sales,
+          }, logScope);
+        }
+      } catch (lostError) {
+        logger.error('Failed marking lost commission sales', lostError, undefined, logScope);
+      }
+    }
+
     // 6) Log del sync (reusa la tabla zoho_sync_log para tener trazabilidad unificada)
     const durationMs = Date.now() - startTime;
     const status = recordsFailed === 0 ? 'success' : (recordsSynced > 0 ? 'partial' : 'error');
@@ -251,6 +272,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         `${processResult.skipped} ventas actualizadas`,
       );
     }
+    if (lostDealsResult && lostDealsResult.markedCount > 0) {
+      messageParts.push(`${lostDealsResult.markedCount} venta(s) marcada(s) como perdida(s)`);
+    }
 
     return NextResponse.json({
       success: true,
@@ -265,6 +289,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
         durationMs,
         durationSeconds: Math.round(durationMs / 1000),
         commissionProcessing: processResult,
+        lostDealsMarked: lostDealsResult,
         message: messageParts.join(', '),
       },
     });

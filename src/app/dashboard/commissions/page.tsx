@@ -656,11 +656,17 @@ function ConfigTab({
     marketing_percent: number;
     legal_manager_percent: number;
     post_sale_coordinator_percent: number;
+    roc_mkt_coordinator_percent: number;
+    operations_manager_percent: number;
+    general_management_percent: number;
   }>({
     operations_coordinator_percent: 0,
     marketing_percent: 0,
     legal_manager_percent: 0,
     post_sale_coordinator_percent: 0,
+    roc_mkt_coordinator_percent: 0,
+    operations_manager_percent: 0,
+    general_management_percent: 0,
   });
   const [savingGlobal, setSavingGlobal] = useState(false);
   const [availableDevelopments, setAvailableDevelopments] = useState<string[]>([]);
@@ -791,11 +797,17 @@ function ConfigTab({
       const marketing = globalConfigs.find(c => c.config_key === 'marketing_percent');
       const legal = globalConfigs.find(c => c.config_key === 'legal_manager_percent');
       const postSale = globalConfigs.find(c => c.config_key === 'post_sale_coordinator_percent');
+      const rocMktCoordinator = globalConfigs.find(c => c.config_key === 'roc_mkt_coordinator_percent');
+      const operationsManager = globalConfigs.find(c => c.config_key === 'operations_manager_percent');
+      const generalManagement = globalConfigs.find(c => c.config_key === 'general_management_percent');
       setGlobalFormData({
         operations_coordinator_percent: operations?.config_value || 0,
         marketing_percent: marketing?.config_value || 0,
         legal_manager_percent: legal?.config_value || 0,
         post_sale_coordinator_percent: postSale?.config_value || 0,
+        roc_mkt_coordinator_percent: rocMktCoordinator?.config_value || 0,
+        operations_manager_percent: operationsManager?.config_value || 0,
+        general_management_percent: generalManagement?.config_value || 0,
       });
     }
   }, [globalConfigs]);
@@ -862,6 +874,7 @@ function ConfigTab({
           sale_manager_percent: existingConfig.sale_manager_percent,
           deal_owner_percent: existingConfig.deal_owner_percent,
           external_advisor_percent: existingConfig.external_advisor_percent,
+          setter_percent: existingConfig.setter_percent,
           pool_enabled: existingConfig.pool_enabled || false,
           sale_pool_total_percent: existingConfig.sale_pool_total_percent,
           customer_service_enabled: existingConfig.customer_service_enabled,
@@ -881,6 +894,7 @@ function ConfigTab({
           sale_manager_percent: undefined,
           deal_owner_percent: undefined,
           external_advisor_percent: undefined,
+          setter_percent: undefined,
           pool_enabled: false,
           sale_pool_total_percent: undefined,
           customer_service_enabled: false,
@@ -946,6 +960,7 @@ function ConfigTab({
       sale_manager_percent: formData.sale_manager_percent ?? 0,
       deal_owner_percent: formData.deal_owner_percent ?? 0,
       external_advisor_percent: formData.external_advisor_percent ?? null,
+      setter_percent: formData.setter_percent ?? 0,
       pool_enabled: formData.pool_enabled ?? false,
       sale_pool_total_percent: formData.sale_pool_total_percent ?? 0,
       customer_service_enabled: formData.customer_service_enabled ?? false,
@@ -1002,7 +1017,8 @@ function ConfigTab({
     }
   };
 
-  const handleSaveGlobal = async (configKey: 'operations_coordinator_percent' | 'marketing_percent' | 'legal_manager_percent' | 'post_sale_coordinator_percent') => {
+  const handleSaveGlobal = async (configKey: 'operations_coordinator_percent' | 'marketing_percent' | 'legal_manager_percent' | 'post_sale_coordinator_percent'
+    | 'roc_mkt_coordinator_percent' | 'operations_manager_percent' | 'general_management_percent') => {
     setSavingGlobal(true);
     try {
       const token = localStorage.getItem('accessToken');
@@ -1027,6 +1043,9 @@ function ConfigTab({
           'marketing_percent': 'Gerente de Marketing',
           'legal_manager_percent': 'Gerente Legal',
           'post_sale_coordinator_percent': 'Coordinador Postventas',
+          'roc_mkt_coordinator_percent': 'Coordinador ROC/MKT',
+          'operations_manager_percent': 'Gerente de Operaciones',
+          'general_management_percent': 'Dirección General',
         };
         toast({
           title: 'Éxito',
@@ -1515,6 +1534,25 @@ function ConfigTab({
                     setFormData({
                       ...formData,
                       external_advisor_percent: val === '' ? null : parseFloat(val)
+                    });
+                  }}
+                  placeholder="0.000"
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label>% Setter del Desarrollo</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  max="100"
+                  value={formData.setter_percent !== undefined ? formData.setter_percent : ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      setter_percent: val === '' ? undefined : parseFloat(val)
                     });
                   }}
                   placeholder="0.000"
@@ -2270,6 +2308,93 @@ function ConfigTab({
                   </Button>
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>% Coordinador ROC/MKT</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="100"
+                    value={globalFormData.roc_mkt_coordinator_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      roc_mkt_coordinator_percent: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('roc_mkt_coordinator_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>% Gerente de Operaciones</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="100"
+                    value={globalFormData.operations_manager_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      operations_manager_percent: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('operations_manager_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>% Dirección General</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="100"
+                    value={globalFormData.general_management_percent}
+                    onChange={(e) => setGlobalFormData({
+                      ...globalFormData,
+                      general_management_percent: parseFloat(e.target.value) || 0,
+                    })}
+                    placeholder="0.000"
+                  />
+                  <Button
+                    onClick={() => handleSaveGlobal('general_management_percent')}
+                    disabled={savingGlobal}
+                    variant="outline"
+                  >
+                    {savingGlobal ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se calcula en fase venta por defecto. Se puede mover a postventa por venta individual desde la pestaña Distribuciones.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -2697,8 +2822,15 @@ function SalesTab({
                   const isLoading = loadingPartners[sale.id];
 
                   return (
-                    <TableRow key={sale.id}>
-                      <TableCell>{sale.cliente_nombre}</TableCell>
+                    <TableRow key={sale.id} className={sale.is_lost ? 'opacity-60' : undefined}>
+                      <TableCell>
+                        {sale.cliente_nombre}
+                        {sale.is_lost && (
+                          <Badge variant="outline" className="ml-2 text-[9px] py-0 px-1 bg-red-50 text-red-700 border-red-200 h-4">
+                            PERDIDO
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{normalizeDevelopmentDisplay(sale.desarrollo || '')}</TableCell>
                       <TableCell>{sale.propietario_deal}</TableCell>
                       <TableCell>{sale.producto || '-'}</TableCell>
@@ -3187,6 +3319,51 @@ function DistributionTab({
     }
   };
 
+  // Mueve la distribución de "Dirección General" entre fase venta y postventa
+  // (caso especial: es el único rol que se puede mover manualmente por venta)
+  const handleMovePhase = async (distributionId: number, newPhase: 'sale' | 'post_sale') => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch('/api/commissions/distributions', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          distribution_id: distributionId,
+          phase: newPhase,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSaleDistributions(prev =>
+          prev.map(dist =>
+            dist.id === distributionId ? { ...dist, phase: newPhase } : dist
+          )
+        );
+        toast({
+          title: 'Fase actualizada',
+          description: `Dirección General se movió a fase ${newPhase === 'sale' ? 'venta' : 'postventa'}`,
+        });
+        onRefresh();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'No se pudo mover la fase',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      logger.error('Error moving distribution phase:', error);
+      toast({
+        title: 'Error',
+        description: 'Ocurrió un error al mover la fase',
+        variant: 'destructive',
+      });
+    }
+  };
+
 
 
   const selectedSale = filteredSales.find(s => s.id === selectedSaleId);
@@ -3277,7 +3454,12 @@ function DistributionTab({
                               })} - {new Date(sale.fecha_firma).toLocaleDateString()}
                             </p>
                           </div>
-                          <div>
+                          <div className="flex items-center gap-1">
+                            {sale.is_lost && (
+                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                                Perdido
+                              </Badge>
+                            )}
                             {sale.commission_calculated ? (
                               <Badge variant="default">Calculada</Badge>
                             ) : (
@@ -3780,7 +3962,20 @@ function DistributionTab({
                               );
                               return (
                                 <TableRow key={dist.id}>
-                                  <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
+                                  <TableCell>
+                                    {getRoleDisplayName(dist.role_type)}
+                                    {dist.role_type === 'general_management' && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="ml-2 h-6 px-2 text-xs text-green-700"
+                                        onClick={() => handleMovePhase(dist.id, 'post_sale')}
+                                        title="Mover a fase postventa"
+                                      >
+                                        → Postventa
+                                      </Button>
+                                    )}
+                                  </TableCell>
                                   <TableCell>{normalizedName}</TableCell>
                                   <TableCell>{dist.percent_assigned}%</TableCell>
                                   <TableCell className="font-medium">
@@ -3930,7 +4125,20 @@ function DistributionTab({
                               );
                               return (
                                 <TableRow key={dist.id}>
-                                  <TableCell>{getRoleDisplayName(dist.role_type)}</TableCell>
+                                  <TableCell>
+                                    {getRoleDisplayName(dist.role_type)}
+                                    {dist.role_type === 'general_management' && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="ml-2 h-6 px-2 text-xs text-blue-700"
+                                        onClick={() => handleMovePhase(dist.id, 'sale')}
+                                        title="Mover a fase venta"
+                                      >
+                                        → Venta
+                                      </Button>
+                                    )}
+                                  </TableCell>
                                   <TableCell>{normalizedName}</TableCell>
                                   <TableCell>{dist.percent_assigned}%</TableCell>
                                   <TableCell className="font-medium">

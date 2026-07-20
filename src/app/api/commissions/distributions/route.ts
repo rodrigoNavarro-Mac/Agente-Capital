@@ -14,6 +14,8 @@ import {
   updateCommissionSaleCalculation,
   updateCommissionDistribution,
   updateCommissionDistributionPaymentStatus,
+  updateCommissionDistributionPhase,
+  getCommissionDistribution,
   getCommissionConfig,
   getCommissionGlobalConfigs,
   getApplicableCommissionRules,
@@ -387,9 +389,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
 /**
  * PATCH /api/commissions/distributions
  * Actualiza el estado de pago o el estado de una distribución de comisión
- * Body: 
+ * Body:
  *   - { distribution_id: number, payment_status: 'pending' | 'paid' }
  *   - { distribution_id: number, estado: 'SOLICITADA' | 'NO_APLICA' }
+ *   - { distribution_id: number, phase: 'sale' | 'post_sale' } (solo rol Direccion General)
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse<APIResponse<any>>> {
   try {
@@ -421,13 +424,46 @@ export async function PATCH(request: NextRequest): Promise<NextResponse<APIRespo
     }
 
     const body = await request.json();
-    const { distribution_id, payment_status } = body;
+    const { distribution_id, payment_status, phase } = body;
 
     if (!distribution_id) {
       return NextResponse.json(
         { success: false, error: 'distribution_id es requerido' },
         { status: 400 }
       );
+    }
+
+    // Mover fase (caso especial: solo el rol "Direccion General" puede moverse
+    // manualmente entre fase venta y postventa desde la distribucion interna)
+    if (phase !== undefined) {
+      if (!['sale', 'post_sale'].includes(phase)) {
+        return NextResponse.json(
+          { success: false, error: 'phase debe ser "sale" o "post_sale"' },
+          { status: 400 }
+        );
+      }
+
+      const existingDistribution = await getCommissionDistribution(distribution_id);
+      if (!existingDistribution) {
+        return NextResponse.json(
+          { success: false, error: 'Distribución no encontrada' },
+          { status: 404 }
+        );
+      }
+
+      if (existingDistribution.role_type !== 'general_management') {
+        return NextResponse.json(
+          { success: false, error: 'Solo la distribución de Dirección General se puede mover entre fases' },
+          { status: 400 }
+        );
+      }
+
+      const distribution = await updateCommissionDistributionPhase(distribution_id, phase);
+
+      return NextResponse.json({
+        success: true,
+        data: distribution,
+      });
     }
 
     if (!payment_status) {

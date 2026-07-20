@@ -30,6 +30,7 @@ const ROLE_DISPLAY_NAMES: Record<CommissionRoleType, string> = {
   sale_manager: 'Gerente de Ventas',
   deal_owner: 'Asesor Interno',
   external_advisor: 'Asesor Externo',
+  setter: 'Setter',
   operations_coordinator: 'Coordinador de Operaciones de Venta',
   marketing: 'Gerente de Marketing',
   legal_manager: 'Gerente Legal',
@@ -37,6 +38,9 @@ const ROLE_DISPLAY_NAMES: Record<CommissionRoleType, string> = {
   customer_service: 'Atención a Clientes',
   deliveries: 'Entregas',
   bonds: 'Fianzas',
+  roc_mkt_coordinator: 'Coordinador ROC/MKT',
+  operations_manager: 'Gerente de Operaciones',
+  general_management: 'Dirección General',
   rule_bonus: 'Utilidad por Regla',
 };
 
@@ -47,6 +51,7 @@ const ROLE_PERSON_NAMES: Record<CommissionRoleType, string | null> = {
   sale_manager: null, // Se obtiene del desarrollo
   deal_owner: null, // Se obtiene de la venta (propietario del deal)
   external_advisor: null, // Se obtiene de la venta
+  setter: null, // Se obtiene del desarrollo (genérico, pendiente tabla desarrollo -> setter)
   operations_coordinator: 'Rodrigo Navarro Marquez de la Mora',
   marketing: 'Alejandro Carmona',
   legal_manager: 'Jose Luis Santos',
@@ -54,6 +59,9 @@ const ROLE_PERSON_NAMES: Record<CommissionRoleType, string | null> = {
   customer_service: null, // Se configura por desarrollo
   deliveries: null, // Se configura por desarrollo
   bonds: null, // Se configura por desarrollo
+  roc_mkt_coordinator: null, // Genérico por ahora, pendiente asignar persona
+  operations_manager: null, // Genérico por ahora, pendiente asignar persona
+  general_management: null, // Genérico por ahora, pendiente asignar persona
   rule_bonus: null, // Se obtiene del nombre de la regla
 };
 
@@ -65,6 +73,15 @@ function getSaleManagerName(_desarrollo: string): string {
   // TODO: Obtener de una tabla de configuración desarrollo -> gerente de ventas
   // Por ahora retornamos un nombre genérico
   return 'Gerente de Ventas del Desarrollo';
+}
+
+/**
+ * Obtiene el nombre del setter para un desarrollo
+ * Por ahora retorna un nombre genérico, igual que getSaleManagerName
+ */
+function getSetterName(_desarrollo: string): string {
+  // TODO: Obtener de una tabla de configuración desarrollo -> setter
+  return 'Setter del Desarrollo';
 }
 
 /**
@@ -98,6 +115,10 @@ export function normalizePersonName(roleType: CommissionRoleType, currentName: s
   // Casos especiales
   if (roleType === 'sale_manager' && desarrollo) {
     return getSaleManagerName(desarrollo);
+  }
+
+  if (roleType === 'setter' && desarrollo) {
+    return getSetterName(desarrollo);
   }
 
   if (roleType === 'deal_owner' && sale) {
@@ -146,6 +167,10 @@ function getRolePersonName(roleType: CommissionRoleType, sale?: CommissionSale, 
   // Casos especiales
   if (roleType === 'sale_manager' && desarrollo) {
     return getSaleManagerName(desarrollo);
+  }
+
+  if (roleType === 'setter' && desarrollo) {
+    return getSetterName(desarrollo);
   }
 
   if (roleType === 'deal_owner' && sale) {
@@ -324,6 +349,19 @@ function calculateSalePhaseDistribution(
   }
 
 
+  // Setter (opcional, por desarrollo) - se calcula sobre el mismo pool que gerente de ventas/asesores
+  const setterPercent = Number(config.setter_percent) || 0;
+  if (setterPercent > 0) {
+    const amount = (poolAmount * setterPercent) / 100;
+    distributions.push({
+      role_type: 'setter',
+      person_name: getRolePersonName('setter', sale, sale.desarrollo),
+      person_id: null,
+      percent: setterPercent,
+      amount: Number(amount.toFixed(3)),
+    });
+  }
+
   // Roles indirectos (globales) - se aplican sobre el monto total, no sobre el valor de la fase
   const operationsPercent = Number(globalConfigs.find(c => c.config_key === 'operations_coordinator_percent')?.config_value || 0);
   if (operationsPercent > 0) {
@@ -345,6 +383,44 @@ function calculateSalePhaseDistribution(
       person_name: getRolePersonName('marketing'),
       person_id: null,
       percent: marketingPercent,
+      amount: Number(amount.toFixed(3)),
+    });
+  }
+
+  const rocMktCoordinatorPercent = Number(globalConfigs.find(c => c.config_key === 'roc_mkt_coordinator_percent')?.config_value || 0);
+  if (rocMktCoordinatorPercent > 0) {
+    const amount = (valorTotal * rocMktCoordinatorPercent) / 100;
+    distributions.push({
+      role_type: 'roc_mkt_coordinator',
+      person_name: getRolePersonName('roc_mkt_coordinator'),
+      person_id: null,
+      percent: rocMktCoordinatorPercent,
+      amount: Number(amount.toFixed(3)),
+    });
+  }
+
+  const operationsManagerPercent = Number(globalConfigs.find(c => c.config_key === 'operations_manager_percent')?.config_value || 0);
+  if (operationsManagerPercent > 0) {
+    const amount = (valorTotal * operationsManagerPercent) / 100;
+    distributions.push({
+      role_type: 'operations_manager',
+      person_name: getRolePersonName('operations_manager'),
+      person_id: null,
+      percent: operationsManagerPercent,
+      amount: Number(amount.toFixed(3)),
+    });
+  }
+
+  // Dirección General: se calcula en fase venta por defecto (caso especial, se puede mover
+  // manualmente a fase postventa por venta individual desde la distribución interna)
+  const generalManagementPercent = Number(globalConfigs.find(c => c.config_key === 'general_management_percent')?.config_value || 0);
+  if (generalManagementPercent > 0) {
+    const amount = (valorTotal * generalManagementPercent) / 100;
+    distributions.push({
+      role_type: 'general_management',
+      person_name: getRolePersonName('general_management'),
+      person_id: null,
+      percent: generalManagementPercent,
       amount: Number(amount.toFixed(3)),
     });
   }

@@ -82,8 +82,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<APIRespons
           commission_sale_id: sale.id
         });
 
-        // Si no hay comisiones calculadas, calcularlas y guardarlas
-        if (existingCommissions.length === 0) {
+        // Recalcular si no hay comisiones calculadas todavía, o si hay socios
+        // sincronizados desde Zoho (commission_product_partners) que aún no
+        // tienen su fila correspondiente en partner_commissions (p.ej. un socio
+        // nuevo agregado en Zoho después de que la venta ya se había calculado).
+        const existingSocioNames = new Set(existingCommissions.map(c => c.socio_name));
+        const hasMissingPartner = partners.some(p => !existingSocioNames.has(p.socio_name));
+
+        if (existingCommissions.length === 0 || hasMissingPartner) {
           try {
             await calculatePartnerCommissions(sale.id, payload.userId);
           } catch (error) {

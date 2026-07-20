@@ -241,7 +241,15 @@ export async function PUT(request: NextRequest): Promise<NextResponse<APIRespons
       );
     }
 
-    const validKeys = ['operations_coordinator_percent', 'marketing_percent', 'legal_manager_percent', 'post_sale_coordinator_percent'];
+    const validKeys = [
+      'operations_coordinator_percent',
+      'marketing_percent',
+      'legal_manager_percent',
+      'post_sale_coordinator_percent',
+      'roc_mkt_coordinator_percent',
+      'operations_manager_percent',
+      'general_management_percent',
+    ];
     if (!validKeys.includes(configKey)) {
       return NextResponse.json(
         { success: false, error: 'configKey inválido' },

@@ -38,6 +38,7 @@ export type CommissionRoleType =
   | 'sale_manager'
   | 'deal_owner'
   | 'external_advisor'
+  | 'setter'
   | 'operations_coordinator'
   | 'marketing'
   | 'legal_manager'
@@ -45,6 +46,9 @@ export type CommissionRoleType =
   | 'customer_service'
   | 'deliveries'
   | 'bonds'
+  | 'roc_mkt_coordinator'
+  | 'operations_manager'
+  | 'general_management'
   | 'rule_bonus';
 
 export type PaymentStatus = 'pending' | 'paid';
@@ -67,6 +71,7 @@ export interface CommissionConfig {
   sale_manager_percent: number; // Gerente de ventas del desarrollo
   deal_owner_percent: number; // Asesor Interno (Propietario del Lead)
   external_advisor_percent: number | null; // Asesor Externo (Opcional)
+  setter_percent: number; // Setter del desarrollo
 
   // Fase Venta - Pool (Opcional, solo si cumplen reglas)
   pool_enabled: boolean;
@@ -93,9 +98,13 @@ export interface CommissionGlobalConfig {
   | 'operations_coordinator_percent' // Fase Venta
   | 'marketing_percent' // Fase Venta
   | 'legal_manager_percent' // Fase Postventa
-  | 'post_sale_coordinator_percent'; // Fase Postventa
+  | 'post_sale_coordinator_percent' // Fase Postventa
+  | 'roc_mkt_coordinator_percent' // Fase Venta
+  | 'operations_manager_percent' // Fase Venta
+  | 'general_management_percent'; // Fase Venta (caso especial: se puede mover a postventa por venta individual)
   config_value: number;
   description: string | null;
+  phase: 'sale' | 'post_sale';
   updated_at: string;
   updated_by: number | null;
 }
@@ -141,6 +150,7 @@ export interface CommissionConfigInput {
   sale_manager_percent: number;
   deal_owner_percent: number;
   external_advisor_percent?: number | null;
+  setter_percent?: number;
   pool_enabled?: boolean;
   sale_pool_total_percent?: number;
   // Fase Postventa - Roles opcionales
@@ -195,6 +205,10 @@ export interface CommissionSale {
   // Control de postventa por Zoho Projects
   post_sale_triggered_at: string | null;
   post_sale_triggered_by: string | null;
+
+  // Venta marcada como perdida (el deal en Zoho pasó a Cerrado Perdido después de ser comisionable)
+  is_lost: boolean;
+  lost_detected_at: string | null;
 
   // Agregado: resumen de pagos (conteo de distribuciones pagadas vs totales)
   total_distributions?: number;
